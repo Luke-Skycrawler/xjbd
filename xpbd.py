@@ -17,6 +17,10 @@ class Constraint:
     v0: int
     v1: int
     
+@wp.struct 
+class XConstraint:
+    alpha: float 
+    lam: float
 
 @wp.kernel
 def predict_position(p: wp.array(dtype = Particle)):
@@ -138,6 +142,56 @@ def constraints_init(c: wp.array(dtype = Constraint), p: wp.array(dtype = Partic
     c[i].v1 = E[i * 2 + 1]
     c[i].l0 = wp.length(p[c[i].v0].x - p[c[i].v1].x)
 
+
+@wp.kernel
+def init_multiplier_kernel(xconstraints: wp.array(dtype = XConstraint)):
+    i = wp.tid()
+    xconstraints[i].lam = 0.0
+
+
+@wp.kernel
+def init_stiffness(xconstraints: wp.array(dtype = XConstraint)):
+    i = wp.tid()
+    xconstraints[i].alpha = alpha / (dt * dt)
+
+    
+    
+
+@wp.kernel
+def add_dlam_kernel(p: wp.array(dtype = Particle), constraints: wp.array(dtype = Constraint), xconstraints: wp.array(dtype = XConstraint), deltas: wp.array(dtype = wp.vec3), delta_counts: wp.array(dtype = int)):
+    i = wp.tid()
+    c = constraints[i]
+    xc = xconstraints[i]
+
+    l0 = c.l0
+    v10 = p[c.v0].x - p[c.v1].x
+    dist = wp.length(v10)
+    w0 = p[c.v0].w
+    w1 = p[c.v1].w
+
+    denom = w0 + w1 + xc.alpha
+    common = -(dist - l0) - xc.alpha * xc.lam
+    dlam = common / denom
+
+    xc.lam += dlam
+
+    gradient = v10 / (dist + eps)
+    dx0 = w0 * dlam * gradient
+    dx1 = -w1 * dlam * gradient
+
+    wp.atomic_add(deltas, c.v0, dx0)
+    wp.atomic_add(deltas, c.v1, dx1)
+
+
+    wp.atomic_add(delta_counts, c.v0, 1)
+    wp.atomic_add(delta_counts, c.v1, 1)
+
+
+@wp.kernel
+def add_dx_kernel_xpbd(p: wp.array(dtype = Particle), deltas: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    p[i].x += deltas[i]
+
 class ClothOBJ:
     def __init__(self, filename):
         V, _, _, self.F, _, _ = igl.read_obj(filename)
@@ -157,7 +211,7 @@ class ClothOBJ:
         wp.launch(constraints_init, (self.n_constraints, ), inputs = [self.constraints, self.particles, Ewp])
         
 # class PBD(ClothGrid):
-class PBD(ClothOBJ):
+class PBD:
     def __init__(self, filename):
         super().__init__(filename)
         self.n_iters = 5
@@ -192,12 +246,51 @@ class PBD(ClothOBJ):
         wp.launch(add_dx_kernel, self.shape, inputs = [self.particles, self.deltas, self.delta_counts])
 
 
+
+class XPBD(PBD):
+    def __init__(self, arg):
+        super().__init__(arg)
+        self.xconstraints = wp.zeros((self.n_constraints, ), dtype = XConstraint)
+        wp.launch(init_stiffness, (self.n_constraints, ), inputs = [self.xconstraints])
+
+
+    def step(self):
+        self.predict_position()
+        self.initialize_multiplier()
+        for _ in range(self.n_iters):
+            self.deltas.zero_()
+
+            self.add_dlambda()
+            # self.add_dx_xpbd()
+            self.add_dx()
+        self.finalize()
+
+    def initialize_multiplier(self):
+        
+        wp.launch(init_multiplier_kernel, (self.n_constraints, ), inputs = [self.xconstraints])   
+
+    def add_dlambda(self):
+        wp.launch(add_dlam_kernel, (self.n_constraints, ), inputs = [self.particles, self.constraints, self.xconstraints, self.deltas, self.delta_counts])
+    
+    def add_dx_xpbd(self):
+        wp.launch(add_dx_kernel_xpbd, self.shape, inputs = [self.particles, self.deltas])
+
+
+class SimulatorOBJ(XPBD, ClothOBJ):
+    def __init__(self, filename):
+        super().__init__(filename)
+
+class SimulatorGrid(XPBD, ClothGrid):
+    def __init__(self, res):
+        super().__init__(res)
+
+        
 if __name__ == "__main__":
     wp.init()
     import polyscope as ps 
     ps.init()
     # sim = PBD(40)
-    sim = PBD("assets/grid.obj")
+    sim = SimulatorOBJ("assets/grid.obj")
 
     get_x = lambda sim: sim.particles.numpy()["x"].reshape((-1, 3))
     # cloud = ps.register_point_cloud("particles", get_x(sim))
