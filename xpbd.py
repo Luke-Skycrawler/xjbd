@@ -14,7 +14,6 @@ class Particle:
 @wp.struct
 class Constraint:
     l0: float
-    lam: float
     v0: int
     v1: int
     
@@ -22,10 +21,10 @@ class Constraint:
 @wp.kernel
 def predict_position(p: wp.array(dtype = Particle)):
     i = wp.tid()
+    if p[i].w > 0.0:
+        p[i].v += dt * wp.vec3(0.0, -9.8e-1, 0.0)
     p[i].x += p[i].v * dt
 
-    if p[i].w > 0.0:
-        p[i].v += dt * wp.vec3(0.0, -98.0, 0.0)
 
 
 @wp.func
@@ -122,21 +121,45 @@ class ClothGrid:
         self.delta_counts = wp.zeros(self.shape, dtype = int)
         wp.launch(init_kernel, self.shape, inputs = [self.particles, self.constraints])
 
+@wp.kernel
+def particles_init(p: wp.array(dtype = Particle), V: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    p[i].x = V[i]
+    p[i].x0 = V[i]  
+    pinned = i == 2 or i == 3
+    p[i].w = wp.select(pinned, 1.0, 0.0)
+    
+    p[i].v = wp.select(pinned, wp.vec3(0.0, 0.0, 0.5), wp.vec3(0.0))
+
+@wp.kernel
+def constraints_init(c: wp.array(dtype = Constraint), p: wp.array(dtype = Particle), E: wp.array(dtype = int)):
+    i = wp.tid()
+    c[i].v0 = E[i * 2]
+    c[i].v1 = E[i * 2 + 1]
+    c[i].l0 = wp.length(p[c[i].v0].x - p[c[i].v1].x)
 
 class ClothOBJ:
     def __init__(self, filename):
-        V, _, _, F, _, _ = igl.read_obj(filename)
+        V, _, _, self.F, _, _ = igl.read_obj(filename)
         self.shape = (V.shape[0], )
-        E = igl.edges(F)
+        E = igl.edges(self.F)
         self.n_constraints = E.shape[0]
-        self.n_constraints = wp.zeros((self.n_constraints), dtype = Constraint)
+        self.constraints = wp.zeros((self.n_constraints, ), dtype = Constraint)
         
+        self.particles = wp.zeros(self.shape, dtype = Particle)
         self.deltas = wp.zeros(self.shape, dtype = wp.vec3) 
         self.delta_counts = wp.zeros(self.shape, dtype = int)
 
-class PBD(ClothGrid):
-    def __init__(self, res = 40):
-        super().__init__(res)
+        Ewp = wp.from_numpy(E.reshape(-1), dtype = int, shape = (E.shape[0] * 2, ))
+        Vwp = wp.from_numpy(V, dtype = wp.vec3, shape = (V.shape[0], ))
+
+        wp.launch(particles_init, self.shape, inputs = [self.particles, Vwp])
+        wp.launch(constraints_init, (self.n_constraints, ), inputs = [self.constraints, self.particles, Ewp])
+        
+# class PBD(ClothGrid):
+class PBD(ClothOBJ):
+    def __init__(self, filename):
+        super().__init__(filename)
         self.n_iters = 5
         self.timer_active = True
         
@@ -173,13 +196,16 @@ if __name__ == "__main__":
     wp.init()
     import polyscope as ps 
     ps.init()
-    sim = PBD(40)
+    # sim = PBD(40)
+    sim = PBD("assets/grid.obj")
 
     get_x = lambda sim: sim.particles.numpy()["x"].reshape((-1, 3))
-    cloud = ps.register_point_cloud("particles", get_x(sim))
-    
+    # cloud = ps.register_point_cloud("particles", get_x(sim))
+    mesh = ps.register_surface_mesh("cloth", get_x(sim), sim.F)
+    # ps.show()
     while(True):
         sim.step()
         xnp = get_x(sim)
-        cloud.update_point_positions(xnp)    
+        # cloud.update_point_positions(xnp)    
+        mesh.update_vertex_positions(xnp)
         ps.frame_tick()
