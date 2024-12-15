@@ -1,3 +1,4 @@
+import warp as wp
 L, W = 1, 0.2
 mu, rho, lam = 2e6, 1., 125.0
 g = 10.
@@ -23,3 +24,11 @@ dt = 1e-3
 model = "bar2"
 default_tobj = f"assets/{model}.tobj"
 # default_tobj = "bunny_5.tobj"
+
+@wp.struct
+class FEMMesh:
+    n_nodes: int
+    n_tets: int 
+    xcs: wp.array(dtype = wp.vec3)
+    T: wp.array2d(dtype = int)
+    indices: wp.array(dtype = int)

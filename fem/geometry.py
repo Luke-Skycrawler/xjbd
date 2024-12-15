@@ -105,7 +105,6 @@ class RodGeometryGenerator:
         self.T = wp.zeros((n_tets, 4), int)
         self.tet = wp.zeros((6), dtype = wp.vec4i)
 
-        self.Dm = wp.zeros((n_tets), dtype = wp.mat33)
         self.n_tets = self.T.shape[0]
         self.n_nodes = self.xcs.shape[0]
         self.geometry()

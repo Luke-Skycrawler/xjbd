@@ -15,7 +15,7 @@ class PSViewer:
 
         self.ui_deformed_mode = 0
 
-        self.ui_magnitude = 1.0
+        self.ui_magnitude = 0.02
     def callback(self):
         Qi = self.Q[:, self.ui_deformed_mode]
 
@@ -28,7 +28,7 @@ class PSViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 5.0)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 0.04)
 
 
 def vis_eigs():

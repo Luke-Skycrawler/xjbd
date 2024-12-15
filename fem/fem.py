@@ -7,13 +7,13 @@ from .params import *
 
 
 @wp.kernel
-def compute_Dm(T: wp.array2d(dtype = int), xcs: wp.array(dtype = wp.vec3), Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float)): 
+def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float)): 
     e = wp.tid()
 
-    x0 = xcs[T[e, 0]]
-    x1 = xcs[T[e, 1]]
-    x2 = xcs[T[e, 2]]
-    x3 = xcs[T[e, 3]]
+    x0 = geo.xcs[geo.T[e, 0]]
+    x1 = geo.xcs[geo.T[e, 1]]
+    x2 = geo.xcs[geo.T[e, 2]]
+    x3 = geo.xcs[geo.T[e, 3]]
 
     Dm = wp.mat33(x0 - x3, x1 - x3, x2 - x3)    
     inv_Dm = wp.inverse(Dm)
@@ -32,14 +32,14 @@ def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
 
 
 @wp.kernel
-def tet_kernel(T: wp.array2d(dtype = int), xcs: wp.array(dtype = wp.vec3), Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float)):
+def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float)):
 
     e = wp.tid()
     for _j in range(4):
-        t0 = xcs[T[e, 0]]
-        t1 = xcs[T[e, 1]]
-        t2 = xcs[T[e, 2]]
-        t3 = xcs[T[e, 3]]
+        t0 = geo.xcs[geo.T[e, 0]]
+        t1 = geo.xcs[geo.T[e, 1]]
+        t2 = geo.xcs[geo.T[e, 2]]
+        t3 = geo.xcs[geo.T[e, 3]]
         
         Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
         
@@ -58,8 +58,8 @@ def tet_kernel(T: wp.array2d(dtype = int), xcs: wp.array(dtype = wp.vec3), Bm: w
             dH = -W[e] * dP @ wp.transpose(Bm[e])
             
             for _i in range(4):
-                i = T[e, _i]
-                j = T[e, _j]
+                i = geo.T[e, _i]
+                j = geo.T[e, _j]
                 df = wp.vec3(0.0)
                 if _i == 3: 
                     df= -wp.vec3(dH[0, 0] + dH[0, 1] + dH[0, 2], dH[1, 0] + dH[1, 1] + dH[1, 2], dH[2, 0] + dH[2, 1] + dH[2, 2])
@@ -77,10 +77,14 @@ class SifakisFEM:
         super().__init__()
         n_unknowns = 3 * self.n_nodes
         self.a = wp.zeros((n_unknowns, n_unknowns), dtype = wp.float32)
-
         self.Bm = wp.zeros((self.n_tets), dtype = wp.mat33)
-
         self.W = wp.zeros((self.n_tets), dtype = wp.float32)
+        self.geo = FEMMesh()
+        self.geo.n_nodes = self.n_nodes
+        self.geo.n_tets = self.n_tets
+        self.geo.xcs = self.xcs
+        self.geo.T = self.T
+        
         self.define_K()
 
     def define_K(self):
@@ -97,12 +101,11 @@ class SifakisFEM:
         self.M = np.diag(mdiag3)
 
     def compute_Dm(self):
-        wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.T, self.xcs, self.Bm, self.W])
+        wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.geo, self.Bm, self.W])
 
 
     def tet_kernel(self): 
-
-        wp.launch(tet_kernel, (self.n_tets,), inputs = [self.T, self.xcs, self.Bm, self.W, self.a]) 
+        wp.launch(tet_kernel, (self.n_tets,), inputs = [self.geo, self.Bm, self.W, self.a]) 
 
     def eigs(self):
         lam, Q = eigh(self.K, self.M)
