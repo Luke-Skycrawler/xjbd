@@ -25,8 +25,8 @@ def xc(I: int) -> wp.vec3:
     '''
     coord of nodes
     '''
-    i = I // ((n_yz + 1) ** 2)
-    i_yz = I % ((n_yz + 1) ** 2)
+    i = I // ((n_yz + 1) * (n_yz + 1))
+    i_yz = I % ((n_yz + 1) * (n_yz + 1))
     j = i_yz // (n_yz + 1)
     k = i_yz % (n_yz + 1)
 
@@ -36,15 +36,15 @@ def xc(I: int) -> wp.vec3:
 @wp.func
 def trans(I: int) -> int:
     i, j, k = I // 4, (I % 4) // 2, I % 2
-    return (n_yz + 1) ** 2 * i + (n_yz + 1) * j + k 
+    return (n_yz + 1) * (n_yz + 1) * i + (n_yz + 1) * j + k 
 
 @wp.func
 def _trans(I: int) -> int:
-    i = I // ((n_yz) ** 2)
-    i_yz = I % ((n_yz) ** 2)
+    i = I // ((n_yz) * (n_yz + 1))
+    i_yz = I % ((n_yz) * (n_yz + 1))
     j = i_yz // (n_yz)
     k = i_yz % (n_yz)
-    return (n_yz + 1) ** 2 * i + (n_yz + 1) * j + k 
+    return (n_yz + 1) * (n_yz + 1) * i + (n_yz + 1) * j + k 
 
 
 @wp.kernel
@@ -68,11 +68,11 @@ def init_faces_and_tets(faces: wp.array(dtype = wp.vec4i), tet: wp.array(dtype =
 def init_elements(centers: wp.array(dtype = wp.vec3), faces: wp.array(dtype = wp.vec4i), indices: wp.array(dtype = int), T: wp.array2d(dtype = int), tet: wp.array(dtype = wp.vec4i), nodes: wp.array2d(dtype = int)):
     _e = wp.tid()
     e = _trans(_e)
-    centers[_e] = xc(e) + 0.5 * dx
+    centers[_e] = xc(e) + 0.5 * dx * wp.vec3(1.0)
     for i in range(2):
         for j in range(2):
             for k in range(2):
-                I = e + i * (n_yz + 1) ** 2 + j * (n_yz + 1) + k
+                I = e + i * (n_yz + 1) * (n_yz + 1) + j * (n_yz + 1) + k
                 J = i * 4 + j * 2 + k
                 nodes[_e, J] = I
 
@@ -111,7 +111,7 @@ class RodGeometryGenerator:
     
     def geometry(self):
         wp.launch(init_faces_and_tets, 0, inputs = [self.faces, self.tet])
-        wp.launch(init_elements, (n_elements, ), inputs = [self.centers, self.faces, self.indices, self.T, self.tet])
+        wp.launch(init_elements, (n_elements, ), inputs = [self.centers, self.faces, self.indices, self.T, self.tet, self.nodes])
         wp.launch(init_nodes, self.xcs.shape, inputs = [self.xcs])
 
 

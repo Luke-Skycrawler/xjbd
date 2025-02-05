@@ -108,5 +108,6 @@ class SifakisFEM:
         wp.launch(tet_kernel, (self.n_tets,), inputs = [self.geo, self.Bm, self.W, self.a]) 
 
     def eigs(self):
-        lam, Q = eigh(self.K, self.M)
+        # lam, Q = eigh(self.K, self.M)
+        lam, Q = eigh(self.K)
         return lam, Q
