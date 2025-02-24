@@ -4,18 +4,239 @@ import numpy as np
 import warp as wp 
 from fem.interface import Rod
 from fem.params import model
+import igl
+from warp.sparse import *
+from fem.params import FEMMesh, mu, lam
+from fem.fem import tet_kernel, tet_kernel_sparse, Triplets
+from warp.optim.linear import bicgstab
+gravity = wp.vec3(0, -10.0, 0)
+eps = 1e-4
+h = 1e-2
+rho = 1e3
+@wp.struct 
+class NewtonState: 
+    x: wp.array(dtype = wp.vec3)
+    x0: wp.array(dtype = wp.vec3)
+    dx: wp.array(dtype = wp.vec3)
+    xdot: wp.array(dtype = wp.vec3)
+    M: wp.array(dtype = float)
+    Psi: wp.array(dtype = float)
+
+@wp.kernel
+def set_M_diag(d: wp.array(dtype = float), M: wp.array(dtype = wp.mat33)):  
+    i =  wp.tid()
+    mii = wp.identity(3, dtype = float)
+    mii *= d[i]
+    M[i] = mii
 
 
-class RodBC (Rod):
-    '''
-    fem with boundary condition 
-    '''
+@wp.func
+def x_minus_tilde(state: NewtonState, h: float, i: int) -> wp.vec3:
+    return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
 
-    def  __init__(self):
-        super().__init__()
-    def compute_A():
+@wp.kernel
+def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
+
+
+@wp.func
+def should_fix(x: wp.vec3): 
+    return x[0] < -0.5 + eps
+
+@wp.kernel
+def set_b_fixed(geo: FEMMesh,b: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    # set fixed points rhs to 0
+    if should_fix(geo.xcs[i]): 
+        b[i] = wp.vec3(0.0, 0.0, 0.0)
+
+@wp.kernel
+def set_K_fixed(geo: FEMMesh, triplets: Triplets):
+    eij = wp.tid()
+    e = eij // 16
+    ii = (eij // 4) % 4
+    jj = eij % 4
+
+    i = geo.T[e, ii]
+    j = geo.T[e, jj]
+    
+    if should_fix(geo.xcs[i]) or should_fix(geo.xcs[j]):        
+        if ii == jj:
+            triplets.vals[eij] = wp.identity(3, dtype = float)
+        else:
+            triplets.vals[eij] = wp.mat33(0.0)
+
+@wp.kernel
+def add_dx(state: NewtonState, alpha :float):
+    i = wp.tid()
+    state.x[i] -= state.dx[i] * alpha
+
+@wp.kernel
+def update_x0_xdot(state: NewtonState, h: float):
+    i = wp.tid()
+    state.xdot[i] = (state.x[i] - state.x0[i]) / h
+    state.x0[i] = state.x[i]
+
+@wp.kernel
+def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), Psi: wp.array(dtype = float)):
+    e = wp.tid()
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
+    
+    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    
+    F = Ds @ Bm[e]
+    I1 = wp.trace(wp.transpose(F) @ F)
+    J = wp.determinant(F)
+    logJ = wp.log(J)
+    psi = mu * 0.5 * (I1 -3.0) - mu * logJ + lam * 0.5 * logJ * logJ
+    wp.atomic_add(Psi, 0, W[e] * psi)
+
+class PSViewer:
+    def __init__(self, rod):
+        self.V = rod.xcs.numpy()
+        self.F = rod.F
+
+        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
+        self.frame = 0
+        self.rod = rod
+
+    def callback(self):
+        self.rod.step()
+        self.V = self.rod.states.x.numpy()
+        self.ps_mesh.update_vertex_positions(self.V)
+        self.frame += 1
         
-def drape():
+        print("frame = ", self.frame)
+    
+        
+class RodBC(Rod):
+    '''
+    fem with boundary condition and dynamic attributes
+    '''
 
-    rod = Rod()
+    def  __init__(self, h):
+        super().__init__()
+        self.define_M()
+        self.states = NewtonState()
+        self.states.x = wp.zeros_like(self.xcs)
+        self.states.x0 = wp.zeros_like(self.xcs)
+        self.states.dx = wp.zeros_like(self.xcs)
+        self.states.xdot = wp.zeros_like(self.xcs)
+        self.states.Psi = wp.zeros((1,), dtype = float)
+        
+        wp.copy(self.states.x, self.xcs)
+        wp.copy(self.states.x0, self.xcs)
+
+        self.h = h
+        self.h = h
+        
+
+    def define_M(self):
+        V = self.xcs.numpy()
+        T = self.T.numpy()
+        # self.M is a vector composed of diagonal elements 
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        self.M = wp.zeros((self.n_nodes,), dtype = float)
+        self.M.assign(self.Mnp * rho)
+
+        self.M_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        M_diag = wp.zeros((self.n_nodes,), dtype = wp.mat33)
+        wp.launch(set_M_diag, (self.n_nodes,), inputs = [self.M, M_diag])
+        bsr_set_diag(self.M_sparse, M_diag)
+
+    def compute_A(self):
+
+        self.compute_K()
+
+        # A = h^2 * K + M
+        h = self.h
+        self.A = bsr_axpy(self.K_sparse, self.M_sparse, h * h)
+    
+    def compute_psi(self):
+        self.states.Psi.zero_()
+        wp.launch(compute_Psi, (self.n_tets,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.states.Psi])
+        return self.states.Psi.numpy()[0]
+
+    def compute_K(self):
+        self.triplets.vals.zero_()
+        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+
+        self.set_bc_fixed()
+        bsr_set_zero(self.K_sparse)
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
+        # now self.b has the elastic forces
+        
+        
+    def compute_rhs(self):
+        self.b.zero_()
+        wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
+        wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
+    
+    def set_bc_fixed(self):
+        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
+
+    def solve(self):
+        self.states.dx.zero_()
+        bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+
+    def line_search(self):
+        # FIXME: not converged
+        x_tmp = wp.clone(self.states.x)
+        E0 = self.compute_psi()
+        alpha = 1.0
+        while True:
+            wp.copy(self.states.x, x_tmp)
+            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
+            E1 = self.compute_psi()
+            if E1 < E0:
+                break
+            alpha *= 0.5
+            if alpha < 1e-3:
+                wp.copy(self.states.x, x_tmp)
+                alpha = 0.0
+                break
+        print(f"alpha = {alpha}")
+        return alpha
+        
+    def step(self):
+        newton_iter = True
+        n_iter = 0
+        # while newton_iter:
+        max_iter = 1
+        while n_iter < max_iter:
+            self.compute_A()
+            self.compute_rhs()
+
+            self.solve()
+            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+            n_iter += 1
+            break
+            
+            # line search stuff, not converged yet
+            alpha = self.line_search()
+            if alpha == 0.0:
+                break
+
+            dxnp = self.states.dx.numpy()
+            norm_dx = np.linalg.norm(dxnp)
+            newton_iter = norm_dx > 1e-3
+            print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
+            n_iter += 1
+
+        wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
+
+def drape():
+    rod = RodBC(h)
+    viewer = PSViewer(rod)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+if __name__ == "__main__":
+    ps.init()
+    wp.init()
+    drape()
     

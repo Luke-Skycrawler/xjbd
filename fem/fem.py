@@ -91,16 +91,16 @@ def piola(F: wp.mat33) -> wp.mat33:
     return mu * (F - F_inv_T) + lam * wp.log(J) * F_inv_T
     
 @wp.kernel
-def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float), b: wp.array(dtype = wp.vec3)):
+def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float), b: wp.array(dtype = wp.vec3)):
 
     ej = wp.tid()
     e = ej // 16
     _j = ej % 4
     _i = (ej // 4) % 4
-    t0 = geo.xcs[geo.T[e, 0]]
-    t1 = geo.xcs[geo.T[e, 1]]
-    t2 = geo.xcs[geo.T[e, 2]]
-    t3 = geo.xcs[geo.T[e, 3]]
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
     
     Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
@@ -139,18 +139,22 @@ def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
         for l in range(3):
             a[i * 3 + l, j * 3 + k] += df[l]
 
-    wp.atomic_add(b, i, )
+    df = H[_i]
+    if _i == 3: 
+        df = -H[0] - H[1] - H[2]
+    wp.atomic_add(b, i, df)
+
 @wp.kernel
-def tet_kernel_sparse(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets):
+def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
 
     ej = wp.tid()
     e = ej // 16
     _j = ej % 4
     _i = (ej // 4) % 4
-    t0 = geo.xcs[geo.T[e, 0]]
-    t1 = geo.xcs[geo.T[e, 1]]
-    t2 = geo.xcs[geo.T[e, 2]]
-    t3 = geo.xcs[geo.T[e, 3]]
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
     
     Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
@@ -159,6 +163,14 @@ def tet_kernel_sparse(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(
     a = wp.mat33(0.0)
 
     i = geo.T[e, _i]
+
+    P = piola(F)
+    H = -W[e] * P @ wp.transpose(Bm[e])
+
+    # forces are columns of H
+    # transpose H so that forces can be fetched with H[_i]
+    H = wp.transpose(H)
+    
     j = geo.T[e, _j]
     for k in range(3):
         
@@ -188,6 +200,11 @@ def tet_kernel_sparse(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(
     triplets.rows[cnt] = i
     triplets.cols[cnt] = j
     triplets.vals[cnt] = a
+
+    df = H[_i]
+    if _i == 3: 
+        df = -H[0] - H[1] - H[2]
+    wp.atomic_add(b, i, df)
                 
 class SifakisFEM:
     '''
@@ -197,6 +214,7 @@ class SifakisFEM:
         super().__init__()
         n_unknowns = 3 * self.n_nodes
         self.a = wp.zeros((n_unknowns, n_unknowns), dtype = wp.float32)
+        self.b = wp.zeros((self.n_nodes, ), dtype = wp.vec3)
         self.Bm = wp.zeros((self.n_tets), dtype = wp.mat33)
         self.W = wp.zeros((self.n_tets), dtype = wp.float32)
         self.geo = FEMMesh()
@@ -229,7 +247,7 @@ class SifakisFEM:
         self.triplets.vals = wp.zeros((self.n_tets * 4 * 4), dtype = wp.mat33)
         self.triplets.cnt = wp.zeros((1), dtype = int)
 
-        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.geo, self.Bm, self.W, self.triplets]) 
+        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.triplets, self.b]) 
 
     def define_K_sparse(self):
         self.compute_Dm()
@@ -258,7 +276,8 @@ class SifakisFEM:
         # wp.launch(tet_kernel1, (self.n_tets,), inputs = [self.geo, self.Bm, self.W, self.a]) 
 
 
-        wp.launch(tet_kernel, (self.n_tets * 4 * 4,), inputs = [self.geo, self.Bm, self.W, self.a]) 
+        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.a, self.b]) 
+
 
     def eigs(self):
         # lam, Q = eigh(self.K, self.M)
