@@ -31,6 +31,9 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
     
 @wp.func
 def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
+    '''
+    neo-hookean model
+    '''
     F_inv_T = wp.transpose(wp.inverse(F))
     B = wp.inverse(F) @ dF
     det_F = wp.determinant(F)
@@ -78,9 +81,17 @@ def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
 #                 for l in range(3):
 #                     a[i * 3 + l, j * 3 + k] += df[l]
 
-
+@wp.func
+def piola(F: wp.mat33) -> wp.mat33:
+    '''
+    neo-hookean
+    '''
+    F_inv_T = wp.transpose(wp.inverse(F))
+    J = wp.determinant(F)
+    return mu * (F - F_inv_T) + lam * wp.log(J) * F_inv_T
+    
 @wp.kernel
-def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float)):
+def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float), b: wp.array(dtype = wp.vec3)):
 
     ej = wp.tid()
     e = ej // 16
@@ -95,6 +106,16 @@ def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
     
     F = Ds @ Bm[e]
         
+    P = piola(F)
+    H = -W[e] * P @ wp.transpose(Bm[e])
+
+    # forces are columns of H
+    # transpose H so that forces can be fetched with H[_i]
+    H = wp.transpose(H)
+    
+    i = geo.T[e, _i]
+    j = geo.T[e, _j]
+
     for k in range(3):
         
         dDs = wp.mat33(0.0)
@@ -104,11 +125,10 @@ def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
             dDs[k, 0] = 1.0
             dDs[k, 1] = 1.0
             dDs[k, 2] = 1.0
+
         dF = dDs @ Bm[e]
         dP = PK1(F, dF)
         dH = -W[e] * dP @ wp.transpose(Bm[e])
-        i = geo.T[e, _i]
-        j = geo.T[e, _j]
         df = wp.vec3(0.0)
         if _i == 3: 
             df= -wp.vec3(dH[0, 0] + dH[0, 1] + dH[0, 2], dH[1, 0] + dH[1, 1] + dH[1, 2], dH[2, 0] + dH[2, 1] + dH[2, 2])
@@ -119,6 +139,7 @@ def tet_kernel(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
         for l in range(3):
             a[i * 3 + l, j * 3 + k] += df[l]
 
+    wp.atomic_add(b, i, )
 @wp.kernel
 def tet_kernel_sparse(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets):
 
