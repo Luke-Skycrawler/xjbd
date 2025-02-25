@@ -2,7 +2,7 @@ import polyscope as ps
 import polyscope.imgui as gui 
 import numpy as np
 import warp as wp 
-from fem.interface import Rod
+from fem.interface import Rod, default_tobj
 from fem.params import model
 import igl
 from warp.sparse import *
@@ -126,8 +126,8 @@ class RodBC(Rod):
     fem with boundary condition and dynamic attributes
     '''
 
-    def  __init__(self, h):
-        super().__init__()
+    def  __init__(self, h, filename = default_tobj):
+        super().__init__(filename)
         self.define_M()
         self.states = NewtonState()
         self.states.x = wp.zeros_like(self.xcs)
@@ -190,17 +190,6 @@ class RodBC(Rod):
         # A = h^2 * K + M
         h = self.h
         self.A = bsr_axpy(self.K_sparse, self.M_sparse, h * h)
-    
-    def compute_psi(self):
-        h = self.h
-        self.states.Psi.zero_()
-        wp.launch(compute_Psi, (self.n_tets,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.states.Psi])
-        return np.sum(self.states.Psi.numpy()) * h * h
-    
-    def compute_inertia(self):
-        inert = wp.zeros((1,), dtype = float)
-        wp.launch(compute_inertia, (self.n_nodes, ), inputs = [self.states, self.M, inert, self.h])
-        return inert.numpy()[0] * 0.5
 
     def compute_K(self):
         self.triplets.vals.zero_()
@@ -210,8 +199,7 @@ class RodBC(Rod):
 
         self.set_bc_fixed()
         bsr_set_zero(self.K_sparse)
-        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
-        
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
         
     def compute_rhs(self):
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
@@ -243,7 +231,17 @@ class RodBC(Rod):
 
         print(f"alpha = {alpha}")
         return alpha
-        
+
+    def compute_psi(self):
+        h = self.h
+        self.states.Psi.zero_()
+        wp.launch(compute_Psi, (self.n_tets,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.states.Psi])
+        return np.sum(self.states.Psi.numpy()) * h * h
+    
+    def compute_inertia(self):
+        inert = wp.zeros((1,), dtype = float)
+        wp.launch(compute_inertia, (self.n_nodes, ), inputs = [self.states, self.M, inert, self.h])
+        return inert.numpy()[0] * 0.5        
 
 def drape():
     rod = RodBC(h)

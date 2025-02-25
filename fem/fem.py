@@ -11,7 +11,6 @@ class Triplets:
     rows: wp.array(dtype = int)
     cols: wp.array(dtype = int)
     vals: wp.array(dtype = wp.mat33)
-    cnt: wp.array(dtype = int)
 
 @wp.kernel
 def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float)): 
@@ -253,7 +252,6 @@ class SifakisFEM:
         self.triplets.rows = wp.zeros((self.n_tets * 4 * 4), dtype = int)
         self.triplets.cols = wp.zeros_like(self.triplets.rows)
         self.triplets.vals = wp.zeros((self.n_tets * 4 * 4), dtype = wp.mat33)
-        self.triplets.cnt = wp.zeros((1), dtype = int)
 
         wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.triplets, self.b]) 
 
