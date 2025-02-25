@@ -93,7 +93,15 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     J = wp.determinant(F)
     logJ = wp.log(J)
     psi = mu * 0.5 * (I1 -3.0) - mu * logJ + lam * 0.5 * logJ * logJ
-    wp.atomic_add(Psi, 0, W[e] * psi)
+    # wp.atomic_add(Psi, 0, W[e] * psi)
+    Psi[e] = W[e] * psi
+
+@wp.kernel
+def compute_inertia(state: NewtonState, M: wp.array(dtype = float), inert: wp.array(dtype = float), h: float):
+    i = wp.tid()
+    dx = x_minus_tilde(state, h, i)
+    de = wp.length_sq(dx) * M[i]
+    wp.atomic_add(inert, 0, de)
 
 class PSViewer:
     def __init__(self, rod):
@@ -126,7 +134,7 @@ class RodBC(Rod):
         self.states.x0 = wp.zeros_like(self.xcs)
         self.states.dx = wp.zeros_like(self.xcs)
         self.states.xdot = wp.zeros_like(self.xcs)
-        self.states.Psi = wp.zeros((1,), dtype = float)
+        self.states.Psi = wp.zeros((self.n_tets,), dtype = float)
         
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
@@ -148,6 +156,33 @@ class RodBC(Rod):
         wp.launch(set_M_diag, (self.n_nodes,), inputs = [self.M, M_diag])
         bsr_set_diag(self.M_sparse, M_diag)
 
+
+    def step(self):
+        newton_iter = True
+        n_iter = 0
+        max_iter = 5
+        # while n_iter < max_iter:
+        while newton_iter:
+            self.compute_A()
+            self.compute_rhs()
+
+            self.solve()
+            # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+            
+            
+            # line search stuff, not converged yet
+            alpha = self.line_search()
+            if alpha == 0.0:
+                break
+
+            dxnp = self.states.dx.numpy()
+            norm_dx = np.linalg.norm(dxnp)
+            newton_iter = norm_dx > 1e-3 and n_iter < max_iter
+            print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
+            n_iter += 1
+
+        wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
+
     def compute_A(self):
 
         self.compute_K()
@@ -157,22 +192,28 @@ class RodBC(Rod):
         self.A = bsr_axpy(self.K_sparse, self.M_sparse, h * h)
     
     def compute_psi(self):
+        h = self.h
         self.states.Psi.zero_()
         wp.launch(compute_Psi, (self.n_tets,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.states.Psi])
-        return self.states.Psi.numpy()[0]
+        return np.sum(self.states.Psi.numpy()) * h * h
+    
+    def compute_inertia(self):
+        inert = wp.zeros((1,), dtype = float)
+        wp.launch(compute_inertia, (self.n_nodes, ), inputs = [self.states, self.M, inert, self.h])
+        return inert.numpy()[0] * 0.5
 
     def compute_K(self):
         self.triplets.vals.zero_()
+        self.b.zero_()
         wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+        # now self.b has the elastic forces
 
         self.set_bc_fixed()
         bsr_set_zero(self.K_sparse)
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
-        # now self.b has the elastic forces
         
         
     def compute_rhs(self):
-        self.b.zero_()
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
@@ -186,48 +227,23 @@ class RodBC(Rod):
     def line_search(self):
         # FIXME: not converged
         x_tmp = wp.clone(self.states.x)
-        E0 = self.compute_psi()
+        E0 = self.compute_psi() + self.compute_inertia()
         alpha = 1.0
         while True:
             wp.copy(self.states.x, x_tmp)
             wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-            E1 = self.compute_psi()
+            E1 = self.compute_psi() + self.compute_inertia()
             if E1 < E0:
                 break
-            alpha *= 0.5
             if alpha < 1e-3:
                 wp.copy(self.states.x, x_tmp)
                 alpha = 0.0
                 break
+            alpha *= 0.5
+
         print(f"alpha = {alpha}")
         return alpha
         
-    def step(self):
-        newton_iter = True
-        n_iter = 0
-        # while newton_iter:
-        max_iter = 1
-        while n_iter < max_iter:
-            self.compute_A()
-            self.compute_rhs()
-
-            self.solve()
-            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
-            n_iter += 1
-            break
-            
-            # line search stuff, not converged yet
-            alpha = self.line_search()
-            if alpha == 0.0:
-                break
-
-            dxnp = self.states.dx.numpy()
-            norm_dx = np.linalg.norm(dxnp)
-            newton_iter = norm_dx > 1e-3
-            print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
-            n_iter += 1
-
-        wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
 
 def drape():
     rod = RodBC(h)

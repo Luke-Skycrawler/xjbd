@@ -139,10 +139,14 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
         for l in range(3):
             a[i * 3 + l, j * 3 + k] += df[l]
 
-    df = H[_i]
+    df = wp.vec3(0.0)
     if _i == 3: 
         df = -H[0] - H[1] - H[2]
-    wp.atomic_add(b, i, df)
+    else: 
+        df = H[_i]
+    
+    if _j == 0:
+        wp.atomic_add(b, i, df)
 
 @wp.kernel
 def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
@@ -201,10 +205,14 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
     triplets.cols[cnt] = j
     triplets.vals[cnt] = a
 
-    df = H[_i]
+    fi = wp.vec3(0.0)
     if _i == 3: 
-        df = -H[0] - H[1] - H[2]
-    wp.atomic_add(b, i, df)
+        fi = -H[0] - H[1] - H[2]
+    else:
+        fi = H[_i]
+
+    if _j == 0:
+        wp.atomic_add(b, i, fi)
                 
 class SifakisFEM:
     '''
