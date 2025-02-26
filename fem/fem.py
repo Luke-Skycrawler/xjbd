@@ -1,11 +1,16 @@
 import warp as wp 
 import numpy as np 
-
-from scipy.linalg import eigh, null_space
+import cupy
+# from scipy.linalg import eigh, null_space
+from scipy.sparse.linalg import eigsh
+from cupy.linalg import eigh
 import igl
 from .params import *
 from warp.sparse import *
 from scipy.sparse import bsr_matrix
+
+# from .neo_hookean import PK1, tangent_stiffness, psi
+from .linear_elasticity import PK1, tangent_stiffness, psi
 @wp.struct 
 class Triplets:
     rows: wp.array(dtype = int)
@@ -27,18 +32,24 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
     W[e] = wp.abs(wp.determinant(Dm)) / 6.0
 
 
+@wp.kernel
+def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), Psi: wp.array(dtype = float)):
+    e = wp.tid()
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
     
-@wp.func
-def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
-    '''
-    neo-hookean model
-    '''
-    F_inv_T = wp.transpose(wp.inverse(F))
-    B = wp.inverse(F) @ dF
-    det_F = wp.determinant(F)
+    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
-    return mu * dF + (mu - lam * wp.log(det_F)) * F_inv_T @ wp.transpose(dF) @ F_inv_T + (lam * wp.trace(B)) * F_inv_T 
-
+    F = Ds @ Bm[e]
+    I1 = wp.trace(wp.transpose(F) @ F)
+    J = wp.determinant(F)
+    logJ = wp.log(J)
+    psi = mu * 0.5 * (I1 -3.0) - mu * logJ + lam * 0.5 * logJ * logJ
+    # wp.atomic_add(Psi, 0, W[e] * psi)
+    Psi[e] = W[e] * psi
+    
 
 # still works, deprecated due to high compile time
 # @wp.kernel
@@ -64,7 +75,7 @@ def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
 #                 dDs[k, 1] = 1.0
 #                 dDs[k, 2] = 1.0
 #             dF = dDs @ Bm[e]
-#             dP = PK1(F, dF)
+#             dP = tangent_stiffness(F, dF)
 #             dH = -W[e] * dP @ wp.transpose(Bm[e])
             
 #             for _i in range(4):
@@ -80,14 +91,6 @@ def PK1(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
 #                 for l in range(3):
 #                     a[i * 3 + l, j * 3 + k] += df[l]
 
-@wp.func
-def piola(F: wp.mat33) -> wp.mat33:
-    '''
-    neo-hookean
-    '''
-    F_inv_T = wp.transpose(wp.inverse(F))
-    J = wp.determinant(F)
-    return mu * (F - F_inv_T) + lam * wp.log(J) * F_inv_T
     
 @wp.kernel
 def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float), b: wp.array(dtype = wp.vec3)):
@@ -105,7 +108,7 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
     
     F = Ds @ Bm[e]
         
-    P = piola(F)
+    P = PK1(F)
     H = -W[e] * P @ wp.transpose(Bm[e])
 
     # forces are columns of H
@@ -126,7 +129,7 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
             dDs[k, 2] = 1.0
 
         dF = dDs @ Bm[e]
-        dP = PK1(F, dF)
+        dP = tangent_stiffness(F, dF)
         dH = -W[e] * dP @ wp.transpose(Bm[e])
         df = wp.vec3(0.0)
         if _i == 3: 
@@ -167,7 +170,7 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
 
     i = geo.T[e, _i]
 
-    P = piola(F)
+    P = PK1(F)
     H = -W[e] * P @ wp.transpose(Bm[e])
 
     # forces are columns of H
@@ -185,7 +188,7 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
             dDs[k, 1] = 1.0
             dDs[k, 2] = 1.0
         dF = dDs @ Bm[e]
-        dP = PK1(F, dF)
+        dP = tangent_stiffness(F, dF)
         dH = -W[e] * dP @ wp.transpose(Bm[e])
 
         df = wp.vec3(0.0)
@@ -262,7 +265,7 @@ class SifakisFEM:
         
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
         
-        self.K = self.to_scipy_bsr()
+        self.K = self.to_scipy_bsr().toarray()
         
 
     def to_scipy_bsr(self):
@@ -271,7 +274,8 @@ class SifakisFEM:
         values = self.K_sparse.values.numpy()
 
         bsr = bsr_matrix((values, jj, ii), shape = (self.n_nodes * 3, self.n_nodes * 3), blocksize = (3 , 3))
-        return bsr.toarray()
+        # return bsr.toarray()
+        return bsr
 
     def compute_Dm(self):
         wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.geo, self.Bm, self.W])
@@ -287,5 +291,13 @@ class SifakisFEM:
 
     def eigs(self):
         # lam, Q = eigh(self.K, self.M)
-        lam, Q = eigh(self.K)
+        print("start eigs")
+        lam, Q = eigh(cupy.array(self.K))
+        return lam.get(), Q.get()
+    
+    def eigs_sparse(self):
+        K = self.to_scipy_bsr()
+        print("start eigs")
+        
+        lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
         return lam, Q

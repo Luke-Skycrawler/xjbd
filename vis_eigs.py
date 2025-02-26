@@ -34,11 +34,13 @@ def vis_eigs():
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
+    # rod = Rod("assets/elephant.mesh")
     rod = Rod()
     lam, Q = None, None
     # if not os.path.exists(f"Q_{model}.npy"):
     if True:
         lam, Q = rod.eigs()
+        # lam, Q = rod.eigs_sparse()
     # if True:
     #     K = rod.K
     #     savemat(f"K_{model}.mat", {"K": K})

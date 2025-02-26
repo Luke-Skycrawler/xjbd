@@ -7,7 +7,7 @@ from fem.params import model
 import igl
 from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
-from fem.fem import tet_kernel, tet_kernel_sparse, Triplets
+from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab
 gravity = wp.vec3(0, -10.0, 0)
 eps = 1e-4
@@ -43,6 +43,9 @@ def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.
 @wp.func
 def should_fix(x: wp.vec3): 
     return x[0] < -0.5 + eps
+    
+    # v0 = wp.vec3(-56.273449910216, 94.689259419722, -19.03583034376)
+    # return wp.length_sq(x - v0) < eps
 
 @wp.kernel
 def set_b_fixed(geo: FEMMesh,b: wp.array(dtype = wp.vec3)):
@@ -92,9 +95,9 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     I1 = wp.trace(wp.transpose(F) @ F)
     J = wp.determinant(F)
     logJ = wp.log(J)
-    psi = mu * 0.5 * (I1 -3.0) - mu * logJ + lam * 0.5 * logJ * logJ
+    psie = psi(F)
     # wp.atomic_add(Psi, 0, W[e] * psi)
-    Psi[e] = W[e] * psi
+    Psi[e] = W[e] * psie
 
 @wp.kernel
 def compute_inertia(state: NewtonState, M: wp.array(dtype = float), inert: wp.array(dtype = float), h: float):
@@ -191,7 +194,8 @@ class RodBC(Rod):
 
         # A = h^2 * K + M
         h = self.h
-        self.A = bsr_axpy(self.K_sparse, self.M_sparse, h * h)
+        bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+        self.A = self.K_sparse
 
     def compute_K(self):
         self.triplets.vals.zero_()
@@ -246,6 +250,7 @@ class RodBC(Rod):
         return inert.numpy()[0] * 0.5        
 
 def drape():
+    # rod = RodBC(h, "assets/elephant.mesh")
     rod = RodBC(h)
     viewer = PSViewer(rod)
     ps.set_user_callback(viewer.callback)
