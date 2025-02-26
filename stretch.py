@@ -180,7 +180,9 @@ class RodBC(Rod):
             newton_iter = norm_dx > 1e-3 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
             n_iter += 1
+        self.update_x0_xdot()
 
+    def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
 
     def compute_A(self):

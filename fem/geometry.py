@@ -123,7 +123,7 @@ class TOBJLoader:
         if self.filename.endswith(".tobj"):
             V, T = import_tobj(self.filename)
         elif self.filename.endswith(".mesh"):
-            V, T = igl.read_mesh(self.filename)
+            V, T, _ = igl.read_mesh(self.filename)
             
         self.n_nodes = V.shape[0]
         self.n_tets = T.shape[0]
