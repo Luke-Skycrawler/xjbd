@@ -1,9 +1,10 @@
 import warp as wp 
 import numpy as np 
-import cupy
 # from scipy.linalg import eigh, null_space
 from scipy.sparse.linalg import eigsh
-from cupy.linalg import eigh
+# import cupy
+# from cupy.linalg import eigh
+from scipy.linalg import eigh
 import igl
 from .params import *
 from warp.sparse import *
@@ -151,6 +152,34 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
         wp.atomic_add(b, i, df)
 
 @wp.kernel
+def compute_forces(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
+    ej = wp.tid()
+    e = ej // 4
+    _i = ej % 4
+
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
+    
+    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    
+    F = Ds @ Bm[e]
+    
+    i = geo.T[e, _i]
+
+    P = PK1(F)
+    H = -W[e] * P @ wp.transpose(Bm[e])
+    H = wp.transpose(H)
+    fi = wp.vec3(0.0)
+    if _i == 3: 
+        fi = -H[0] - H[1] - H[2]
+    else:
+        fi = H[_i]
+
+    wp.atomic_add(b, i, fi)
+
+@wp.kernel
 def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
 
     ej = wp.tid()
@@ -265,13 +294,13 @@ class SifakisFEM:
         
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
         
-        self.K = self.to_scipy_bsr().toarray()
+        self.K = self.to_scipy_bsr(self.K_sparse).toarray()
         
 
-    def to_scipy_bsr(self):
-        ii = self.K_sparse.offsets.numpy()
-        jj = self.K_sparse.columns.numpy()
-        values = self.K_sparse.values.numpy()
+    def to_scipy_bsr(self, A):
+        ii = A.offsets.numpy()
+        jj = A.columns.numpy()
+        values = A.values.numpy()
 
         bsr = bsr_matrix((values, jj, ii), shape = (self.n_nodes * 3, self.n_nodes * 3), blocksize = (3 , 3))
         # return bsr.toarray()
@@ -290,10 +319,11 @@ class SifakisFEM:
 
 
     def eigs(self):
-        # lam, Q = eigh(self.K, self.M)
-        print("start eigs")
-        lam, Q = eigh(cupy.array(self.K))
-        return lam.get(), Q.get()
+        lam, Q = eigh(self.K, self.M)
+
+        # print("start eigs")
+        # lam, Q = eigh(cupy.array(self.K))
+        # return lam.get(), Q.get()
     
     def eigs_sparse(self):
         K = self.to_scipy_bsr()

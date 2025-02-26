@@ -7,7 +7,7 @@ from fem.params import model
 import igl
 from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
-from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
+from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi, compute_forces
 from warp.optim.linear import bicgstab
 gravity = wp.vec3(0, -10.0, 0)
 eps = 1e-4
@@ -143,8 +143,7 @@ class RodBC(Rod):
         wp.copy(self.states.x0, self.xcs)
 
         self.h = h
-        self.h = h
-        
+        self.compute_A()
 
     def define_M(self):
         V = self.xcs.numpy()
@@ -163,26 +162,26 @@ class RodBC(Rod):
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 5
+        max_iter = 1
         # while n_iter < max_iter:
         while newton_iter:
-            self.compute_A()
+            # self.compute_A()
             self.compute_rhs()
 
             self.solve()
-            # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
             
             
             # line search stuff, not converged yet
-            alpha = self.line_search()
-            if alpha == 0.0:
-                break
+            # alpha = self.line_search()
+            # if alpha == 0.0:
+            #     break
 
             dxnp = self.states.dx.numpy()
             norm_dx = np.linalg.norm(dxnp)
+            n_iter += 1
             newton_iter = norm_dx > 1e-3 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
-            n_iter += 1
         self.update_x0_xdot()
 
     def update_x0_xdot(self):
@@ -208,7 +207,14 @@ class RodBC(Rod):
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
         
     def compute_rhs(self):
+        # compute forces
+        self.b.zero_()
+        wp.launch(compute_forces, (self.n_tets * 4), inputs = [self.states.x, self.geo, self.Bm, self.W, self.b])
+
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
+        self.set_b_fixed()
+        
+    def set_b_fixed(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
     def set_bc_fixed(self):
@@ -217,6 +223,7 @@ class RodBC(Rod):
     def solve(self):
         self.states.dx.zero_()
         bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+        print(f"norm dx = {np.linalg.norm(self.states.dx.numpy())}")
 
     def line_search(self):
         # FIXME: not converged
@@ -250,8 +257,8 @@ class RodBC(Rod):
         return inert.numpy()[0] * 0.5        
 
 def drape():
-    # rod = RodBC(h, "assets/elephant.mesh")
-    rod = RodBC(h)
+    rod = RodBC(h, "assets/elephant.mesh")
+    # rod = RodBC(h)
     viewer = PSViewer(rod)
     ps.set_user_callback(viewer.callback)
     ps.show()
