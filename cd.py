@@ -4,14 +4,14 @@ import numpy as np
 import polyscope as ps
 import polyscope.imgui as gui
 import warp as wp
-from stretch import RodBC, NewtonState, Triplets, set_M_diag
+from stretch import RodBC, NewtonState, Triplets, set_M_diag, compute_rhs
 from fem.fem import tet_kernel_sparse
 from warp.sparse import *
 from warp.optim.linear import bicgstab
 import os
 gravity = wp.vec3(0, -10.0, 0)
-h = 1e-2
-rho = 1e3
+h = 1e-3
+rho = 1e5
 def load():
     
     # V, _, _, F, _, _ = igl.read_obj("assets/elephant.obj")
@@ -56,12 +56,12 @@ def load():
 
     return V, F, W, C, BE, T
 
-@wp.kernel
-def compute_rhs(states: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3), u_rig: wp.array(dtype = wp.vec3)):
-    i = wp.tid()
-    # b[i] += -(M[i] / h) * ((u_rig[i] - states.x0[i]) / h - states.xdot[i]) + gravity * M[i]
-    b[i] += -(M[i] / h) * ((u_rig[i] - states.x0[i]) / h - states.xdot[i]) + gravity * M[i]
-    b[i] *= (h * h)
+# @wp.kernel
+# def compute_rhs(states: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3), u_rig: wp.array(dtype = wp.vec3)):
+#     i = wp.tid()
+#     # b[i] += -(M[i] / h) * ((u_rig[i] - states.x0[i]) / h - states.xdot[i]) + gravity * M[i]
+#     b[i] += -(M[i] / h) * ((u_rig[i] - states.x0[i]) / h - states.xdot[i]) + gravity * M[i]
+#     b[i] *= (h * h)
 
 @wp.kernel
 def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), M: wp.array(dtype = float), triplets: Triplets, n_nodes: int):
@@ -86,6 +86,10 @@ def x_gets_u_comp_plus_u_rig(x: wp.array(dtype = wp.vec3), u_rig: wp.array(dtype
     i = wp.tid()
     x[i] = u_rig[i] + u_comp[i]
 
+@wp.kernel
+def add_du_comp(dx: wp.array(dtype = wp.vec3), u_comp: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    u_comp[i] -= dx[i]
 
 class CompRodBC (RodBC):
     '''
@@ -100,8 +104,8 @@ class CompRodBC (RodBC):
         self.u_rig = wp.zeros_like(self.states.x)
         self.u_comp = wp.zeros_like(self.states.x)
         self.u_rig.assign(self.states.x)
-        # self.sys_dim = self.n_nodes + self.n_handles * 4
-        self.sys_dim = self.n_nodes
+        self.sys_dim = self.n_nodes + self.n_handles * 4
+        # self.sys_dim = self.n_nodes
         self.dxdlam = wp.zeros((self.sys_dim,), dtype = wp.vec3)
         # can compute J at first as it only depends on weights & rest positions
         self.define_M_ext()
@@ -111,29 +115,46 @@ class CompRodBC (RodBC):
     def set_bc_fixed(self):
         pass
 
-    def step(self):
+    def solve(self):
+        self.states.dx.zero_()
+        b = wp.zeros(self.sys_dim, dtype = wp.vec3)
+        wp.copy(b, self.b)
+        self.states.dx = wp.zeros_like(self.b)
+        bicgstab(self.A, b, self.states.dx, 1e-6, maxiter=100)
+        print(f"norm dx = {np.linalg.norm(self.states.dx.numpy())}")
+
+    def step(self, Vf):
         newton_iter = True
         n_iter = 0
-        max_iter = 5
+        max_iter = 10
+        self.u_rig.assign(Vf)
         # while n_iter < max_iter:
         while newton_iter:
+            wp.launch(x_gets_u_comp_plus_u_rig, (self.n_nodes, ), inputs = [self.states.x, self.u_rig, self.u_comp])
             self.compute_A()
+            self.assemble_sys()
             self.compute_rhs()
 
             self.solve()
+            # wp.copy(self.u_comp, self.states.dx, count = self.u_comp.shape[0])
+
+            wp.launch(add_du_comp, (self.n_nodes, ), inputs = [self.states.dx, self.u_comp])
+            # break
             # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
             
             
             # line search stuff, not converged yet
-            alpha = self.line_search()
-            if alpha == 0.0:
-                break
+            # alpha = self.line_search()
+            # if alpha == 0.0:
+            #     break
 
             dxnp = self.states.dx.numpy()
             norm_dx = np.linalg.norm(dxnp)
             newton_iter = norm_dx > 1e-3 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
             n_iter += 1
+
+        wp.launch(x_gets_u_comp_plus_u_rig, (self.n_nodes, ), inputs = [self.states.x, self.u_rig, self.u_comp])
         self.update_x0_xdot()
 
     # def step(self, Vf):
@@ -199,6 +220,15 @@ class CompRodBC (RodBC):
         bsr_axpy(self.M_sparse, self.K_sparse, 1.0 / (h * h))
         self.Q = self.K_sparse
 
+    def compute_K(self):
+        self.triplets.vals.zero_()
+        self.b.zero_()
+        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+        # now self.b has the elastic forces
+
+        bsr_set_zero(self.K_sparse, self.sys_dim, self.sys_dim)
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
+
     def compute_A(self):
         self.compute_K()
 
@@ -214,12 +244,14 @@ class CompRodBC (RodBC):
 
         l = -g + M / h (( u^r - u_0) / h - u_dot) + f
         '''
-        # self.b = wp.zeros(self.sys_dim, dtype = wp.vec3)
+        b = wp.clone(self.b)
+        self.b = wp.zeros(self.sys_dim, dtype = wp.vec3)
+        wp.copy(self.b, b)
         # u_r = wp.zeros_like(self.b)
         # wp.copy(u_r, self.u_rig)
         # bsr_mv(self.K_sparse, u_r, self.b, -1.0)
 
-        wp.launch(compute_rhs, (self.n_nodes,), inputs = [self.states, self.h, self.M, self.b, self.u_rig])
+        wp.launch(compute_rhs, (self.n_nodes,), inputs = [self.states, self.h, self.M, self.b])
     
     def compute_CT(self):
         '''
@@ -242,11 +274,14 @@ class CompRodBC (RodBC):
         # asssemble [0, C^T; C, 0]
         self.C = bsr_zeros(self.sys_dim, self.sys_dim, wp.mat33)        
         bsr_set_from_triplets(self.C, self.J_triplets.rows, self.J_triplets.cols, self.J_triplets.vals)
-        bsr_axpy(bsr_transposed(self.C), self.C, 1.0, 1.0)
+        h = self.h
+        bsr_axpy(bsr_transposed(self.C), self.C, h * h, h * h)
 
     def assemble_sys(self):
-        bsr_axpy(self.C, self.Q, 1.0, 1.0)
-        self.sys_matrix = self.Q
+        # bsr_axpy(self.C, self.Q, 1.0, 1.0)
+        # self.sys_matrix = self.Q
+        bsr_axpy(self.C, self.A)
+        # pass
     
 class PSViewer:
     def __init__(self, V, F, W, T, C, BE):
@@ -275,8 +310,7 @@ class PSViewer:
         Tf = self.T[:, self.frame].reshape(3, -1).T
         Vf = self.M @ Tf
 
-        # self.sim.step(Vf)
-        self.sim.step()
+        self.sim.step(Vf)
         if self.ui_rest:
             self.ps_mesh.update_vertex_positions(self.V)
         else :

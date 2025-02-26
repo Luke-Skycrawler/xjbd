@@ -8,6 +8,8 @@ from stretch import RodBC, NewtonState, Triplets, set_M_diag
 from fem.fem import tet_kernel_sparse
 from warp.sparse import *
 from warp.optim.linear import bicgstab
+from scipy.sparse.linalg import spsolve, factorized
+from scipy.sparse import bsr_matrix
 import os
 gravity = wp.vec3(0, -10.0, 0)
 h = 1e-2
@@ -79,7 +81,6 @@ def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float)
         xk = xcs[i][k]
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j])) * xk * M[i]
 
-
 @wp.kernel
 def x_gets_u_comp_plus_u_rig(x: wp.array(dtype = wp.vec3), u_rig: wp.array(dtype = wp.vec3), u_comp: wp.array(dtype = wp.vec3)):
     i = wp.tid()
@@ -105,7 +106,10 @@ class CompRod(RodBC):
         self.dxdlam = wp.zeros((self.sys_dim,), dtype = wp.vec3)
         # can compute J at first as it only depends on weights & rest positions
         self.compute_CT()
+        self.assemble_sys()
 
+    def assemble_sys(self):
+        bsr_axpy(self.C, self.A, 1.0, 1.0)
 
     def define_M(self):
         V = self.xcs.numpy()
@@ -150,17 +154,40 @@ class CompRod(RodBC):
         bsr_set_zero(self.K_sparse, self.sys_dim, self.sys_dim)
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
 
-    # def set_b_fixed(self):
-    #     pass
+    def set_b_fixed(self):
+        pass
     
-    # def set_bc_fixed(self):
-    #     pass
+    def set_bc_fixed(self):
+        pass
 
+    def define_K_sparse(self):
+        self.compute_Dm()
+        self.tet_kernel_sparse()
+        self.K_sparse = bsr_zeros(self.sys_dim, self.sys_dim, wp.mat33)
+
+    def to_scipy_bsr(self, A):
+        ii = A.offsets.numpy()
+        jj = A.columns.numpy()
+        values = A.values.numpy()
+
+        bsr = bsr_matrix((values, jj, ii), shape = (self.sys_dim * 3, self.sys_dim * 3), blocksize = (3 , 3))
+        # return bsr.toarray()
+        return bsr
 
     def solve(self):
         self.dxdlam.zero_()
         b = wp.zeros((self.sys_dim,), dtype = wp.vec3)
         wp.copy(b, self.b)
+
+
+        # scipy direct solver
+        # bsr = self.to_scipy_bsr(self.A)
+        # # dxdlam = spsolve(bsr, b.numpy().reshape(-1))
+        # solve = factorized(bsr)
+        # dxdlam = solve(b.numpy().reshape(-1))
+        # self.dxdlam.assign(dxdlam.reshape((-1, 3)))
+
+
         bicgstab(self.A, b, self.dxdlam, 1e-6, maxiter = 100)
         print(f"norm dx = {np.linalg.norm(self.dxdlam.numpy())}")
 
@@ -341,7 +368,7 @@ class PSViewer:
             self.ps_mesh.update_vertex_positions(Vf)
         
         print(f"frame = {self.frame}")
-        # self.frame += 1
+        self.frame += 1
         self.frame = self.frame % self.n_frames
         
 
