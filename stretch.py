@@ -2,13 +2,13 @@ import polyscope as ps
 import polyscope.imgui as gui 
 import numpy as np
 import warp as wp 
-from fem.interface import Rod, default_tobj
+from fem.interface import Rod, default_tobj, RodComplex
 from fem.params import model
 import igl
 from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
-from warp.optim.linear import bicgstab
+from warp.optim.linear import bicgstab, cg
 gravity = wp.vec3(0, -10.0, 0)
 eps = 1e-4
 h = 1e-2
@@ -124,13 +124,14 @@ class PSViewer:
         print("frame = ", self.frame)
     
         
-class RodBC(Rod):
+class RodBCBase:
     '''
     fem with boundary condition and dynamic attributes
     '''
 
     def  __init__(self, h, filename = default_tobj):
-        super().__init__(filename)
+        self.filename = filename
+        super().__init__()
         self.define_M()
         self.states = NewtonState()
         self.states.x = wp.zeros_like(self.xcs)
@@ -143,7 +144,7 @@ class RodBC(Rod):
         wp.copy(self.states.x0, self.xcs)
 
         self.h = h
-        self.h = h
+        print(f"timestep set to {h}")
         
 
     def define_M(self):
@@ -216,7 +217,8 @@ class RodBC(Rod):
 
     def solve(self):
         self.states.dx.zero_()
-        bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+        # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+        cg(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
 
     def line_search(self):
         # FIXME: not converged
@@ -249,6 +251,10 @@ class RodBC(Rod):
         wp.launch(compute_inertia, (self.n_nodes, ), inputs = [self.states, self.M, inert, self.h])
         return inert.numpy()[0] * 0.5        
 
+class RodBC(RodBCBase, Rod):
+    def __init__(self, h, filename = default_tobj):
+        super().__init__(h, filename)
+
 def drape():
     # rod = RodBC(h, "assets/elephant.mesh")
     rod = RodBC(h)
@@ -260,4 +266,5 @@ if __name__ == "__main__":
     ps.init()
     wp.init()
     drape()
+    # multiple_drape()
     

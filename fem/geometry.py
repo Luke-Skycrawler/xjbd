@@ -1,7 +1,8 @@
 import warp as wp 
 from utils.tobj import import_tobj
 import igl
-
+from typing import List
+import numpy as np
 L, W = 1, 0.2
 mu, rho, lam = 1e6, 1., 125
 g = 10.
@@ -94,6 +95,11 @@ def init_nodes(xcs: wp.array(dtype = wp.vec3)):
     i = wp.tid()
     xcs[i] = xc(i)
 
+'''
+    tetrahedron geometry interface: 
+        int: n_tets, n_nodes 
+        wp.arrays: T, xcs, indices
+'''
 class RodGeometryGenerator:
     def __init__(self):
         self.indices = wp.zeros((n_elements * 12 * 3), dtype = int)
@@ -137,3 +143,48 @@ class TOBJLoader:
         self.indices = wp.zeros(F.shape, dtype = int)
         self.indices.assign(F)
         print(f"{self.filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")
+
+class TOBJComplex:
+    def __init__(self):
+        '''
+        form a complex of all simulation meshes and exposes tet geometry interface 
+
+        NOTE: need to have self.meshes_filename and self.transforms predefined before calling super().__init__()
+        '''
+
+        transforms = self.transforms 
+        meshes_filename = self.meshes_filename
+
+        self.n_nodes = 0
+        self.n_tets = 0
+        V = np.zeros((0, 3), dtype = float)
+        T = np.zeros((0, 4), dtype = int)
+
+        while len(transforms) < len(meshes_filename):
+            transforms.append(np.identity(4, dtype = float))
+        
+        assert(len(transforms) == len(meshes_filename))
+        for f, trans in zip(meshes_filename, transforms):
+            if f.endswith(".tobj"):
+                v, t = import_tobj(f)
+            elif f.endswith(".mesh"):
+                v, t, _ = igl.read_mesh(f)
+            
+            v4 = np.ones((v.shape[0], 4), dtype = float)
+            v4[:, :3] = v
+            v = (v4 @ trans.T)[:, :3] 
+            V = np.vstack((V, v), dtype = float)
+            T = np.vstack((T, t + self.n_nodes), dtype = int)
+            self.n_nodes += v.shape[0]
+            self.n_tets += t.shape[0]
+
+
+        self.xcs = wp.zeros((self.n_nodes), dtype = wp.vec3) 
+        self.T = wp.zeros((self.n_tets, 4), dtype = int)
+
+        self.xcs.assign(V)
+        self.T.assign(T)
+
+        F = igl.boundary_facets(T)  
+        self.indices = wp.array(F, dtype = int)
+        print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")
