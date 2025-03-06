@@ -3,7 +3,7 @@ import numpy as np
 from fem.params import FEMMesh
 from typing import List
 import polyscope as ps
-collision_eps = 1e-1
+collision_eps = 0.01
 PT_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
@@ -340,7 +340,7 @@ class TestViewer:
 
         rng = np.random.default_rng(123)
         rand_verts = rng.random(size = (n_nodes, 3), dtype = float)
-        
+        rand_verts [:n_triangles * 3, 1] = 0.0
         triangle_soup = TriangleSoup()
         triangle_soup.indices = wp.array(np.arange(n_triangles * 3), dtype = int)
         triangle_soup.vertices = wp.zeros((n_nodes, ), dtype = wp.vec3)
@@ -360,7 +360,7 @@ class TestViewer:
 
 
         self.points = self.triangle_soup.vertices.numpy()
-        self.V0 = self.points[:n_triangles * 3, :]
+        self.V0 = np.copy(self.points[:n_triangles * 3, :])
         self.F = triangle_soup.indices.numpy().reshape((-1, 3))
 
         self.ps_mesh = ps.register_surface_mesh("triangle", self.V0, self.F)
@@ -373,6 +373,7 @@ class TestViewer:
         self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
         # FIXME: might have no neighbors if it is a cloth
         self.ps_points = ps.register_point_cloud("points", self.points)
+        self.ps_points.set_radius(collision_eps)
         ps.show()
 
     def callback(self):
@@ -381,11 +382,14 @@ class TestViewer:
         V0 = np.zeros((self.V0.shape[0], 4))
         V0[:, :3] = self.V0
         V0[:, 3] = 1.0
-        V = (V0 @ trans)[:, : 3]
+        V = (V0 @ trans.T)[:, : 3]
+        self.points[:self.n_triangles * 3, :] = V
 
         # should all mean the same thing and upating one is equivalent to updating all 
-        self.mesh_triangle_soup.points.assign(V)
-        self.triangle_soup.vertices.assign(V)
+        self.mesh_triangle_soup.points.assign(self.points)
+        # self.triangle_soup.vertices.assign(self.points)
+
+        self.ps_points.update_point_positions(self.points)
         
         
 
@@ -399,7 +403,7 @@ class TestViewer:
         # print(f"npt = {npt}")
         if npt:
             self.ps_mesh.set_color((1.0, 1.0, 0.0))
-            print("collision detected!")
+            # print("collision detected!")
         else:
             self.ps_mesh.set_color((0.0, 0.0, 0.0))
 
@@ -457,8 +461,10 @@ def test_distance():
         big_diff = diff[idx]
         print(f"types = {types.numpy()[idx]}")
         print(f"big diff = {big_diff}, x = {rand_verts[idx, :, :]}")
+
 if __name__ == "__main__":
-    test_distance()
+    # test_distance()
+    test()
     # compute_point_triangle_collision()
 
     
