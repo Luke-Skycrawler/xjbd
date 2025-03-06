@@ -239,9 +239,9 @@ def point_triangle_collision(inverted: wp.array(dtype = int), triangles_soup: Tr
         query = wp.mesh_query_aabb(triangles_soup.mesh_id, low, high)
         # iterates all triangles intersecting the dialated point volume
         y = int(0)
-        # while wp.mesh_query_aabb_next(query, y):
-        n_nodes = triangles_soup.vertices.shape[0]
-        for y in range(n_nodes):
+        # n_nodes = triangles_soup.vertices.shape[0]
+        # for y in range(n_nodes):
+        while wp.mesh_query_aabb_next(query, y):
             t0 = triangles_soup.indices[y * 3]
             t1 = triangles_soup.indices[y * 3 + 1]
             t2 = triangles_soup.indices[y * 3 + 2]
