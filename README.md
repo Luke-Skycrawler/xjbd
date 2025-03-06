@@ -22,3 +22,8 @@ python vis_eigs.py
 ```
 python modal_warping.py
 ```
+
+#### Collision Test 
+```
+python -m geometry.collision_cell
+```

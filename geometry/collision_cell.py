@@ -3,8 +3,10 @@ import numpy as np
 from fem.params import FEMMesh
 from typing import List
 import polyscope as ps
+import igl
 collision_eps = 0.01
 PT_SET_SIZE = 4096
+EE_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
 
@@ -309,7 +311,15 @@ def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup
     if closest != -1 and not inside_one_ring and closest_distance < collision_eps:
         collision = wp.vec2i(x, closest)
         append(collision_list, collision, bary_closest)
-    
+
+@wp.kernel
+def edge_aabbs(edges: wp.array(dtype = int), vertices: wp.array(dtype = wp.vec3), lowers: wp.array(dtype = wp.vec3), uppers: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    e0 = vertices[edges[i * 2 + 0]]
+    e1 = vertices[edges[i * 2 + 1]]
+    lowers[i] = wp.min(e0, e1)  
+    uppers[i] = wp.max(e0, e1)
+
 def compute_point_triangle_collision():
 
     # __init__
@@ -335,38 +345,63 @@ def compute_point_triangle_collision():
 class TestViewer:
     def __init__(self):
         
-        n_triangles = 1
-        n_nodes = 4
+        n_triangles = 2
+        n_nodes = 6
 
         rng = np.random.default_rng(123)
         rand_verts = rng.random(size = (n_nodes, 3), dtype = float)
-        rand_verts [:n_triangles * 3, 1] = 0.0
+        # fix the first triangle to x-z plane
+        rand_verts[:3, 1] = 0.0
         triangle_soup = TriangleSoup()
         triangle_soup.indices = wp.array(np.arange(n_triangles * 3), dtype = int)
         triangle_soup.vertices = wp.zeros((n_nodes, ), dtype = wp.vec3)
         triangle_soup.vertices.assign(rand_verts)
         self.mesh_triangle_soup = wp.Mesh(triangle_soup.vertices, triangle_soup.indices)
         triangle_soup.mesh_id = self.mesh_triangle_soup.id
+        self.triangle_soup = triangle_soup
+
+
+        self.points = triangle_soup.vertices.numpy()
+        self.V0 = np.copy(self.points[:n_triangles * 3, :])
+        self.F = triangle_soup.indices.numpy().reshape((-1, 3))
+
+
+        self.E = igl.edges(self.F).reshape(-1)
+        self.n_edges = self.E.shape[0] // 2
+        self.edges = wp.array(self.E, dtype = int)
+
+
+        self.lowers = wp.zeros((self.n_edges, ), dtype = wp.vec3)
+        self.uppers = wp.zeros_like(self.lowers)
+        
+        self.compute_edge_aabbs()
+        self.edges_bvh = wp.Bvh(self.lowers, self.uppers)
         
         pt_set = CollisionList()
         pt_set.cnt = wp.zeros(shape = (1,), dtype = int)
         pt_set.a = wp.zeros(shape = (PT_SET_SIZE, ), dtype = wp.vec2i)
-        
+
+
+        ee_set = EdgeEdgeCollisionList()
+        ee_set.cnt = wp.zeros(shape = (1,), dtype = int)        
+        ee_set.a = wp.zeros(shape = (EE_SET_SIZE, ), dtype = wp.vec2i)
+        ee_set.bary = wp.zeros(shape = (EE_SET_SIZE, 3), dtype = wp.vec3)
+
+
         inverted = wp.zeros(shape = (n_nodes,), dtype = int)
 
         self.inverted = inverted
         self.pt_set = pt_set
-        self.triangle_soup = triangle_soup
+        self.ee_set = ee_set
 
 
-        self.points = self.triangle_soup.vertices.numpy()
-        self.V0 = np.copy(self.points[:n_triangles * 3, :])
-        self.F = triangle_soup.indices.numpy().reshape((-1, 3))
 
-        self.ps_mesh = ps.register_surface_mesh("triangle", self.V0, self.F)
+        self.ps_mesh = ps.register_surface_mesh("triangle", self.V0[:3, ], self.F[:1])
+        self.ps_mesh_fixed = ps.register_surface_mesh("triangle_fixed", self.V0[3:, ], self.F[1:] - 3)
 
         self.ps_mesh.set_transform_gizmo_enabled(True)
-        ps.set_user_callback(self.callback)
+        # ps.set_user_callback(self.callback)
+        ps.set_user_callback(self.callback_ee)
 
         self.n_nodes, self.n_triangles = n_nodes, n_triangles
         self.neighbors = wp.zeros((n_triangles * 3, ), dtype = int)
@@ -376,14 +411,34 @@ class TestViewer:
         self.ps_points.set_radius(collision_eps)
         ps.show()
 
-    def callback(self):
+    def compute_edge_aabbs(self):
+        wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers])
         
+
+    def callback_ee(self):
+        self.move_geometry()
+
+        # get updated uppers and lowers for edge aabbs  
+        self.compute_edge_aabbs()
+        self.edges_bvh.refit()
+
+        self.ee_set.cnt.zero_()
+        wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
+
+        nee = self.ee_set.cnt.numpy()[0]
+        if nee:
+            self.ps_mesh.set_color((1.0, 0.0, 0.0))
+        else: 
+            self.ps_mesh.set_color((0.0, 0.0, 0.0))
+
+    def move_geometry(self):
         trans = self.ps_mesh.get_transform()
-        V0 = np.zeros((self.V0.shape[0], 4))
-        V0[:, :3] = self.V0
+        # only controls the first triangle here
+        V0 = np.zeros((3, 4))
+        V0[:, :3] = self.V0[: 3]
         V0[:, 3] = 1.0
         V = (V0 @ trans.T)[:, : 3]
-        self.points[:self.n_triangles * 3, :] = V
+        self.points[:3, :] = V
 
         # should all mean the same thing and upating one is equivalent to updating all 
         self.mesh_triangle_soup.points.assign(self.points)
@@ -395,6 +450,8 @@ class TestViewer:
 
         self.mesh_triangle_soup.refit()
     
+    def callback(self):
+        self.move_geometry()
         self.pt_set.cnt.zero_()
         self.pt_set.a.zero_()
         wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
