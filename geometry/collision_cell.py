@@ -342,41 +342,49 @@ def compute_point_triangle_collision():
     wp.launch(compute_inverted_vertex, dim = (n_tets,), inputs = [triangle_soup.vertices, tet_complex, Bm, inverted])
     wp.launch(point_triangle_collision, dim = (n_nodes, ), inputs = [inverted, triangle_soup, pt_set])
 
-class TestViewer:
-    def __init__(self):
-        
-        n_triangles = 2
-        n_nodes = 6
+class MeshCollisionDetector:
+    def __init__(self, xcs, T, indices, E = None):
+        '''
+        heavy-lifting class for collision detection provided the reference to warp array of points and indices
+        '''
+        self.xcs = xcs
+        self.T = T
+        self.indices = indices
 
-        rng = np.random.default_rng(123)
-        rand_verts = rng.random(size = (n_nodes, 3), dtype = float)
-        # fix the first triangle to x-z plane
-        rand_verts[:3, 1] = 0.0
+        self.n_nodes = n_nodes = xcs.shape[0]
+        if T is None:
+            T = wp.array((0, 4), dtype = int)
+        self.n_tets = n_tets = T.shape[0]
+        self.n_triangles = n_triangles = indices.shape[0]
+        
+
         triangle_soup = TriangleSoup()
-        triangle_soup.indices = wp.array(np.arange(n_triangles * 3), dtype = int)
-        triangle_soup.vertices = wp.zeros((n_nodes, ), dtype = wp.vec3)
-        triangle_soup.vertices.assign(rand_verts)
+        triangle_soup.indices = indices
+        triangle_soup.vertices = xcs
+        
         self.mesh_triangle_soup = wp.Mesh(triangle_soup.vertices, triangle_soup.indices)
         triangle_soup.mesh_id = self.mesh_triangle_soup.id
         self.triangle_soup = triangle_soup
 
-
-        self.points = triangle_soup.vertices.numpy()
-        self.V0 = np.copy(self.points[:n_triangles * 3, :])
-        self.F = triangle_soup.indices.numpy().reshape((-1, 3))
-
-
-        self.E = igl.edges(self.F).reshape(-1)
+        self.F = indices.numpy().reshape((-1, 3))
+        
+        if E is None:
+            self.E = igl.edges(self.F).reshape(-1)
+        else :
+            self.E = E
         self.n_edges = self.E.shape[0] // 2
         self.edges = wp.array(self.E, dtype = int)
+
 
 
         self.lowers = wp.zeros((self.n_edges, ), dtype = wp.vec3)
         self.uppers = wp.zeros_like(self.lowers)
         
         self.compute_edge_aabbs()
-        self.edges_bvh = wp.Bvh(self.lowers, self.uppers)
-        
+        self.edges_bvh = wp.Bvh(self.lowers, self.uppers)    
+
+
+
         pt_set = CollisionList()
         pt_set.cnt = wp.zeros(shape = (1,), dtype = int)
         pt_set.a = wp.zeros(shape = (PT_SET_SIZE, ), dtype = wp.vec2i)
@@ -394,42 +402,80 @@ class TestViewer:
         self.pt_set = pt_set
         self.ee_set = ee_set
 
+        # FIXME: only here for a test. change it to actual neighing data 
+        self.neighbors = wp.zeros((n_triangles * 3, ), dtype = int)
+        self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
+        # FIXME: might have no neighbors if it is a cloth
 
+    def compute_edge_aabbs(self):
+        wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers])
+
+    def refit(self):
+        self.edges_bvh.refit()
+        self.mesh_triangle_soup.refit()
+
+    def collision_set(self, type = "all"):
+        if type == "ee":
+            self.ee_set.cnt.zero_()
+            wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
+            nee = self.ee_set.cnt.numpy()[0]
+            return nee
+        elif type == "pt":
+            self.pt_set.cnt.zero_()
+            wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
+            npt = self.pt_set.cnt.numpy()[0]
+            return npt
+        pass
+
+    def collision_energy(self):
+        pass
+
+    def analyze(self):
+        '''
+        returns the force and force derivatives
+        '''
+        pass
+
+
+class TestViewer:
+    '''
+    naming conventions:
+    numpy arrays are capitalized
+    warp arrays are lower case
+    '''
+    def __init__(self):
+        
+        n_triangles = 2
+        n_nodes = 6
+
+        rng = np.random.default_rng(123)
+        rand_verts = rng.random(size = (n_nodes, 3), dtype = float)
+        # fix the first triangle to x-z plane
+        rand_verts[:3, 1] = 0.0
+
+        self.indices = wp.array(np.arange(n_triangles * 3), dtype = int)
+        self.vertices = wp.zeros((n_nodes, ), dtype = wp.vec3)
+        self.vertices.assign(rand_verts)
+
+        self.collider = collider = MeshCollisionDetector(self.vertices, None, self.indices)
+
+
+        self.V = collider.triangle_soup.vertices.numpy()
+        self.V0 = np.copy(self.V[:n_triangles * 3, :])
+        self.F = collider.triangle_soup.indices.numpy().reshape((-1, 3))
 
         self.ps_mesh = ps.register_surface_mesh("triangle", self.V0[:3, ], self.F[:1])
         self.ps_mesh_fixed = ps.register_surface_mesh("triangle_fixed", self.V0[3:, ], self.F[1:] - 3)
 
         self.ps_mesh.set_transform_gizmo_enabled(True)
-        # ps.set_user_callback(self.callback)
-        ps.set_user_callback(self.callback_ee)
+
+        ps.set_user_callback(self.callback)
+        # ps.set_user_callback(self.callback_ee)
 
         self.n_nodes, self.n_triangles = n_nodes, n_triangles
-        self.neighbors = wp.zeros((n_triangles * 3, ), dtype = int)
-        self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
-        # FIXME: might have no neighbors if it is a cloth
-        self.ps_points = ps.register_point_cloud("points", self.points)
+        self.ps_points = ps.register_point_cloud("points", self.V)
         self.ps_points.set_radius(collision_eps)
         ps.show()
-
-    def compute_edge_aabbs(self):
-        wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers])
-        
-
-    def callback_ee(self):
-        self.move_geometry()
-
-        # get updated uppers and lowers for edge aabbs  
-        self.compute_edge_aabbs()
-        self.edges_bvh.refit()
-
-        self.ee_set.cnt.zero_()
-        wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
-
-        nee = self.ee_set.cnt.numpy()[0]
-        if nee:
-            self.ps_mesh.set_color((1.0, 0.0, 0.0))
-        else: 
-            self.ps_mesh.set_color((0.0, 0.0, 0.0))
 
     def move_geometry(self):
         trans = self.ps_mesh.get_transform()
@@ -438,25 +484,36 @@ class TestViewer:
         V0[:, :3] = self.V0[: 3]
         V0[:, 3] = 1.0
         V = (V0 @ trans.T)[:, : 3]
-        self.points[:3, :] = V
+        self.V[:3, :] = V
 
         # should all mean the same thing and upating one is equivalent to updating all 
-        self.mesh_triangle_soup.points.assign(self.points)
-        # self.triangle_soup.vertices.assign(self.points)
+        self.collider.mesh_triangle_soup.points.assign(self.V)
+        self.collider.xcs.assign(self.V)
 
-        self.ps_points.update_point_positions(self.points)
-        
-        
-
-        self.mesh_triangle_soup.refit()
+        self.ps_points.update_point_positions(self.V)
     
+
+
+    def callback_ee(self):
+        self.move_geometry()
+
+        # get updated uppers and lowers for edge aabbs  
+        self.collider.compute_edge_aabbs()
+        self.collider.edges_bvh.refit()
+
+        nee = self.collider.collision_set("ee")
+        
+        if nee:
+            self.ps_mesh.set_color((1.0, 0.0, 0.0))
+        else: 
+            self.ps_mesh.set_color((0.0, 0.0, 0.0))    
+
     def callback(self):
         self.move_geometry()
-        self.pt_set.cnt.zero_()
-        self.pt_set.a.zero_()
-        wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
+
+        self.collider.mesh_triangle_soup.refit()
         
-        npt = self.pt_set.cnt.numpy()[0]
+        npt = self.collider.collision_set("pt")
         # print(f"npt = {npt}")
         if npt:
             self.ps_mesh.set_color((1.0, 1.0, 0.0))
