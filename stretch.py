@@ -9,7 +9,7 @@ from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
-gravity = wp.vec3(0, -10.0, 0)
+gravity = wp.vec3(0, -0.0, 0)
 eps = 1e-4
 h = 1e-2
 rho = 1e3
@@ -204,15 +204,18 @@ class RodBCBase:
         wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.triplets, self.b]) 
         # now self.b has the elastic forces
 
-        self.set_bc_fixed()
+        self.set_bc_fixed_hessian()
         bsr_set_zero(self.K_sparse)
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
         
     def compute_rhs(self):
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
+        self.set_bc_fixed_grad()
+
+    def set_bc_fixed_grad(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
-    def set_bc_fixed(self):
+    def set_bc_fixed_hessian(self):
         wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
 
     def solve(self):
