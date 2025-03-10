@@ -162,6 +162,15 @@ def flip_face(verts: wp.array(dtype = wp.vec3), normals: wp.array(dtype = wp.vec
         indices[i * 3 + 1] = i2
         indices[i * 3 + 2] = i1
 
+@wp.kernel
+def verify_normals(verts: wp.array(dtype = wp.vec3), normals: wp.array(dtype = wp.vec3), indices: wp.array(dtype = int)):
+    i = wp.tid()
+    i0 = indices[i * 3 + 0]
+    i1 = indices[i * 3 + 1] 
+    i2 = indices[i * 3 + 2]
+    n = plane_normal(verts[i0], verts[i1], verts[i2])
+    normals[i] = n
+
 class TOBJComplex:
     def __init__(self):
         '''
@@ -204,11 +213,14 @@ class TOBJComplex:
         self.xcs.assign(V)
         self.T.assign(T)
 
-        F = igl.boundary_facets(T)  
+        FF = igl.boundary_facets(T)  
+        F, _ = igl.bfs_orient(FF)
+        assert(FF.shape[0] == F.shape[0])
         n0 = np.ones(3, dtype = float)
         N = igl.per_face_normals(V, F, n0)
-
         self.indices = wp.array(F.reshape(-1), dtype = int)
-        normals = wp.array(N.reshape(-1), dtype = wp.vec3)
+        normals = wp.array(N, dtype = wp.vec3)
         wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
+        # wp.launch(verify_normals, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
+        # print(f"after flipping: normals = {normals.numpy()}")
         print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")

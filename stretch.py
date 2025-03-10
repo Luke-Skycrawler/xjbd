@@ -92,9 +92,6 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
-    I1 = wp.trace(wp.transpose(F) @ F)
-    J = wp.determinant(F)
-    logJ = wp.log(J)
     psie = psi(F)
     # wp.atomic_add(Psi, 0, W[e] * psi)
     Psi[e] = W[e] * psie
@@ -114,15 +111,20 @@ class PSViewer:
         self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
         self.frame = 0
         self.rod = rod
-
+        self.ui_pause = True
+        self.animate = False
     def callback(self):
-        self.rod.step()
-        self.V = self.rod.states.x.numpy()
-        self.ps_mesh.update_vertex_positions(self.V)
-        self.frame += 1
-        
-        print("frame = ", self.frame)
-    
+        changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
+        self.animate = gui.Button("Step") or not self.ui_pause
+
+        if self.animate: 
+            self.rod.step()
+            self.V = self.rod.states.x.numpy()
+            self.ps_mesh.update_vertex_positions(self.V)
+            self.frame += 1
+            
+            print("frame = ", self.frame)
+
         
 class RodBCBase:
     '''

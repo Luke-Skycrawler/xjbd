@@ -15,12 +15,12 @@ from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
 from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
-collision_eps = 1e-2
+collision_eps = 3e-2
 PT_SET_SIZE = 4096
 EE_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e7
+stiffness = 1e3
 
 @wp.struct
 class TriangleSoup:
@@ -253,8 +253,8 @@ def point_triangle_collision(inverted: wp.array(dtype = int), triangles_soup: Tr
         query = wp.mesh_query_aabb(triangles_soup.mesh_id, low, high)
         # iterates all triangles intersecting the dialated point volume
         y = int(0)
-        # n_nodes = triangles_soup.vertices.shape[0]
-        # for y in range(n_nodes):
+        # n_triangles = triangles_soup.indices.shape[0] // 3
+        # for y in range(n_triangles):
         while wp.mesh_query_aabb_next(query, y):
             t0 = triangles_soup.indices[y * 3]
             t1 = triangles_soup.indices[y * 3 + 1]
@@ -332,27 +332,6 @@ def edge_aabbs(edges: wp.array(dtype = int), vertices: wp.array(dtype = wp.vec3)
     lowers[i] = wp.min(e0, e1)  
     uppers[i] = wp.max(e0, e1)
 
-def compute_point_triangle_collision():
-
-    # __init__
-    meshes = []
-    Fs = []
-    # placeholders 
-    n_tets, n_triangles, n_nodes = get_complex_size(meshes, Fs)
-    inverted = wp.zeros(shape = (n_nodes,) , dtype = int)
-    Bm = wp.zeros(shape = (n_tets, ), dtype = wp.mat33)
-    tet_complex = wp.zeros(shape = (n_tets, 4), dtype = int)
-    triangle_soup = TriangleSoup()
-    triangle_soup.indices = wp.zeros(shape = (n_triangles * 3,), dtype = int)
-    triangle_soup.vertices = wp.zeros(shape = (n_nodes,), dtype = wp.vec3)
-    triangle_soup.mesh_id = wp.Mesh(triangle_soup.vertices, triangle_soup.indices).id
-
-    pt_set = CollisionList()
-    pt_set.cnt = wp.zeros(shape = (1,), dtype = int)
-    pt_set.a = wp.zeros(shape = (PT_SET_SIZE, ), dtype = int)
-
-    wp.launch(compute_inverted_vertex, dim = (n_tets,), inputs = [triangle_soup.vertices, tet_complex, Bm, inverted])
-    wp.launch(point_triangle_collision, dim = (n_nodes, ), inputs = [inverted, triangle_soup, pt_set])
 
 @wp.func
 def psd(x: float) -> float:
@@ -496,20 +475,26 @@ def collision_energy_pt(pt_set: CollisionList, triangle_soup: TriangleSoup, inve
         dpsi = l * l * stiffness
         wp.atomic_add(e_col, 0, dpsi)
 
+@wp.kernel
+def disable_interior_vertices(triangle_soup: TriangleSoup, inverted: wp.array(dtype = int)):
+    i = wp.tid()
+    idx =  triangle_soup.indices[i]
+    inverted[idx] = 0
+
 class MeshCollisionDetector:
-    def __init__(self, xcs, T, indices, E = None):
+    def __init__(self, xcs, T, indices, Bm, E = None):
         '''
         heavy-lifting class for collision detection provided the reference to warp array of points and indices
         '''
         self.xcs = xcs
         self.T = T
         self.indices = indices
-
+        self.Bm = Bm
         self.n_nodes = n_nodes = xcs.shape[0]
         if T is None:
             T = wp.array((0, 4), dtype = int)
         self.n_tets = n_tets = T.shape[0]
-        self.n_triangles = n_triangles = indices.shape[0]
+        self.n_triangles = n_triangles = indices.shape[0] // 3
         
 
         triangle_soup = TriangleSoup()
@@ -583,6 +568,14 @@ class MeshCollisionDetector:
             return nee
         elif type == "pt":
             self.pt_set.cnt.zero_()
+
+            if self.Bm is not None:
+                self.inverted.fill_(1)
+                wp.launch(disable_interior_vertices, dim = (self.n_triangles * 3,), inputs = [self.triangle_soup, self.inverted])
+                wp.launch(compute_inverted_vertex, dim = (self.n_tets,), inputs = [self.triangle_soup.vertices, self.T, self.Bm, self.inverted])
+                print(f"inverted sum = {np.sum(self.inverted.numpy())}")
+            # self.inverted.zero_()
+
             wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
             npt = self.pt_set.cnt.numpy()[0]
             return npt
@@ -630,7 +623,7 @@ class TestViewer:
         self.vertices = wp.zeros((n_nodes, ), dtype = wp.vec3)
         self.vertices.assign(rand_verts)
 
-        self.collider = collider = MeshCollisionDetector(self.vertices, None, self.indices)
+        self.collider = collider = MeshCollisionDetector(self.vertices, None, self.indices, None)
 
 
         self.V = collider.triangle_soup.vertices.numpy()
