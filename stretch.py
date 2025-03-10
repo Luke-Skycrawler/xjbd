@@ -116,6 +116,11 @@ class PSViewer:
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
         self.animate = gui.Button("Step") or not self.ui_pause
+        if gui.Button("Reset"):
+            self.rod.reset()
+            self.frame = 0
+            self.ui_pause = True
+            self.animate = True
 
         if self.animate: 
             self.rod.step()
@@ -142,12 +147,13 @@ class RodBCBase:
         self.states.xdot = wp.zeros_like(self.xcs)
         self.states.Psi = wp.zeros((self.n_tets,), dtype = float)
         
-        wp.copy(self.states.x, self.xcs)
-        wp.copy(self.states.x0, self.xcs)
-
+        self.reset()
         self.h = h
         print(f"timestep set to {h}")
         
+    def reset(self):
+        wp.copy(self.states.x, self.xcs)
+        wp.copy(self.states.x0, self.xcs)
 
     def define_M(self):
         V = self.xcs.numpy()
