@@ -110,7 +110,7 @@ def test_ee(x: wp.array(dtype = vec3), dcdx_delta: wp.array2d(dtype = mat33), re
     #         wp.atomic_add(ret, ii, ll, hil)
                 
 @wp.func
-def eig_Hl(e0p: vec3, e1p: vec3, e2p: vec3, q: wp.array2d(dtype = vec3)):
+def eig_Hl(e0p: vec3, e1p: vec3, e2p: vec3):
     l = signed_distance(e0p, e1p, e2p)
 
     e0pn = wp.length_sq(e0p)
@@ -132,20 +132,37 @@ def eig_Hl(e0p: vec3, e1p: vec3, e2p: vec3, q: wp.array2d(dtype = vec3)):
     omega3 = lam3 / (lam3 - l / e2pn)
     
     # bundles to a eigen vector every 3 items
-    q[0, 0] = z31
-    q[0, 1] = e2p
-    q[0, 2] = omega0 * e1p
-    q[1, 0] = z31
-    q[1, 1] = e2p
-    q[1, 2] = omega1 * e1p
-    q[2, 0] = e2p
-    q[2, 1] = z31
-    q[2, 2] = omega2 * e0p
-    q[3, 0] = e2p
-    q[3, 1] = z31
-    q[3, 2] = omega3 * e0p
+    # q[0, 0] = z31
+    # q[0, 1] = e2p
+    # q[0, 2] = omega0 * e1p
+    # q[1, 0] = z31
+    # q[1, 1] = e2p
+    # q[1, 2] = omega1 * e1p
+    # q[2, 0] = e2p
+    # q[2, 1] = z31
+    # q[2, 2] = omega2 * e0p
+    # q[3, 0] = e2p
+    # q[3, 1] = z31
+    # q[3, 2] = omega3 * e0p
 
-    return lam0 * scalar(2.0) * l, lam1 * scalar(2.0) * l, lam2 * scalar(2.0) * l, lam3 * scalar(2.0) * l
+    q0 = mat33(0.0)
+    q1 = mat33(0.0)
+    q2 = mat33(0.0)
+    q3 = mat33(0.0)
+    q0[0] = z31
+    q0[1] = e2p
+    q0[2] = omega0 * e1p
+    q1[0] = z31
+    q1[1] = e2p
+    q1[2] = omega1 * e1p
+    q2[0] = e2p
+    q2[1] = z31
+    q2[2] = omega2 * e0p
+    q3[0] = e2p
+    q3[1] = z31
+    q3[2] = omega3 * e0p
+
+    return lam0 * scalar(2.0) * l, lam1 * scalar(2.0) * l, lam2 * scalar(2.0) * l, lam3 * scalar(2.0) * l, q0, q1, q2, q3
     # return  z31, e2p, omega0 * e1p,\
     #         z31, e2p, omega1 * e1p,\
     #         e2p, z31, omega2 * e0p,\
@@ -202,7 +219,7 @@ def verify_eig_sys_ee(x: wp.array(dtype = vec3), q: wp.array2d(dtype = vec3), la
     x3 = x[i * 9 + 3]
 
     e0p, e1p, e2p = C_ee(x0, x1, x2, x3)
-    lam0, lam1, lam2, lam3 = eig_Hl(e0p, e1p, e2p, q)
+    lam0, lam1, lam2, lam3, _, _, _, _ = eig_Hl(e0p, e1p, e2p)
     l = signed_distance(e0p, e1p, e2p)
 
     lam[i, 0] = lam0
@@ -225,7 +242,7 @@ def verify_eig_sys_vf(x: wp.array(dtype = vec3), q: wp.array2d(dtype = vec3), la
     x3 = x[i * 9 + 3]
 
     e0p, e1p, e2p = C_vf(x0, x1, x2, x3)
-    lam0, lam1, lam2, lam3 = eig_Hl(e0p, e1p, e2p, q)
+    lam0, lam1, lam2, lam3, _, _, _, _ = eig_Hl(e0p, e1p, e2p)
     l = signed_distance(e0p, e1p, e2p)
 
     lam[i, 0] = lam0

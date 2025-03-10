@@ -1,11 +1,12 @@
 import warp as wp
-from stretch import RodBCBase, PSViewer, NewtonState
+from stretch import RodBCBase, PSViewer, NewtonState, Triplets, add_dx
 from fem.interface import Rod, RodComplex
 import polyscope as ps
 import numpy as np
 # collision add-ons
 from geometry.collision_cell import MeshCollisionDetector
 
+from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 h = 1e-2
         
 class RodComplexBC(RodBCBase, RodComplex):
@@ -13,7 +14,8 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
-        self.collider = MeshCollisionDetector(self.xcs, self.T, self.indices)
+        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices)
+        self.n_pt = 0
 
     def set_bc_fixed_hessian(self):
         pass
@@ -28,11 +30,11 @@ class RodComplexBC(RodBCBase, RodComplex):
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()
+            self.n_pt = self.collider.collision_set("pt")
+            triplets = self.collider.analyze(self.b, self.n_pt)
             self.compute_rhs()
+            self.add_collision_to_sys_matrix(triplets)
 
-            n_pt = self.collider.collision_set("pt")
-
-            
             self.solve()
             # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
             
@@ -49,7 +51,16 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_iter += 1
         self.update_x0_xdot()
 
-    
+    def add_collision_to_sys_matrix(self, triplets: Triplets):
+
+        collision_force_derivatives = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        bsr_set_from_triplets(collision_force_derivatives, triplets.rows, triplets.cols, triplets.vals)
+        bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
+
+    def compute_collision_energy(self):
+        return self.collider.collision_energy(self.n_pt) * self.h * self.h
+        # return 0.0
+
 def multiple_drape():
     n_meshes = 3
     meshes = ["assets/bar2.tobj"] * n_meshes
@@ -91,6 +102,7 @@ def staggered_bars():
 
 if __name__ == "__main__":
     ps.init()
+    wp.config.max_unroll = 0
     wp.init()
 
     # multiple_drape()

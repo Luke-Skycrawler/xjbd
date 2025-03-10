@@ -144,6 +144,24 @@ class TOBJLoader:
         self.indices.assign(F)
         print(f"{self.filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")
 
+
+@wp.func
+def plane_normal(v0: wp.vec3, v1: wp.vec3, v2: wp.vec3) -> wp.vec3:
+    return wp.normalize(wp.cross(v1 - v0, v2 - v0))
+
+@wp.kernel
+def flip_face(verts: wp.array(dtype = wp.vec3), normals: wp.array(dtype = wp.vec3), indices: wp.array(dtype = int)):
+    i = wp.tid()
+    n = normals[i]
+    i0 = indices[i * 3 + 0]
+    i1 = indices[i * 3 + 1]
+    i2 = indices[i * 3 + 2]
+    ni = plane_normal(verts[i0], verts[i1], verts[i2])
+    if wp.dot(n, ni) < 0:
+        # flip v1 v2
+        indices[i * 3 + 1] = i2
+        indices[i * 3 + 2] = i1
+
 class TOBJComplex:
     def __init__(self):
         '''
@@ -173,8 +191,9 @@ class TOBJComplex:
             v4 = np.ones((v.shape[0], 4), dtype = float)
             v4[:, :3] = v
             v = (v4 @ trans.T)[:, :3] 
-            V = np.vstack((V, v), dtype = float)
-            T = np.vstack((T, t + self.n_nodes), dtype = int)
+            # V = np.vstack((V, v), dtype = float)
+            V = np.vstack((V, v))
+            T = np.vstack((T, t + self.n_nodes))
             self.n_nodes += v.shape[0]
             self.n_tets += t.shape[0]
 
@@ -186,5 +205,10 @@ class TOBJComplex:
         self.T.assign(T)
 
         F = igl.boundary_facets(T)  
-        self.indices = wp.array(F, dtype = int)
+        n0 = np.ones(3, dtype = float)
+        N = igl.per_face_normals(V, F, n0)
+
+        self.indices = wp.array(F.reshape(-1), dtype = int)
+        normals = wp.array(N.reshape(-1), dtype = wp.vec3)
+        wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
         print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")

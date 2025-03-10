@@ -22,6 +22,6 @@ class RodComplex(SifakisFEM, TOBJComplex):
     def __init__(self):
         super().__init__()
         self.V = self.xcs.numpy()
-        self.F = self.indices.numpy()
+        self.F = self.indices.numpy().reshape(-1, 3)
         self.mid = np.mean(self.V, axis = 0)
         self.V0 = self.V - self.mid

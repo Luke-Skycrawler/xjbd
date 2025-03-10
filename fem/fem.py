@@ -9,8 +9,8 @@ from .params import *
 from warp.sparse import *
 from scipy.sparse import bsr_matrix
 
-# from .neo_hookean import PK1, tangent_stiffness, psi
-from .linear_elasticity import PK1, tangent_stiffness, psi
+from .neo_hookean import PK1, tangent_stiffness, psi
+# from .linear_elasticity import PK1, tangent_stiffness, psi
 @wp.struct 
 class Triplets:
     rows: wp.array(dtype = int)

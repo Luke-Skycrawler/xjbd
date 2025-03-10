@@ -1,5 +1,5 @@
 import warp as wp
-from collision_types import scalar, vec3, mat33, vec2, mat22
+from .collision_types import scalar, vec3, mat33, vec2, mat22
 
 @wp.func
 def beta_gamma_pt(x0: vec3, x1: vec3, x2: vec3, x3: vec3):

@@ -1,6 +1,6 @@
 import warp as wp
-from vf import dalpha_dx, dbeta_dx, dgamma_dx
-from collision_types import scalar, vec3, mat33
+from .vf import dalpha_dx, dbeta_dx, dgamma_dx
+from .collision_types import scalar, vec3, mat33
 
 @wp.kernel
 def dcdx_delta_kernel(q: wp.array2d(dtype = vec3), lam: wp.array2d(dtype = scalar), x: wp.array(dtype = vec3), t: wp.array2d(dtype = scalar), ret: wp.array2d(dtype = mat33), a: wp.array2d(dtype = vec3)):

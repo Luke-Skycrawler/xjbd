@@ -1,14 +1,26 @@
+import igl.triangle
 import warp as wp 
 import numpy as np
 from fem.params import FEMMesh
+from fem.fem import Triplets
 from typing import List
 import polyscope as ps
 import igl
-collision_eps = 0.01
+from warp.sparse import *
+
+wp.config.max_unroll = 0
+wp.init()
+from collision.hl import *
+from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
+from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
+from collision.dcdx_delta import *
+
+collision_eps = 1e-2
 PT_SET_SIZE = 4096
 EE_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
+stiffness = 1e7
 
 @wp.struct
 class TriangleSoup:
@@ -342,6 +354,148 @@ def compute_point_triangle_collision():
     wp.launch(compute_inverted_vertex, dim = (n_tets,), inputs = [triangle_soup.vertices, tet_complex, Bm, inverted])
     wp.launch(point_triangle_collision, dim = (n_nodes, ), inputs = [inverted, triangle_soup, pt_set])
 
+@wp.func
+def psd(x: float) -> float:
+    return wp.sqrt(wp.max(0.0, x))
+
+@wp.kernel
+def fill_collision_triplets(pt_set: CollisionList, triangle_soup: TriangleSoup, triplets: Triplets, rhs: wp.array(dtype = wp.vec3), stiffness: float):
+    tid = wp.tid()
+    pt = pt_set.a[tid]
+    x = pt[0]
+    t = pt[1]
+
+    it0 = triangle_soup.indices[t * 3]
+    it1 = triangle_soup.indices[t * 3 + 1]
+    it2 = triangle_soup.indices[t * 3 + 2]
+
+
+    idx = wp.vec4i(x, it0, it1, it2)
+
+    x0 = triangle_soup.vertices[x]
+    x1 = triangle_soup.vertices[it0]
+    x2 = triangle_soup.vertices[it1]
+    x3 = triangle_soup.vertices[it2]
+
+
+    e0p, e1p, e2p = C_vf(x0, x1, x2, x3)
+    # dcdx_delta_vf(x0, x1, x2, x3, dcdx_delta)
+    ds = dcvfdx_s(x0, x1, x2, x3)
+    l = signed_distance(e0p, e1p, e2p)
+
+    if l > 0.0:
+        pass
+    else: 
+        gl0, gl1, gl2 = gl(l, e2p)
+        lam0, lam1, lam2, lam3, q0, q1, q2, q3 = eig_Hl(e0p, e1p, e2p)
+        lam4 = 2.0
+        q4 = wp.mat33(0.0)
+        q4[2] = gl2
+        q0Tq0 = wp.length_sq(q0[0]) + wp.length_sq(q0[1]) + wp.length_sq(q0[2])
+        q1Tq1 = wp.length_sq(q1[0]) + wp.length_sq(q1[1]) + wp.length_sq(q1[2])
+        q2Tq2 = wp.length_sq(q2[0]) + wp.length_sq(q2[1]) + wp.length_sq(q2[2])
+        q3Tq3 = wp.length_sq(q3[0]) + wp.length_sq(q3[1]) + wp.length_sq(q3[2])
+        q4Tq4 = wp.length_sq(q4[0]) + wp.length_sq(q4[1]) + wp.length_sq(q4[2])
+
+        lam_tilde_0 = lam0 / q0Tq0
+        lam_tilde_1 = lam1 / q1Tq1
+        lam_tilde_2 = lam2 / q2Tq2
+        lam_tilde_3 = lam3 / q3Tq3
+        lam_tilde_4 = lam4 / q4Tq4
+
+    
+        lam_diag = wp.vector(
+            psd(lam_tilde_0),
+            psd(lam_tilde_1),
+            psd(lam_tilde_2),
+            psd(lam_tilde_3),
+            psd(lam_tilde_4)
+        )
+
+        # set forces
+        for i in range(4):
+            id = idx[i]
+            gi = 2.0 * e2p * ds[2, i] * stiffness
+            # gi = gl2 * ds[2, i] * stiffness
+            # as gl0 = gl1 = 0
+            wp.atomic_add(rhs, id, -gi)
+
+
+        
+        Lam = wp.diag(lam_diag)
+        dcdx_simple_mat = wp.matrix(
+            ds[0, 0], 0., 0.,     ds[0, 1], 0., 0.,     ds[0, 2], 0., 0.,     ds[0, 3], 0., 0.,
+            0., ds[0, 0], 0.,     0., ds[0, 1], 0.,     0., ds[0, 2], 0.,     0., ds[0, 3], 0.,
+            0., 0., ds[0, 0],     0., 0., ds[0, 1],     0., 0., ds[0, 2],     0., 0., ds[0, 3],
+
+            ds[1, 0], 0., 0.,     ds[1, 1], 0., 0.,     ds[1, 2], 0., 0.,     ds[1, 3], 0., 0.,
+            0., ds[1, 0], 0.,     0., ds[1, 1], 0.,     0., ds[1, 2], 0.,     0., ds[1, 3], 0.,
+            0., 0., ds[1, 0],     0., 0., ds[1, 1],     0., 0., ds[1, 2],     0., 0., ds[1, 3],
+
+            ds[2, 0], 0., 0.,     ds[2, 1], 0., 0.,     ds[2, 2], 0., 0.,     ds[2, 3], 0., 0.,
+            0., ds[2, 0], 0.,     0., ds[2, 1], 0.,     0., ds[2, 2], 0.,     0., ds[2, 3], 0.,
+            0., 0., ds[2, 0],     0., 0., ds[2, 1],     0., 0., ds[2, 2],     0., 0., ds[2, 3],
+
+            shape = (9, 12)
+        )
+        q_mat = wp.matrix(
+            q0[0, 0], q1[0, 0], q2[0, 0], q3[0, 0], q4[0, 0],
+            q0[0, 1], q1[0, 1], q2[0, 1], q3[0, 1], q4[0, 1],
+            q0[0, 2], q1[0, 2], q2[0, 2], q3[0, 2], q4[0, 2],
+            q0[1, 0], q1[1, 0], q2[1, 0], q3[1, 0], q4[1, 0],
+            q0[1, 1], q1[1, 1], q2[1, 1], q3[1, 1], q4[1, 1],
+            q0[1, 2], q1[1, 2], q2[1, 2], q3[1, 2], q4[1, 2],
+            q0[2, 0], q1[2, 0], q2[2, 0], q3[2, 0], q4[2, 0],
+            q0[2, 1], q1[2, 1], q2[2, 1], q3[2, 1], q4[2, 1],
+            q0[2, 2], q1[2, 2], q2[2, 2], q3[2, 2], q4[2, 2],
+            shape = (9, 5)
+        )
+
+        K = wp.transpose(dcdx_simple_mat) @ q_mat @ Lam
+        d2Psidx2 = K @ wp.transpose(K)
+        for ii in range(4):
+            for jj in range(4):
+                i = idx[ii]
+                j = idx[jj]
+                triplets.rows[tid] = i
+                triplets.cols[tid] = j
+                triplets.vals[tid] = wp.mat33(
+                    d2Psidx2[ii * 3, jj * 3], d2Psidx2[ii * 3, jj * 3 + 1], d2Psidx2[ii * 3, jj * 3 + 2],
+                    d2Psidx2[ii * 3 + 1, jj * 3], d2Psidx2[ii * 3 + 1, jj * 3 + 1], d2Psidx2[ii * 3 + 1, jj * 3 + 2],
+                    d2Psidx2[ii * 3 + 2, jj * 3], d2Psidx2[ii * 3 + 2, jj * 3 + 1], d2Psidx2[ii * 3 + 2, jj * 3 + 2]
+                ) * stiffness
+
+@wp.kernel
+def collision_energy_pt(pt_set: CollisionList, triangle_soup: TriangleSoup, inverted: wp.array(dtype = int), stiffness: float, e_col: wp.array(dtype = float)):
+    tid = wp.tid()
+    pt = pt_set.a[tid]
+    x = pt[0]
+    t = pt[1]
+
+    it0 = triangle_soup.indices[t * 3]
+    it1 = triangle_soup.indices[t * 3 + 1]
+    it2 = triangle_soup.indices[t * 3 + 2]
+
+
+    idx = wp.vec4i(x, it0, it1, it2)
+
+    x0 = triangle_soup.vertices[x]
+    x1 = triangle_soup.vertices[it0]
+    x2 = triangle_soup.vertices[it1]
+    x3 = triangle_soup.vertices[it2]
+
+
+    e0p, e1p, e2p = C_vf(x0, x1, x2, x3)
+    # dcdx_delta_vf(x0, x1, x2, x3, dcdx_delta)
+    # ds = dcvfdx_s(x0, x1, x2, x3)
+    l = signed_distance(e0p, e1p, e2p)
+
+    if l > 0.0: 
+        pass
+    else:
+        dpsi = l * l * stiffness
+        wp.atomic_add(e_col, 0, dpsi)
+
 class MeshCollisionDetector:
     def __init__(self, xcs, T, indices, E = None):
         '''
@@ -402,10 +556,16 @@ class MeshCollisionDetector:
         self.pt_set = pt_set
         self.ee_set = ee_set
 
+        self.e_col = wp.zeros((1, ), dtype = float)
+
         # FIXME: only here for a test. change it to actual neighing data 
+        TT, _ = igl.triangle_triangle_adjacency(self.F)
         self.neighbors = wp.zeros((n_triangles * 3, ), dtype = int)
-        self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
+        print(f"TT min = {np.min(TT)}")
+        self.neighbors.assign(TT.reshape(-1))
+        # self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
         # FIXME: might have no neighbors if it is a cloth
+        self.stiffness = stiffness
 
     def compute_edge_aabbs(self):
         wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers])
@@ -415,6 +575,7 @@ class MeshCollisionDetector:
         self.mesh_triangle_soup.refit()
 
     def collision_set(self, type = "all"):
+        self.refit()
         if type == "ee":
             self.ee_set.cnt.zero_()
             wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
@@ -427,15 +588,27 @@ class MeshCollisionDetector:
             return npt
         pass
 
-    def collision_energy(self):
-        pass
+    def collision_energy(self, npt = 0, nee = 0):
+        self.e_col.zero_()
+        wp.launch(collision_energy_pt, (npt, ), inputs = [self.pt_set, self.triangle_soup, self.inverted, self.stiffness, self.e_col])
 
-    def analyze(self):
+        ret = self.e_col.numpy()[0]
+        print(F"npt = {npt}, collision energy = {ret}")
+        return ret
+        # return 0.0
+
+    def analyze(self, rhs, npt = 0, nee = 0):
         '''
         returns the force and force derivatives
         '''
-        pass
+        triplets = Triplets()
+        triplets.rows = wp.zeros((npt * 16, ), dtype = int)
+        triplets.cols = wp.zeros_like(triplets.rows)
+        triplets.vals = wp.zeros((npt * 16, ), dtype = wp.mat33)
+        
+        wp.launch(fill_collision_triplets, (npt, ), inputs = [self.pt_set, self.triangle_soup, triplets, rhs, self.stiffness])
 
+        return triplets
 
 class TestViewer:
     '''

@@ -226,12 +226,13 @@ class RodBCBase:
     def line_search(self):
         # FIXME: not converged
         x_tmp = wp.clone(self.states.x)
-        E0 = self.compute_psi() + self.compute_inertia()
+        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
         alpha = 1.0
         while True:
             wp.copy(self.states.x, x_tmp)
             wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-            E1 = self.compute_psi() + self.compute_inertia()
+            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            
             if E1 < E0:
                 break
             if alpha < 1e-3:
@@ -240,8 +241,11 @@ class RodBCBase:
                 break
             alpha *= 0.5
 
-        print(f"alpha = {alpha}")
+        print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
         return alpha
+
+    def compute_collision_energy(self):
+        return 0.0
 
     def compute_psi(self):
         h = self.h

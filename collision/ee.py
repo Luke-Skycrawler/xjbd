@@ -1,6 +1,6 @@
 import warp as wp
 import numpy as np
-from collision_types import scalar, vec3, mat33, mat22, vec2
+from .collision_types import scalar, vec3, mat33, mat22, vec2
 
 @wp.func
 def C_ee(x0: vec3, x1: vec3, x2: vec3, x3: vec3):
