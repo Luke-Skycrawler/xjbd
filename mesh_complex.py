@@ -18,6 +18,22 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.n_pt = 0
         self.n_ee = 0
 
+    def reset(self):
+        n_verts = 4
+        if self.meshes_filename[0] == "assets/bar2.tobj":
+            n_verts = 525
+        elif self.meshes_filename[0] == "assets/tet.tobj":
+            n_verts = 4
+        elif self.meshes_filename[0] == "assets/bunny_5.tobj":
+            n_verts = 1356
+        wp.copy(self.states.x, self.xcs)
+        wp.copy(self.states.x0, self.xcs)
+        if self.meshes_filename[0] == "assets/tet.tobj":
+            wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+        else: 
+            wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+        
+
     def set_bc_fixed_hessian(self):
         pass
 
@@ -31,7 +47,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()
-            self.n_pt, self.n_ee = self.collider.collision_set("pt") 
+            self.n_pt, self.n_ee = self.collider.collision_set("all") 
             triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee)
             self.compute_rhs()
             self.add_collision_to_sys_matrix(triplets)
@@ -64,14 +80,6 @@ class RodComplexBC(RodBCBase, RodComplex):
         return self.collider.collision_energy(self.n_pt, self.n_ee) * self.h * self.h
         # return 0.0
 
-    def reset(self):
-        # bunny_5: 1356 vertices, bar2: 525 vertices
-        # n_verts = 1356
-        n_verts = 525
-        wp.copy(self.states.x, self.xcs)
-        wp.copy(self.states.x0, self.xcs)
-        wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        
 def multiple_drape():
     n_meshes = 3
     meshes = ["assets/bar2.tobj"] * n_meshes
@@ -92,6 +100,13 @@ def set_velocity_kernel(states: NewtonState, thres: int):
     if i >= thres:
         states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 
+@wp.kernel
+def set_vx_kernel(states: NewtonState, thres: int):
+    i = wp.tid()
+    states.xdot[i] = wp.vec3(0.0)
+    if i >= thres:
+        states.xdot[i] = wp.vec3(3.0, 0.0, 0.0)
+
 def staggered_bars():
     n_meshes = 2 
     meshes = ["assets/bar2.tobj"] * n_meshes
@@ -111,8 +126,9 @@ def tets():
     meshes = ["assets/tet.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     for i in range(n_meshes):
-        transforms[i][2, 3] = i * 2.0
-        # transforms[i][0, 3] = i * 0.5
+        transforms[i][0, 3] = i * -2.0
+        transforms[i][1, 3] = i * 0.5
+        transforms[i][2, 3] = i * 0.5
     
     rods = RodComplexBC(h, meshes, transforms)
     viewer = PSViewer(rods)

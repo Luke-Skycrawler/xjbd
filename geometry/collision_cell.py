@@ -453,7 +453,7 @@ def triangle_edge_intersection(t0: wp.vec3, t1: wp.vec3, t2: wp.vec3, e0: wp.vec
 
             if test1 or test2 or test3:
                 ret = False
-            if t < wp.length(e1 - e0):
+            elif t < wp.length(e1 - e0):
                 ret = True
     return ret
 
