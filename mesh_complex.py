@@ -52,34 +52,41 @@ class RodComplexBC(RodBCBase, RodComplex):
         pass
 
     def step(self):
-        newton_iter = True
-        n_iter = 0
-        max_iter = 5
-        # while n_iter < max_iter:
-        while newton_iter:
-            self.compute_A()
-            self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
-            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
-            self.compute_rhs()
-            self.add_collision_to_sys_matrix(triplets)
+        with wp.ScopedTimer("step"):
+            newton_iter = True
+            n_iter = 0
+            max_iter = 5
+            # while n_iter < max_iter:
+            while newton_iter:
+                with wp.ScopedTimer(f"newton #{n_iter}"):
+                    with wp.ScopedTimer("compute A"):
+                        self.compute_A()
+                    with wp.ScopedTimer("collision"):
+                        with wp.ScopedTimer("detection"):
+                            self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+                        with wp.ScopedTimer("hess & grad"):
+                            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                        with wp.ScopedTimer("build_from_triplets"):
+                            self.add_collision_to_sys_matrix(triplets)
+                    self.compute_rhs()
 
-            self.solve()
-            # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
-            
-            dxnp = self.states.dx.numpy()
-            norm_dx = np.linalg.norm(dxnp)
-            newton_iter = norm_dx > 1e-3 and n_iter < max_iter
-            if norm_dx < 1e-5:
-                break
+                    self.solve()
+                    # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+                    
+                    dxnp = self.states.dx.numpy()
+                    norm_dx = np.linalg.norm(dxnp)
+                    newton_iter = norm_dx > 1e-3 and n_iter < max_iter
+                    if norm_dx < 1e-5:
+                        break
 
-            # line search stuff, not converged yet
-            alpha = self.line_search()
-            if alpha == 0.0:
-                break
+                    # line search stuff, not converged yet
+                    alpha = self.line_search()
+                    if alpha == 0.0:
+                        break
 
-            print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
-            n_iter += 1
-        self.update_x0_xdot()
+                    print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
+                    n_iter += 1
+            self.update_x0_xdot()
 
     def add_collision_to_sys_matrix(self, triplets: Triplets):
 

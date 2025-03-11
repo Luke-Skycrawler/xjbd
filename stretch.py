@@ -226,9 +226,10 @@ class RodBCBase:
         wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
 
     def solve(self):
-        self.states.dx.zero_()
-        # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
-        cg(self.A, self.b, self.states.dx, 1e-6)
+        with wp.ScopedTimer("solve"):
+            self.states.dx.zero_()
+            # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+            cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
 
     def line_search(self):
         # FIXME: not converged
@@ -248,7 +249,7 @@ class RodBCBase:
                 break
             alpha *= 0.5
 
-        print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+        # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
         return alpha
 
     def compute_collision_energy(self):

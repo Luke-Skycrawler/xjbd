@@ -15,6 +15,7 @@ from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
 from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
+COLLISION_DEBUG = False
 collision_eps = 2e-2
 PT_SET_SIZE = 4096
 EE_SET_SIZE = 4096
@@ -788,38 +789,44 @@ class MeshCollisionDetector:
         self.mesh_triangle_soup.refit()
 
     def collision_set(self, type = "all"):
-        self.refit()
+        with wp.ScopedTimer("refit"):
+            self.refit()
         npt, nee = 0, 0
         n_ground = 0
 
-        if self.ground_enabled and (type == "ground" or type == "all"):
-            self.ground_set.cnt.zero_()
-            wp.launch(point_plane_collision, dim = (self.n_nodes, ), inputs = [self.triangle_soup, self.ground, self.ground_set])
-            n_ground = self.ground_set.cnt.numpy()[0]
-            min_y = np.min(self.triangle_soup.vertices.numpy()[:, 1])
-            print(f"verts y coord min = {min_y}, ground = {self.ground}")
-        if type == "ee" or type == "all":
-            self.ee_set.cnt.zero_()
-            wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
-            nee = self.ee_set.cnt.numpy()[0]
-            # col_set = self.ee_set.a.numpy()[:nee]
-            # np.save("ee_set.npy", col_set)
-            # np.save("edges.npy", self.edges.numpy())
-            # np.save("points.npy", self.triangle_soup.vertices.numpy())
+        with wp.ScopedTimer("ground"):
+            if self.ground_enabled and (type == "ground" or type == "all"):
+                self.ground_set.cnt.zero_()
+                wp.launch(point_plane_collision, dim = (self.n_nodes, ), inputs = [self.triangle_soup, self.ground, self.ground_set])
+                # n_ground = self.ground_set.cnt.numpy()[0]
+                if COLLISION_DEBUG:
+                    min_y = np.min(self.triangle_soup.vertices.numpy()[:, 1])
+                    print(f"verts y coord min = {min_y}, ground = {self.ground}")
+        with wp.ScopedTimer("ee"):
+            if type == "ee" or type == "all":
+                self.ee_set.cnt.zero_()
+                wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
+                # nee = self.ee_set.cnt.numpy()[0]
+                # col_set = self.ee_set.a.numpy()[:nee]
+                # np.save("ee_set.npy", col_set)
+                # np.save("edges.npy", self.edges.numpy())
+                # np.save("points.npy", self.triangle_soup.vertices.numpy())
+        with wp.ScopedTimer("pt"):
+            if type == "pt" or type == "all":
+                self.pt_set.cnt.zero_()
 
-        if type == "pt" or type == "all":
-            self.pt_set.cnt.zero_()
+                if self.Bm is not None:
+                    self.inverted.fill_(1)
+                    wp.launch(disable_interior_vertices, dim = (self.n_triangles * 3,), inputs = [self.triangle_soup, self.inverted])
+                    wp.launch(compute_inverted_vertex, dim = (self.n_tets,), inputs = [self.triangle_soup.vertices, self.T, self.Bm, self.inverted])
+                    if COLLISION_DEBUG:
+                        print(f"inverted sum = {np.sum(self.inverted.numpy())}")
+                # self.inverted.zero_()
 
-            if self.Bm is not None:
-                self.inverted.fill_(1)
-                wp.launch(disable_interior_vertices, dim = (self.n_triangles * 3,), inputs = [self.triangle_soup, self.inverted])
-                wp.launch(compute_inverted_vertex, dim = (self.n_tets,), inputs = [self.triangle_soup.vertices, self.T, self.Bm, self.inverted])
-                print(f"inverted sum = {np.sum(self.inverted.numpy())}")
-            # self.inverted.zero_()
+                wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
+                # npt = self.pt_set.cnt.numpy()[0]
 
-            wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
-            npt = self.pt_set.cnt.numpy()[0]
-
+        npt, nee, n_ground = self.pt_set.cnt.numpy()[0], self.ee_set.cnt.numpy()[0], self.ground_set.cnt.numpy()[0]
         return npt, nee, n_ground
 
     def collision_energy(self, npt = 0, nee = 0, n_ground = 0):
@@ -831,7 +838,8 @@ class MeshCollisionDetector:
         wp.launch(collision_energy_ground, (n_ground,), inputs = [self.ground, self.ground_set, self.triangle_soup, self.stiffness, self.e_col])
 
         ret = self.e_col.numpy()[0]
-        print(F"npt = {npt}, nee = {nee}, n_ground = {n_ground}, collision energy = {ret}")
+        if COLLISION_DEBUG:
+            print(F"npt = {npt}, nee = {nee}, n_ground = {n_ground}, collision energy = {ret}")
         return ret
         # return 0.0
 
