@@ -18,6 +18,7 @@ from collision.dcdx_delta import *
 collision_eps = 2e-2
 PT_SET_SIZE = 4096
 EE_SET_SIZE = 4096
+GROUND_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
 stiffness = 1e3
@@ -41,6 +42,16 @@ class EdgeEdgeCollisionList:
     a: wp.array(dtype = wp.vec2i)
     cnt: wp.array(dtype = int)
     bary: wp.array(dtype = wp.vec3)
+
+@wp.struct
+class GroundCollisionList:
+    a: wp.array(dtype = int)
+    cnt: wp.array(dtype = int)
+
+@wp.func
+def append(cl: GroundCollisionList, element: int):
+    id = wp.atomic_add(cl.cnt, 0, 1)
+    cl.a[id] = element
 
 @wp.func
 def append(cl: CollisionList, element: wp.vec2i):
@@ -280,6 +291,13 @@ def within_2_ring(i: int, j: int, edges: wp.array(dtype = int)) -> bool:
     return False
 
 @wp.kernel
+def point_plane_collision(triangle_soup: TriangleSoup, ground_plane: float, collision_list: GroundCollisionList):
+    i = wp.tid()
+    xi = triangle_soup.vertices[i]
+    if xi[1] < ground_plane:
+        append(collision_list, i)
+
+@wp.kernel
 def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup, edges_bvh: wp.uint64, collision_list: EdgeEdgeCollisionList):
     x = wp.tid()
     bary_closest = wp.vec3(0.0)
@@ -463,7 +481,23 @@ def fetch_triangle_points(i: int, x: wp.array(dtype = wp.vec3), indices: wp.arra
     ib = indices[i * 3 + 1]
     ic = indices[i * 3 + 2]
     return x[ia], x[ib], x[ic]
-    
+
+@wp.kernel
+def fill_collision_triplets_ground(triplets_offset: int, ground_plane: float, ground_set: GroundCollisionList, triangle_soup: TriangleSoup, triplets: Triplets, rhs: wp.array(dtype = wp.vec3), stiffness: float):
+    tid = wp.tid()
+    i = ground_set.a[tid]
+    xi = triangle_soup.vertices[i]
+
+    triplet_idx = triplets_offset * 16 + tid
+    if xi[1] < ground_plane:
+        gi = -2.0 * wp.vec3(0.0, ground_plane - xi[1], 0.0) * stiffness
+        wp.atomic_add(rhs, i, -gi)
+        hi = wp.mat33(0.0)
+        hi[1, 1] = 2.0 * stiffness
+        triplets.rows[triplet_idx] = i
+        triplets.cols[triplet_idx] = i
+        triplets.vals[triplet_idx] = hi
+
 @wp.kernel
 def fill_collision_triplets_ee(npt: int, ee_set: EdgeEdgeCollisionList, triangle_soup: TriangleSoup, triplets: Triplets, rhs: wp.array(dtype = wp.vec3), stiffness: float, edges: wp.array(dtype = int), neighbor_faces: wp.array(dtype = int)):
 
@@ -582,6 +616,16 @@ def lam_tilde_diag(q0: wp.mat33, q1: wp.mat33, q2: wp.mat33, q3: wp.mat33, q4: w
     return lam_diag
 
 @wp.kernel
+def collision_energy_ground(ground_plane: float, g_set: GroundCollisionList, triangle_soup: TriangleSoup, stiffness: float, e_col: wp.array(dtype = float)):
+    tid = wp.tid()
+    i = g_set.a[tid]
+    x = triangle_soup.vertices[i]
+    if x[1] < ground_plane:
+        dh = ground_plane - x[1]
+        dpsi = dh * dh * stiffness
+        wp.atomic_add(e_col, 0, dpsi)
+    
+@wp.kernel
 def collision_energy_pt(pt_set: CollisionList, triangle_soup: TriangleSoup, inverted: wp.array(dtype = int), stiffness: float, e_col: wp.array(dtype = float)):
     tid = wp.tid()
     pt = pt_set.a[tid]
@@ -654,7 +698,7 @@ def disable_interior_vertices(triangle_soup: TriangleSoup, inverted: wp.array(dt
     inverted[idx] = 0
 
 class MeshCollisionDetector:
-    def __init__(self, xcs, T, indices, Bm):
+    def __init__(self, xcs, T, indices, Bm, ground = None):
         '''
         heavy-lifting class for collision detection provided the reference to warp array of points and indices
         '''
@@ -668,6 +712,13 @@ class MeshCollisionDetector:
         self.n_tets = n_tets = T.shape[0]
         self.n_triangles = n_triangles = indices.shape[0] // 3
         
+        self.ground_enabled = True
+        self.ground = 0.0
+        if ground is None:
+            self.ground_enabled = False
+            self.ground = None
+        else:
+            self.ground = ground
 
         triangle_soup = TriangleSoup()
         triangle_soup.indices = indices
@@ -704,12 +755,16 @@ class MeshCollisionDetector:
         ee_set.a = wp.zeros(shape = (EE_SET_SIZE, ), dtype = wp.vec2i)
         ee_set.bary = wp.zeros(shape = (EE_SET_SIZE, 3), dtype = wp.vec3)
 
+        ground_set = GroundCollisionList()
+        ground_set.cnt = wp.zeros(shape = (1,), dtype = int)
+        ground_set.a = wp.zeros(shape = (GROUND_SET_SIZE, ), dtype = int)
 
         inverted = wp.zeros(shape = (n_nodes,), dtype = int)
 
         self.inverted = inverted
         self.pt_set = pt_set
         self.ee_set = ee_set
+        self.ground_set = ground_set
 
         self.e_col = wp.zeros((1, ), dtype = float)
 
@@ -735,6 +790,14 @@ class MeshCollisionDetector:
     def collision_set(self, type = "all"):
         self.refit()
         npt, nee = 0, 0
+        n_ground = 0
+
+        if self.ground_enabled and (type == "ground" or type == "all"):
+            self.ground_set.cnt.zero_()
+            wp.launch(point_plane_collision, dim = (self.n_nodes, ), inputs = [self.triangle_soup, self.ground, self.ground_set])
+            n_ground = self.ground_set.cnt.numpy()[0]
+            min_y = np.min(self.triangle_soup.vertices.numpy()[:, 1])
+            print(f"verts y coord min = {min_y}, ground = {self.ground}")
         if type == "ee" or type == "all":
             self.ee_set.cnt.zero_()
             wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
@@ -757,26 +820,29 @@ class MeshCollisionDetector:
             wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
             npt = self.pt_set.cnt.numpy()[0]
 
-        return npt, nee
+        return npt, nee, n_ground
 
-    def collision_energy(self, npt = 0, nee = 0):
+    def collision_energy(self, npt = 0, nee = 0, n_ground = 0):
         self.e_col.zero_()
         wp.launch(collision_energy_pt, (npt, ), inputs = [self.pt_set, self.triangle_soup, self.inverted, self.stiffness, self.e_col])
 
         wp.launch(collision_energy_ee, (nee, ), inputs = [self.ee_set, self.triangle_soup, self.inverted, self.stiffness, self.edges, self.neighbor_faces, self.e_col])
+
+        wp.launch(collision_energy_ground, (n_ground,), inputs = [self.ground, self.ground_set, self.triangle_soup, self.stiffness, self.e_col])
+
         ret = self.e_col.numpy()[0]
-        print(F"npt = {npt}, nee = {nee}, collision energy = {ret}")
+        print(F"npt = {npt}, nee = {nee}, n_ground = {n_ground}, collision energy = {ret}")
         return ret
         # return 0.0
 
-    def analyze(self, rhs, npt = 0, nee = 0):
+    def analyze(self, rhs, npt = 0, nee = 0, n_ground = 0):
         '''
         returns the force and force derivatives
         '''
         triplets = Triplets()
-        triplets.rows = wp.zeros(((npt + nee) * 16, ), dtype = int)
+        triplets.rows = wp.zeros(((npt + nee) * 16 + n_ground, ), dtype = int)
         triplets.cols = wp.zeros_like(triplets.rows)
-        triplets.vals = wp.zeros(((npt + nee) * 16, ), dtype = wp.mat33)
+        triplets.vals = wp.zeros(((npt + nee) * 16 + n_ground, ), dtype = wp.mat33)
         wp.launch(fill_collision_triplets, (npt, ), inputs = [self.pt_set, self.triangle_soup, triplets, rhs, self.stiffness])
         
 
@@ -790,6 +856,7 @@ class MeshCollisionDetector:
         # wp.copy(triplets.cols, triplets_ee.cols, npt * 16, 0, nee * 16)
         # wp.copy(triplets.vals, triplets_ee.vals, npt * 16, 0, nee * 16)
 
+        wp.launch(fill_collision_triplets_ground, (n_ground, ), inputs = [npt + nee, self.ground, self.ground_set, self.triangle_soup, triplets, rhs, self.stiffness])
         return triplets
 
 class TestViewer:
@@ -856,7 +923,7 @@ class TestViewer:
         self.collider.compute_edge_aabbs()
         self.collider.edges_bvh.refit()
 
-        _, nee = self.collider.collision_set("ee")
+        _, nee, _ = self.collider.collision_set("ee")
         
         if nee:
             self.ps_mesh.set_color((1.0, 0.0, 0.0))
@@ -868,7 +935,7 @@ class TestViewer:
 
         self.collider.mesh_triangle_soup.refit()
         
-        npt, _ = self.collider.collision_set("pt")
+        npt, _, _ = self.collider.collision_set("pt")
         # print(f"npt = {npt}")
         if npt:
             self.ps_mesh.set_color((1.0, 1.0, 0.0))

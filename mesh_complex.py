@@ -14,9 +14,10 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
-        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm)
+        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0)
         self.n_pt = 0
         self.n_ee = 0
+        self.n_ground = 0
 
     def reset(self):
         n_verts = 4
@@ -47,8 +48,8 @@ class RodComplexBC(RodBCBase, RodComplex):
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()
-            self.n_pt, self.n_ee = self.collider.collision_set("all") 
-            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee)
+            self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
             self.compute_rhs()
             self.add_collision_to_sys_matrix(triplets)
 
@@ -77,7 +78,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
-        return self.collider.collision_energy(self.n_pt, self.n_ee) * self.h * self.h
+        return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 
 def multiple_drape():
@@ -113,8 +114,9 @@ def staggered_bars():
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     for i in range(n_meshes):
-        transforms[i][2, 3] = i * 1.0
         transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 0.2
+        transforms[i][2, 3] = i * 1.0
     
     rods = RodComplexBC(h, meshes, transforms)
     viewer = PSViewer(rods)
@@ -137,7 +139,8 @@ def tets():
 
 if __name__ == "__main__":
     ps.init()
-    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_mode("none")
+    ps.set_ground_plane_height(0.0)
     wp.config.max_unroll = 0
     wp.init()
 

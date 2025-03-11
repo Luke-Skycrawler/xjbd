@@ -1,12 +1,12 @@
 import warp as wp 
 import numpy as np 
-import cupy
-# from scipy.linalg import eigh, null_space
+# import cupy
+from scipy.linalg import eigh
 from scipy.sparse.linalg import eigsh
-from cupy.linalg import eigh
+# from cupy.linalg import eigh
 import igl
 from .params import *
-from warp.sparse import *
+from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from scipy.sparse import bsr_matrix
 
 from .neo_hookean import PK1, tangent_stiffness, psi
@@ -292,8 +292,10 @@ class SifakisFEM:
     def eigs(self):
         # lam, Q = eigh(self.K, self.M)
         print("start eigs")
-        lam, Q = eigh(cupy.array(self.K))
-        return lam.get(), Q.get()
+        lam, Q = eigh(self.K)
+        return lam, Q
+        # lam, Q = eigh(cupy.array(self.K))
+        # return lam.get(), Q.get()
     
     def eigs_sparse(self):
         K = self.to_scipy_bsr()

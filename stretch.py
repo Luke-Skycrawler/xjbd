@@ -9,7 +9,7 @@ from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
-gravity = wp.vec3(0, -0.0, 0)
+gravity = wp.vec3(0, -10.0, 0)
 eps = 1e-4
 h = 1e-2
 rho = 1e3
@@ -136,8 +136,7 @@ class RodBCBase:
     fem with boundary condition and dynamic attributes
     '''
 
-    def  __init__(self, h, filename = default_tobj):
-        self.filename = filename
+    def  __init__(self, h):
         super().__init__()
         self.define_M()
         self.states = NewtonState()
@@ -268,7 +267,8 @@ class RodBCBase:
 
 class RodBC(RodBCBase, Rod):
     def __init__(self, h, filename = default_tobj):
-        super().__init__(h, filename)
+        self.filename = filename
+        super().__init__(h)
 
 def drape():
     # rod = RodBC(h, "assets/elephant.mesh")
