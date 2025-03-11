@@ -223,7 +223,6 @@ class SifakisFEM:
     def __init__(self):
         super().__init__()
         n_unknowns = 3 * self.n_nodes
-        self.a = wp.zeros((n_unknowns, n_unknowns), dtype = wp.float32)
         self.b = wp.zeros((self.n_nodes, ), dtype = wp.vec3)
         self.Bm = wp.zeros((self.n_tets), dtype = wp.mat33)
         self.W = wp.zeros((self.n_tets), dtype = wp.float32)
@@ -265,7 +264,7 @@ class SifakisFEM:
         
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
         
-        self.K = self.to_scipy_bsr().toarray()
+        # self.K = self.to_scipy_bsr().toarray()
         
 
     def to_scipy_bsr(self):

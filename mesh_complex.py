@@ -1,14 +1,21 @@
 import warp as wp
-from stretch import RodBCBase, PSViewer, NewtonState, Triplets, add_dx
+from stretch import RodBCBase, PSViewer, NewtonState, Triplets, add_dx, h
 from fem.interface import Rod, RodComplex
 import polyscope as ps
 import numpy as np
 # collision add-ons
-from geometry.collision_cell import MeshCollisionDetector
-
+from geometry.collision_cell import MeshCollisionDetector, collision_eps
+from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
-h = 1e-2
         
+@wp.kernel
+def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
+    i = wp.tid()
+    j = i // n_verts
+    pi = positions[j]
+    v = wp.vec3(-pi[0], 0.0, -pi[2])
+    states.xdot[i] = v * 0.5
+
 class RodComplexBC(RodBCBase, RodComplex):
     def __init__(self, h, meshes = [], transforms = []):
         self.meshes_filename = meshes 
@@ -32,7 +39,10 @@ class RodComplexBC(RodBCBase, RodComplex):
         if self.meshes_filename[0] == "assets/tet.tobj":
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
-            wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+            # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+            pos = self.transforms[:, :3, 3]
+            positions = wp.array(pos, dtype = wp.vec3)
+            wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
         
 
     def set_bc_fixed_hessian(self):
@@ -137,14 +147,79 @@ def tets():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+@wp.func
+def int_pow(base: int, exp: int, mod: int) -> int:
+    result = int(1)
+    x = int(base)
+    n = int(exp)
+
+    while n > 0:
+        if n & 1:  # If n is odd, multiply by current base
+            result *= x
+            result %= mod
+        x *= x  # Square the base
+        x %= mod
+        n >>= 1  # Divide exponent by 2
+
+    return result
+
+@wp.kernel(enable_backward=False)
+def init_transforms(transforms: wp.array(dtype = wp.mat44), bb_x: float, bb_y: float, bb_z: float):
+    i = wp.tid()
+    bb = wp.vec3(bb_x, bb_y, bb_z)
+    max_axis = wp.max(bb)
+    scale = 1.0 / max_axis
+    # ti = wp.diag(wp.vec4(scale, scale, scale, 1.0))
+    ti = wp.mat44(0.0)
+    ti[3, 3] = 1.0
+    grid_dims = wp.vec3i(11, 13, 19)
+    
+    pos = wp.vec3(0.0)
+    for dim in range(3):
+        xd = int_pow(7, i, grid_dims[dim])
+        pos[dim] = float(xd) / float(grid_dims[dim]) * 10.0 - 5.0
+    pos[1] = wp.abs(pos[1]) + 1.0
+
+    rng = wp.rand_init(123 + i)
+    axis = wp.vec3(wp.randf(rng), wp.randf(rng), wp.randf(rng))
+    axis = wp.normalize(axis)
+    angle = wp.randf(rng) * 2.0 * 3.14159
+    q = wp.quat_from_axis_angle(axis, angle)
+    rot = wp.quat_to_matrix(q)
+    
+    # transforms[i] = rot @ ti    
+    for dim in range(3):
+        for jj in range(3):
+            ti[dim, jj] = rot[dim, jj] * scale
+        ti[dim, 3] = pos[dim]
+
+    transforms[i] = ti
+
+
+    
+def bunny_rain():
+    n_meshes = 10
+    meshes = ["assets/bunny_5.tobj"] * n_meshes
+    
+    transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
+    v, _ = import_tobj(meshes[0])
+    bb_size = np.max(v, axis = 0) - np.min(v, axis = 0)
+    wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
+    print(f"bb_size = {bb_size}")
+    rods = RodComplexBC(h, meshes, transforms.numpy())
+    viewer = PSViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+    
 if __name__ == "__main__":
     ps.init()
     # ps.set_ground_plane_mode("none")
-    ps.set_ground_plane_height(0.0)
+    ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
 
     # multiple_drape()
     # drape()
-    staggered_bars()
+    # staggered_bars()
     # tets()
+    bunny_rain()

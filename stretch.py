@@ -9,9 +9,9 @@ from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
-gravity = wp.vec3(0, -10.0, 0)
+gravity = wp.vec3(0, -2.0, 0)
 eps = 1e-4
-h = 1e-2
+h = 5e-3
 rho = 1e3
 @wp.struct 
 class NewtonState: 
@@ -228,7 +228,7 @@ class RodBCBase:
     def solve(self):
         self.states.dx.zero_()
         # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
-        cg(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
+        cg(self.A, self.b, self.states.dx, 1e-6)
 
     def line_search(self):
         # FIXME: not converged
