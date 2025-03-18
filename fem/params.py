@@ -1,6 +1,7 @@
 import warp as wp
 L, W = 1, 0.2
-mu, rho, lam = 2e6, 1., 125.0
+# mu, rho, lam = 2e6, 1., 125.0
+mu, rho, lam = 2e6, 1., 50.0
 g = 10.
 n_x = 20
 n_yz = 4
