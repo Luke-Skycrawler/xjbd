@@ -130,6 +130,8 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
+            ps.screenshot(f"output/{self.frame:04d}.jpg")
+
         
 class RodBCBase:
     '''

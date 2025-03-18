@@ -205,7 +205,7 @@ def init_transforms(transforms: wp.array(dtype = wp.mat44), bb_x: float, bb_y: f
 
     
 def bunny_rain():
-    n_meshes = 10
+    n_meshes = 20
     meshes = ["assets/bunny_5.tobj"] * n_meshes
     
     transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
@@ -220,6 +220,7 @@ def bunny_rain():
     
 if __name__ == "__main__":
     ps.init()
+    ps.look_at((0, 4, 8), (0, 2, 0))
     # ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
