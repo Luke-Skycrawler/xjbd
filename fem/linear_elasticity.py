@@ -15,7 +15,8 @@ def psi(F: wp.mat33) -> float:
     psi = mu eps : eps + lam/2 (tr(eps))^2
     '''
     eps = 0.5 * (F + wp.transpose(F)) - wp.identity(3, dtype = float)
-    norm_eps = wp.trace(wp.transpose(eps) @ eps)
+    # norm_eps = wp.trace(wp.transpose(eps) @ eps)
+    norm_eps = wp.ddot(eps, eps)
     tre = wp.trace(eps)
     return mu * norm_eps + lam * 0.5 * tre * tre
 
