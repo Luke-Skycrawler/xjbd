@@ -13,6 +13,7 @@ from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_
 from fast_cd import RodLBSWeight
 import os 
 from scipy.linalg import cholesky, cho_solve, cho_factor
+from igl import lbs_matrix
 class ReducedRodComplex(RodComplexBC):
     def __init__(self, h, meshes = [], transforms = []):
         super().__init__(h, meshes, transforms)
@@ -67,8 +68,8 @@ class ReducedRod(RodLBSWeight):
     def define_UTKU(self):
         model = "bar2"
         Q = None
-        # if not os.path.exists(f"data/W_{model}.npy"):
-        if True:
+        if not os.path.exists(f"data/W_{model}.npy"):
+        # if True:
             _, Q = self.eigs()
             np.save(f"data/W_{model}.npy", Q)
         else:
@@ -95,6 +96,12 @@ class ReducedRod(RodLBSWeight):
 
         self.uktu = (self.uu.transpose() @ self.kk @ self.uu).toarray()
         self.sys_matrix = self.h * self.h * self.uktu + np.identity(self.n_modes * 12)
+
+        self.B = lbs_matrix(self.xcs.numpy(), Q)
+        self.T = np.zeros((4 * self.n_modes, 3), dtype = float)
+        self.T[:3, :] = np.eye(3)
+        
+        self.verify_J()
         
 
         
@@ -103,7 +110,23 @@ class ReducedRod(RodLBSWeight):
         # self.sys_matrix = self.to_scipy_bsr(self.UTKU).toarray() + np.identity(self.n_modes * 12)
 
         self.c, self.lower = cho_factor(self.sys_matrix, lower = True)
-        
+    
+    def verify_J(self):
+        i = np.random.randint(0, self.n_nodes)
+        # j = np.random.randint(0, self.n_modes * 12)  
+        j = np.random.randint(0, 2 * 12)  
+        Tp = np.copy(self.T)
+        Tn = np.copy(self.T)
+        dt = 1e-2
+        Tp[j // 3, j % 3] = +dt
+        Tn[j // 3, j % 3] = -dt
+        dx = self.B @ (Tp - Tn)
+        dx_ana = self.uu @ (Tp - Tn).reshape(-1)
+
+        print(f"i = {i}, j = {j}, dx = {dx}, dx_ana = {dx_ana}")
+        print(f"diff = {np.linalg.norm(dx.reshape(-1) - dx_ana)}")
+        print(f"dx norm = {np.linalg.norm(dx.reshape(-1))}")
+        quit()
     def step(self):
         b = self.compute_rhs()
         dx = self.solve(b)
