@@ -77,8 +77,8 @@ class RodLBSWeight(Rod):
         # print("start weight space eigs")
         with wp.ScopedTimer("weight space eigs"):
             lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
-            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-            Q /= Q_norm
+            # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+            # Q /= Q_norm
         return lam, Q
         
     def to_scipy_csr(self):

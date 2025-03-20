@@ -61,13 +61,14 @@ class ReducedRod(RodLBSWeight):
         self.z0 = np.zeros_like(self.z)
         self.dz = np.zeros_like(self.z)
 
-        for i in range(self.n_modes):
+        for i in range(10):
             self.z0[i * 12: i * 12 + 12] = np.eye(4, 3, dtype = float).reshape(-1)
             self.z[i * 12: i * 12 + 12] = np.eye(4, 3, dtype = float).reshape(-1)
     def define_UTKU(self):
         model = "bar2"
         Q = None
-        if not os.path.exists(f"data/W_{model}.npy"):
+        # if not os.path.exists(f"data/W_{model}.npy"):
+        if True:
             _, Q = self.eigs()
             np.save(f"data/W_{model}.npy", Q)
         else:
@@ -116,8 +117,8 @@ class ReducedRod(RodLBSWeight):
     def update_x0_xdot(self, dx):
         # self.dz.assign(dx.reshape(-1, 3))
         # wp.launch(update_z0_zdot, (self.n_modes * 4,), inputs = [self.z, self.zdot, self.z0, self.dz, self.h])
-        self.zdot = dx / self.h
-        self.z = self.z0 + dx
+        self.zdot = -dx / self.h
+        self.z = self.z0 - dx
         self.z0 = self.z
         
         
@@ -131,10 +132,10 @@ class ReducedRod(RodLBSWeight):
         
 class PSViewer:
     def __init__(self, rod: ReducedRod):
-        self.V = rod.xcs.numpy()
+        self.V0 = rod.xcs.numpy()
         self.F = rod.F
 
-        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
+        self.ps_mesh = ps.register_surface_mesh("rod", self.V0, self.F)
         self.frame = 0
         self.rod = rod
         self.ui_pause = True
@@ -151,8 +152,8 @@ class PSViewer:
         if self.animate: 
             self.rod.step()
             # self.V = self.rod.states.x.numpy()
-            self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3)
-            print(f"V = {self.V}")
+            self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3) - self.V0
+            # print(f"V = {self.V}")
             self.ps_mesh.update_vertex_positions(self.V)
             self.frame += 1
             
