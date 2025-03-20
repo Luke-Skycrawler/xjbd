@@ -27,3 +27,10 @@ python modal_warping.py
 ```
 python -m geometry.collision_cell
 ```
+
+#### Fast Complimentary Dynamics
+
+implements unconstrained "Fast Complementary Dynamics via Skinning Eigenmodes" weights generation. 
+```
+python fast_cd.py
+```
