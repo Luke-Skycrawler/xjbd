@@ -6,7 +6,7 @@ from scipy.sparse.linalg import eigsh
 # from cupy.linalg import eigh
 import igl
 from .params import *
-from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
+from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, BsrMatrix
 from scipy.sparse import bsr_matrix
 
 # from .neo_hookean import PK1, tangent_stiffness, psi
@@ -268,12 +268,15 @@ class SifakisFEM:
         # self.K = self.to_scipy_bsr().toarray()
         
 
-    def to_scipy_bsr(self):
-        ii = self.K_sparse.offsets.numpy()
-        jj = self.K_sparse.columns.numpy()
-        values = self.K_sparse.values.numpy()
-
-        bsr = bsr_matrix((values, jj, ii), shape = (self.n_nodes * 3, self.n_nodes * 3), blocksize = (3 , 3))
+    def to_scipy_bsr(self, mat: BsrMatrix = None):
+        if mat is None:
+            mat = self.K_sparse
+        ii = mat.offsets.numpy()
+        jj = mat.columns.numpy()
+        values = mat.values.numpy()
+        shape = (mat.nrow * 3, mat.ncol * 3) 
+        print(f"shape = {shape}, values = {values.shape}, ii = {ii.shape}, jj = {jj.shape}")
+        bsr = bsr_matrix((values, jj, ii), shape = mat.shape, blocksize = (3 , 3))
         # return bsr.toarray()
         return bsr
 
