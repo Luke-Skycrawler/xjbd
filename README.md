@@ -38,3 +38,9 @@ Screenshot output folder default to `output/`
 ```
 python mesh_complex.py
 ```
+#### Fast Complimentary Dynamics
+
+Implements unconstrained "Fast Complementary Dynamics via Skinning Eigenmodes" weights generation. 
+```
+python fast_cd.py
+```
