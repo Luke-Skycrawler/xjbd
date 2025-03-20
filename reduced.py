@@ -45,26 +45,47 @@ def update_z0_zdot(z: wp.array(dtype = wp.vec3), zdot: wp.array(dtype = wp.vec3)
     zdot[i] = dz[i] / h
     z0[i] = z[i]
 
+def skew(w):
+    return np.array(
+        [[0.0, -w[2], w[1]], 
+        [w[2], 0.0, -w[0]], 
+        [-w[1], w[0], 0.0]], dtype = float 
+    )
+
 class ReducedRod(RodLBSWeight):
     def __init__(self, h):
         super().__init__()
         self.h = h
         self.define_UTKU()
-
+        self.reset()
 
         # self.z = wp.zeros((self.n_modes * 4,), dtype = wp.vec3)
         # self.zdot = wp.zeros_like(self.z)
         # self.z0 = wp.zeros_like(self.z)
         # self.dz = wp.zeros_like(self.z)
         # z - tilde z
-        self.z = np.zeros((self.n_modes * 12,), dtype = float)
+    def reset(self):
+        self.T = np.zeros((4 * self.n_modes, 3), dtype = float)
+        self.T[:3, :] = np.eye(3)
+        self.z = self.T.reshape(-1)
+        self.z0 = np.copy(self.z)
         self.zdot = np.zeros_like(self.z)
-        self.z0 = np.zeros_like(self.z)
         self.dz = np.zeros_like(self.z)
+        self.z_rest = np.copy(self.z)
 
+        tmp = np.zeros((4, 3))
+        tmp[:3, :] = skew([0.0, 0.0, 2.0])
         for i in range(10):
-            self.z0[i * 12: i * 12 + 12] = np.eye(4, 3, dtype = float).reshape(-1)
-            self.z[i * 12: i * 12 + 12] = np.eye(4, 3, dtype = float).reshape(-1)
+            self.zdot[i * 12: i * 12 + 12] = tmp.reshape(-1)
+        
+        # self.z = np.zeros((self.n_modes * 12,), dtype = float)
+        # self.zdot = np.zeros_like(self.z)
+        # self.z0 = np.zeros_like(self.z)
+        # self.dz = np.zeros_like(self.z)
+
+        # for i in range(1):
+        #     self.z0[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
+        #     self.z[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
     def define_UTKU(self):
         model = "bar2"
         Q = None
@@ -98,11 +119,9 @@ class ReducedRod(RodLBSWeight):
         self.sys_matrix = self.h * self.h * self.uktu + np.identity(self.n_modes * 12)
 
         self.B = lbs_matrix(self.xcs.numpy(), Q)
-        self.T = np.zeros((4 * self.n_modes, 3), dtype = float)
-        self.T[:3, :] = np.eye(3)
         
-        self.verify_J()
-        
+        # self.verify_J()
+        # self.verify_transform()
 
         
         # self.UTKU = bsr_mm(bsr_transposed(self.U), bsr_mm(self.K_sparse, self.U), alpha = self.h * self.h)
@@ -111,25 +130,39 @@ class ReducedRod(RodLBSWeight):
 
         self.c, self.lower = cho_factor(self.sys_matrix, lower = True)
     
+    def verify_transform(self):
+        x_ref  = self.B @ self.T
+        V0 = self.xcs.numpy()
+        x = (self.uu @ self.T.reshape(-1)).reshape((-1, 3))
+        print(f"diff x_ref - x =  {np.linalg.norm(x_ref - x)}")
+        print(f"diff x_ref = {x_ref - x}")
+        quit()
+        
+        
     def verify_J(self):
-        i = np.random.randint(0, self.n_nodes)
-        # j = np.random.randint(0, self.n_modes * 12)  
-        j = np.random.randint(0, 2 * 12)  
-        Tp = np.copy(self.T)
-        Tn = np.copy(self.T)
-        dt = 1e-2
-        Tp[j // 3, j % 3] = +dt
-        Tn[j // 3, j % 3] = -dt
-        dx = self.B @ (Tp - Tn)
-        dx_ana = self.uu @ (Tp - Tn).reshape(-1)
+        for kk in range(20):
+            i = np.random.randint(0, self.n_nodes)
+            j = np.random.randint(0, self.n_modes * 12)  
+            # j = np.random.randint(0, 2 * 12)  
+            Tp = np.copy(self.T)
+            Tn = np.copy(self.T)
+            dt = 1e-2
+            Tp[j // 3, j % 3] = +dt
+            Tn[j // 3, j % 3] = -dt
+            dx = self.B @ (Tp - Tn)
+            dx_ana = self.uu @ (Tp - Tn).reshape(-1)
 
-        print(f"i = {i}, j = {j}, dx = {dx}, dx_ana = {dx_ana}")
-        print(f"diff = {np.linalg.norm(dx.reshape(-1) - dx_ana)}")
-        print(f"dx norm = {np.linalg.norm(dx.reshape(-1))}")
+            print(f"i = {i}, j = {j}, dx = {dx}, dx_ana = {dx_ana}")
+            print(f"diff = {np.linalg.norm(dx.reshape(-1) - dx_ana)}")
+            print(f"dx norm = {np.linalg.norm(dx.reshape(-1))}")
         quit()
     def step(self):
         b = self.compute_rhs()
+        print(f"norm b = {np.linalg.norm(b)}")
         dx = self.solve(b)
+        self.z -= dx
+        rhs2 = self.compute_rhs()
+        print(f"norm rhs2 = {np.linalg.norm(rhs2)}")
         self.update_x0_xdot(dx)
         
 
@@ -140,15 +173,14 @@ class ReducedRod(RodLBSWeight):
     def update_x0_xdot(self, dx):
         # self.dz.assign(dx.reshape(-1, 3))
         # wp.launch(update_z0_zdot, (self.n_modes * 4,), inputs = [self.z, self.zdot, self.z0, self.dz, self.h])
-        self.zdot = -dx / self.h
-        self.z = self.z0 - dx
-        self.z0 = self.z
+        self.zdot[:] = -dx / self.h
+        self.z0[:] = self.z
         
         
     def compute_rhs(self):
         # wp.launch(inertia_term, (self.n_modes * 4), input = [self.z, self.zdot, self.z0, self.dz, self.h])
         self.dz = self.z - (self.z0 + self.h * self.zdot)
-        b = self.uktu @ self.z * self.h * self.h + self.dz
+        b = self.uktu @ (self.z - self.z_rest) * self.h * self.h + self.dz
         return b
         # bsr_mv(self.UTKU, self.z, self.dz, alpha = self.h * self.h, beta  = 1.0)
         # return self.dz.numpy().reshape(-1)
@@ -157,10 +189,10 @@ class PSViewer:
     def __init__(self, rod: ReducedRod):
         self.V0 = rod.xcs.numpy()
         self.F = rod.F
-
-        self.ps_mesh = ps.register_surface_mesh("rod", self.V0, self.F)
-        self.frame = 0
         self.rod = rod
+        self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3)
+        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
+        self.frame = 0
         self.ui_pause = True
         self.animate = False
     def callback(self):
@@ -175,14 +207,14 @@ class PSViewer:
         if self.animate: 
             self.rod.step()
             # self.V = self.rod.states.x.numpy()
-            self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3) - self.V0
+            self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3)
             # print(f"V = {self.V}")
             self.ps_mesh.update_vertex_positions(self.V)
             self.frame += 1
             
             print("frame = ", self.frame)
 
-            ps.screenshot(f"output/{self.frame:04d}.jpg")
+            # ps.screenshot(f"output/{self.frame:04d}.jpg")
 
 def reduced_bunny_rain():
     n_meshes = 10
