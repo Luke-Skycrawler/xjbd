@@ -9,7 +9,7 @@ from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
-gravity = wp.vec3(0, -2.0, 0)
+gravity = wp.vec3(0, -0.0, 0)
 eps = 1e-4
 h = 5e-3
 rho = 1e3
@@ -130,7 +130,7 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
-            ps.screenshot(f"output/{self.frame:04d}.jpg")
+            # ps.screenshot(f"output/{self.frame:04d}.jpg")
 
         
 class RodBCBase:

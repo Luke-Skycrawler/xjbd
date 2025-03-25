@@ -1,7 +1,7 @@
 import warp as wp
 from fem.interface import RodComplex
-from stretch import RodBCBase, NewtonState, Triplets, h
-from mesh_complex import RodComplexBC, init_transforms
+from stretch import RodBCBase, NewtonState, Triplets, h, add_dx, PSViewer
+from mesh_complex import RodComplexBC, init_transforms, init_velocities
 
 import polyscope as ps
 import polyscope.imgui as gui
@@ -12,13 +12,134 @@ from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
 from fast_cd import RodLBSWeight
 import os 
-from scipy.linalg import cholesky, cho_solve, cho_factor
+from scipy.linalg import solve
+from scipy.io import loadmat
 from igl import lbs_matrix
+from fast_cd import CSRTriplets, compute_Hw
+from scipy.sparse import csr_matrix
+
+def dxdq_jacobian(n_nodesx3, V):
+    n_nodes = n_nodesx3 // 3
+    q6 = np.zeros((n_nodesx3, 6))
+    skew = lambda x: np.array([[0, -x[2], x[1]], [x[2], 0, -x[0]], [-x[1], x[0], 0]])
+    print(f"n_nodes: {n_nodes}")
+    for i in range(n_nodes):
+        q6[3 * i: 3 * i + 3, : 3] = np.eye(3)
+    for i in range(V.shape[0]):
+        q6[3 * i: 3 * i + 3, 3:] = skew(V[i])
+    return q6
+
+@wp.kernel
+def init_spin(states: NewtonState):
+    i = wp.tid()
+    axis = wp.vec3(0., 1., 0.)
+    pi = states.x[i]
+    xdot = wp.cross(axis, pi)
+    states.xdot[i] = xdot
+
 class ReducedRodComplex(RodComplexBC):
-    def __init__(self, h, meshes = [], transforms = []):
+    def __init__(self, h, meshes = [], transforms = []) :
         super().__init__(h, meshes, transforms)
 
+        self.define_Hw()
+        self.define_U()
+        n_reduced = self.n_modes * 12
+        self.A_reduced = np.zeros((n_reduced, n_reduced))
+        self.b_reduced = np.zeros(n_reduced)
 
+    def eigs(self):
+        K = self.to_scipy_csr()
+        # print("start weight space eigs")
+        with wp.ScopedTimer("weight space eigs"):
+            lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
+            # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+            # Q /= Q_norm
+        return lam, Q
+        
+    def to_scipy_csr(self):
+        ii = self.Hw.offsets.numpy()
+        jj = self.Hw.columns.numpy()
+        values = self.Hw.values.numpy()
+
+        csr = csr_matrix((values, jj, ii), shape = (self.n_nodes, self.n_nodes))
+        return csr
+        
+    def define_Hw(self):
+        self.triplets_Hw = CSRTriplets()
+        self.triplets_Hw.rows = wp.zeros((self.n_tets * 4 * 4,), dtype = int)
+        self.triplets_Hw.cols = wp.zeros_like(self.triplets_Hw.rows)
+        self.triplets_Hw.vals = wp.zeros((self.n_tets * 4 *4), dtype = float)
+        
+        self.Hw = bsr_zeros(self.n_nodes, self.n_nodes, float)
+        wp.launch(compute_Hw, (self.n_tets * 4 * 4,), inputs = [self.triplets, self.triplets_Hw])
+        bsr_set_from_triplets(self.Hw, self.triplets_Hw.rows, self.triplets_Hw.cols, self.triplets_Hw.vals)
+
+
+    def define_U(self):
+        # self.n_modes = 1
+        # self.U = np.kron(np.hstack((self.xcs.numpy(), np.ones((self.n_nodes, 1)))), np.identity(3, dtype = float))
+
+        # self.U = dxdq_jacobian(self.n_nodes * 3, self.xcs.numpy())
+
+        model = "bar2"
+        Q = None
+        if not os.path.exists(f"data/W_{model}.npy"):
+        # if True:
+            _, Q = self.eigs()
+            np.save(f"data/W_{model}.npy", Q)
+        else:
+            Q = np.load(f"data/W_{model}.npy")
+
+        print(f"Q = {Q.shape}, Q.variance = {np.var(Q)}, Q.mean = {np.mean(Q)}")
+        self.weights = wp.array(Q, dtype = float)
+        
+        self.n_modes = Q.shape[1]
+        
+        self.J_triplets = Triplets()
+        self.J_triplets.rows = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = int)
+        self.J_triplets.cols = wp.zeros_like(self.J_triplets.rows)  
+        self.J_triplets.vals = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = wp.mat33)
+
+        wp.launch(fill_J_triplets, (self.weights.shape[0], self.weights.shape[1], 4), inputs = [self.xcs, self.weights, self.J_triplets])
+
+        # asssemble [0, C^T; C, 0]
+        self.uu = bsr_zeros(self.n_nodes, self.n_modes * 4, wp.mat33)        
+        
+        bsr_set_from_triplets(self.uu, self.J_triplets.rows, self.J_triplets.cols, self.J_triplets.vals)
+
+        self.U = self.to_scipy_bsr(self.uu).toarray()
+
+    def add_collision_to_sys_matrix(self, triplets):
+        super().add_collision_to_sys_matrix(triplets)
+        self.A_reduced = (self.U.T @ self.to_scipy_bsr() @ self.U)
+        
+    def compute_rhs(self):
+        super().compute_rhs()
+        b = self.b.numpy().reshape(-1)
+        self.b_reduced = self.U.T @ b
+    
+    def solve(self):
+        dz = solve(self.A_reduced, self.b_reduced, assume_a = "sym")
+        dx = (self.U @ dz).reshape(-1, 3)
+        print(f"dx[1] = {np.max(np.abs(dx[:, 1]))}")
+        self.states.dx.assign(dx)
+        
+    
+    def line_search(self):
+        wp.launch(add_dx, self.n_nodes, inputs = [self.states, 1.0])
+        return 1.0
+
+    def reset(self):
+        n_verts = 525
+        wp.copy(self.states.x, self.xcs)
+        wp.copy(self.states.x0, self.xcs)
+
+        # pos = self.transforms[:, :3, 3]
+        # positions = wp.array(pos, dtype = wp.vec3)
+        print("init spin")
+        wp.launch(init_spin, (self.n_nodes,), inputs = [self.states])
+        print("xdot = ", self.states.xdot.numpy())
+        
 @wp.kernel
 def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
     i, j, k = wp.tid()
@@ -45,177 +166,6 @@ def update_z0_zdot(z: wp.array(dtype = wp.vec3), zdot: wp.array(dtype = wp.vec3)
     zdot[i] = dz[i] / h
     z0[i] = z[i]
 
-def skew(w):
-    return np.array(
-        [[0.0, -w[2], w[1]], 
-        [w[2], 0.0, -w[0]], 
-        [-w[1], w[0], 0.0]], dtype = float 
-    )
-
-class ReducedRod(RodLBSWeight):
-    def __init__(self, h):
-        super().__init__()
-        self.h = h
-        self.define_UTKU()
-        self.reset()
-
-        # self.z = wp.zeros((self.n_modes * 4,), dtype = wp.vec3)
-        # self.zdot = wp.zeros_like(self.z)
-        # self.z0 = wp.zeros_like(self.z)
-        # self.dz = wp.zeros_like(self.z)
-        # z - tilde z
-    def reset(self):
-        self.T = np.zeros((4 * self.n_modes, 3), dtype = float)
-        self.T[:3, :] = np.eye(3)
-        self.z = self.T.reshape(-1)
-        self.z0 = np.copy(self.z)
-        self.zdot = np.zeros_like(self.z)
-        self.dz = np.zeros_like(self.z)
-        self.z_rest = np.copy(self.z)
-
-        tmp = np.zeros((4, 3))
-        tmp[:3, :] = skew([0.0, 0.0, 2.0])
-        for i in range(10):
-            self.zdot[i * 12: i * 12 + 12] = tmp.reshape(-1)
-        
-        # self.z = np.zeros((self.n_modes * 12,), dtype = float)
-        # self.zdot = np.zeros_like(self.z)
-        # self.z0 = np.zeros_like(self.z)
-        # self.dz = np.zeros_like(self.z)
-
-        # for i in range(1):
-        #     self.z0[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
-        #     self.z[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
-    def define_UTKU(self):
-        model = "bar2"
-        Q = None
-        if not os.path.exists(f"data/W_{model}.npy"):
-        # if True:
-            _, Q = self.eigs()
-            np.save(f"data/W_{model}.npy", Q)
-        else:
-            Q = np.load(f"data/W_{model}.npy")
-
-        self.weights = wp.array(Q, dtype = float)
-        
-        self.n_modes = Q.shape[1]
-        
-        self.J_triplets = Triplets()
-        self.J_triplets.rows = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = int)
-        self.J_triplets.cols = wp.zeros_like(self.J_triplets.rows)  
-        self.J_triplets.vals = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = wp.mat33)
-
-        wp.launch(fill_J_triplets, (self.weights.shape[0], self.weights.shape[1], 4), inputs = [self.xcs, self.weights, self.J_triplets])
-
-        # asssemble [0, C^T; C, 0]
-        self.U = bsr_zeros(self.n_nodes, self.n_modes * 4, wp.mat33)        
-        
-        bsr_set_from_triplets(self.U, self.J_triplets.rows, self.J_triplets.cols, self.J_triplets.vals)
-
-        self.uu = self.to_scipy_bsr(self.U)
-        self.kk = self.to_scipy_bsr(self.K_sparse)
-
-        self.uktu = (self.uu.transpose() @ self.kk @ self.uu).toarray()
-        self.sys_matrix = self.h * self.h * self.uktu + np.identity(self.n_modes * 12)
-
-        self.B = lbs_matrix(self.xcs.numpy(), Q)
-        
-        # self.verify_J()
-        # self.verify_transform()
-
-        
-        # self.UTKU = bsr_mm(bsr_transposed(self.U), bsr_mm(self.K_sparse, self.U), alpha = self.h * self.h)
-        
-        # self.sys_matrix = self.to_scipy_bsr(self.UTKU).toarray() + np.identity(self.n_modes * 12)
-
-        self.c, self.lower = cho_factor(self.sys_matrix, lower = True)
-    
-    def verify_transform(self):
-        x_ref  = self.B @ self.T
-        V0 = self.xcs.numpy()
-        x = (self.uu @ self.T.reshape(-1)).reshape((-1, 3))
-        print(f"diff x_ref - x =  {np.linalg.norm(x_ref - x)}")
-        print(f"diff x_ref = {x_ref - x}")
-        quit()
-        
-        
-    def verify_J(self):
-        for kk in range(20):
-            i = np.random.randint(0, self.n_nodes)
-            j = np.random.randint(0, self.n_modes * 12)  
-            # j = np.random.randint(0, 2 * 12)  
-            Tp = np.copy(self.T)
-            Tn = np.copy(self.T)
-            dt = 1e-2
-            Tp[j // 3, j % 3] = +dt
-            Tn[j // 3, j % 3] = -dt
-            dx = self.B @ (Tp - Tn)
-            dx_ana = self.uu @ (Tp - Tn).reshape(-1)
-
-            print(f"i = {i}, j = {j}, dx = {dx}, dx_ana = {dx_ana}")
-            print(f"diff = {np.linalg.norm(dx.reshape(-1) - dx_ana)}")
-            print(f"dx norm = {np.linalg.norm(dx.reshape(-1))}")
-        quit()
-    def step(self):
-        b = self.compute_rhs()
-        print(f"norm b = {np.linalg.norm(b)}")
-        dx = self.solve(b)
-        self.z -= dx
-        rhs2 = self.compute_rhs()
-        print(f"norm rhs2 = {np.linalg.norm(rhs2)}")
-        self.update_x0_xdot(dx)
-        
-
-    def solve(self, b):
-        dx = cho_solve((self.c, self.lower), b)
-        return dx
-
-    def update_x0_xdot(self, dx):
-        # self.dz.assign(dx.reshape(-1, 3))
-        # wp.launch(update_z0_zdot, (self.n_modes * 4,), inputs = [self.z, self.zdot, self.z0, self.dz, self.h])
-        self.zdot[:] = -dx / self.h
-        self.z0[:] = self.z
-        
-        
-    def compute_rhs(self):
-        # wp.launch(inertia_term, (self.n_modes * 4), input = [self.z, self.zdot, self.z0, self.dz, self.h])
-        self.dz = self.z - (self.z0 + self.h * self.zdot)
-        b = self.uktu @ (self.z - self.z_rest) * self.h * self.h + self.dz
-        return b
-        # bsr_mv(self.UTKU, self.z, self.dz, alpha = self.h * self.h, beta  = 1.0)
-        # return self.dz.numpy().reshape(-1)
-        
-class PSViewer:
-    def __init__(self, rod: ReducedRod):
-        self.V0 = rod.xcs.numpy()
-        self.F = rod.F
-        self.rod = rod
-        self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3)
-        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
-        self.frame = 0
-        self.ui_pause = True
-        self.animate = False
-    def callback(self):
-        changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
-        self.animate = gui.Button("Step") or not self.ui_pause
-        if gui.Button("Reset"):
-            self.rod.reset()
-            self.frame = 0
-            self.ui_pause = True
-            self.animate = True
-
-        if self.animate: 
-            self.rod.step()
-            # self.V = self.rod.states.x.numpy()
-            self.V = (self.rod.uu @ self.rod.z).reshape(-1, 3)
-            # print(f"V = {self.V}")
-            self.ps_mesh.update_vertex_positions(self.V)
-            self.frame += 1
-            
-            print("frame = ", self.frame)
-
-            # ps.screenshot(f"output/{self.frame:04d}.jpg")
-
 def reduced_bunny_rain():
     n_meshes = 10
     meshes = ["assets/bunny_5.tobj"] * n_meshes
@@ -231,13 +181,16 @@ def reduced_bunny_rain():
     ps.show()
 
 def spin():
-    n_meshes = 10
+    n_meshes = 1
     meshes = ["assets/bar2.tobj"] * n_meshes
     
-    transforms = wp.zeros((n_meshes, 4, 4), dtype = float)
-    
+    # transforms = wp.zeros((n_meshes, 4, 4), dtype = float)
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms = np.array(transforms, dtype = float)
+    transforms[0, :3, 3] = np.array([0.0, 2.0, 0.0])
 
-    rod = ReducedRod(h)
+    # rod = ReducedRod(h)
+    rod = ReducedRodComplex(h, meshes, transforms)
     viewer = PSViewer(rod)
     ps.set_user_callback(viewer.callback)
     ps.show()
