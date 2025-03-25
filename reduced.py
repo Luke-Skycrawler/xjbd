@@ -9,11 +9,12 @@ import numpy as np
 
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
-from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
+from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv, bsr_set_zero
 from fast_cd import RodLBSWeight
 import os 
-from scipy.linalg import cholesky, cho_solve, cho_factor
+from scipy.linalg import cholesky, cho_solve, cho_factor, polar
 from igl import lbs_matrix
+from fem.fem import tet_kernel_sparse
 class ReducedRodComplex(RodComplexBC):
     def __init__(self, h, meshes = [], transforms = []):
         super().__init__(h, meshes, transforms)
@@ -56,6 +57,7 @@ class ReducedRod(RodLBSWeight):
     def __init__(self, h):
         super().__init__()
         self.h = h
+        self.b = wp.zeros((self.n_nodes,), dtype = wp.vec3)
         self.define_UTKU()
         self.reset()
 
@@ -75,7 +77,7 @@ class ReducedRod(RodLBSWeight):
 
         tmp = np.zeros((4, 3))
         tmp[:3, :] = skew([0.0, 0.0, 2.0])
-        for i in range(10):
+        for i in range(1):
             self.zdot[i * 12: i * 12 + 12] = tmp.reshape(-1)
         
         # self.z = np.zeros((self.n_modes * 12,), dtype = float)
@@ -86,6 +88,23 @@ class ReducedRod(RodLBSWeight):
         # for i in range(1):
         #     self.z0[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
         #     self.z[i * 12: i * 12 + 12] = np.eye(3, 4, dtype = float).T.reshape(-1)
+
+    def update_stiffness_matrix(self, R):
+        self.triplets.vals.zero_()
+        self.T = self.z.reshape(-1, 3)
+        V = self.B @ self.T
+        x = wp.zeros((self.n_nodes), dtype = wp.vec3)
+        x.assign(V)
+        self.b.zero_()
+        wp.launch(tet_kernel_sparse, (self.n_tets * 4 * 4), inputs = [x, self.geo, self.Bm, self.W, self.triplets, self.b])
+        bsr_set_zero(self.K_sparse)
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)    
+        self.kk = self.to_scipy_bsr(self.K_sparse)
+
+        self.uktu = (self.uu.transpose() @ self.kk @ self.uu).toarray()
+        self.sys_matrix = self.h * self.h * self.uktu + np.identity(self.n_modes * 12)
+        self.c, self.lower = cho_factor(self.sys_matrix, lower = True)
+
     def define_UTKU(self):
         model = "bar2"
         Q = None
@@ -157,6 +176,9 @@ class ReducedRod(RodLBSWeight):
             print(f"dx norm = {np.linalg.norm(dx.reshape(-1))}")
         quit()
     def step(self):
+        R = self.RS()
+        self.update_stiffness_matrix(R)
+        self.z_rest[:9] = R.reshape(-1)
         b = self.compute_rhs()
         print(f"norm b = {np.linalg.norm(b)}")
         dx = self.solve(b)
@@ -165,7 +187,13 @@ class ReducedRod(RodLBSWeight):
         print(f"norm rhs2 = {np.linalg.norm(rhs2)}")
         self.update_x0_xdot(dx)
         
-
+    def RS(self):
+        A = self.z[: 9].reshape(3, 3)
+        u, p = polar(A)
+        # u is the unitary (in this case rotation) part of A
+        return u
+        
+        
     def solve(self, b):
         dx = cho_solve((self.c, self.lower), b)
         return dx
@@ -180,6 +208,7 @@ class ReducedRod(RodLBSWeight):
     def compute_rhs(self):
         # wp.launch(inertia_term, (self.n_modes * 4), input = [self.z, self.zdot, self.z0, self.dz, self.h])
         self.dz = self.z - (self.z0 + self.h * self.zdot)
+        # b = self.dz + self.uu.T @ self.b.numpy().reshape(-1) * self.h * self.h 
         b = self.uktu @ (self.z - self.z_rest) * self.h * self.h + self.dz
         return b
         # bsr_mv(self.UTKU, self.z, self.dz, alpha = self.h * self.h, beta  = 1.0)
