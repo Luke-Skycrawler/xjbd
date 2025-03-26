@@ -17,6 +17,7 @@ from scipy.io import loadmat
 from igl import lbs_matrix
 from fast_cd import CSRTriplets, compute_Hw
 from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import eigsh
 
 def dxdq_jacobian(n_nodesx3, V):
     n_nodes = n_nodesx3 // 3
@@ -43,7 +44,7 @@ class ReducedRodComplex(RodComplexBC):
 
         self.define_Hw()
         self.define_U()
-        n_reduced = self.n_modes * 12
+        n_reduced = self.n_reduced
         self.A_reduced = np.zeros((n_reduced, n_reduced))
         self.b_reduced = np.zeros(n_reduced)
 
@@ -93,7 +94,8 @@ class ReducedRodComplex(RodComplexBC):
         print(f"Q = {Q.shape}, Q.variance = {np.var(Q)}, Q.mean = {np.mean(Q)}")
         self.weights = wp.array(Q, dtype = float)
         
-        self.n_modes = Q.shape[1]
+        n_objects = len(self.transforms)
+        self.n_modes = Q.shape[1] # fixme: ad-hoc
         
         self.J_triplets = Triplets()
         self.J_triplets.rows = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = int)
@@ -103,11 +105,19 @@ class ReducedRodComplex(RodComplexBC):
         wp.launch(fill_J_triplets, (self.weights.shape[0], self.weights.shape[1], 4), inputs = [self.xcs, self.weights, self.J_triplets])
 
         # asssemble [0, C^T; C, 0]
-        self.uu = bsr_zeros(self.n_nodes, self.n_modes * 4, wp.mat33)        
+        self.uu = bsr_zeros(self.n_nodes // n_objects, self.n_modes * 4, wp.mat33)        
         
         bsr_set_from_triplets(self.uu, self.J_triplets.rows, self.J_triplets.cols, self.J_triplets.vals)
 
-        self.U = self.to_scipy_bsr(self.uu).toarray()
+        U = self.to_scipy_bsr(self.uu).toarray()
+        if n_objects == 1:
+            self.U = U
+        else:
+            n, m = U.shape
+            self.U = np.zeros((self.n_nodes * 3, self.n_modes * 12 * n_objects))
+            for i in range(n_objects):
+                self.U[i * n: (i + 1) * n, i * m: (i + 1) * m] = np.copy(U)
+        self.n_reduced = n_objects * self.n_modes * 12
 
     def add_collision_to_sys_matrix(self, triplets):
         super().add_collision_to_sys_matrix(triplets)
@@ -129,16 +139,16 @@ class ReducedRodComplex(RodComplexBC):
         wp.launch(add_dx, self.n_nodes, inputs = [self.states, 1.0])
         return 1.0
 
-    def reset(self):
-        n_verts = 525
-        wp.copy(self.states.x, self.xcs)
-        wp.copy(self.states.x0, self.xcs)
+    # def reset(self):
+    #     n_verts = 525
+    #     wp.copy(self.states.x, self.xcs)
+    #     wp.copy(self.states.x0, self.xcs)
 
-        # pos = self.transforms[:, :3, 3]
-        # positions = wp.array(pos, dtype = wp.vec3)
-        print("init spin")
-        wp.launch(init_spin, (self.n_nodes,), inputs = [self.states])
-        print("xdot = ", self.states.xdot.numpy())
+    #     # pos = self.transforms[:, :3, 3]
+    #     # positions = wp.array(pos, dtype = wp.vec3)
+    #     print("init spin")
+    #     wp.launch(init_spin, (self.n_nodes,), inputs = [self.states])
+    #     print("xdot = ", self.states.xdot.numpy())
         
 @wp.kernel
 def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
@@ -195,6 +205,21 @@ def spin():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def staggered_bars():
+    n_meshes = 2 
+    meshes = ["assets/bar2.tobj"] * n_meshes
+    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    for i in range(n_meshes):
+        transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 0.2
+        transforms[i][2, 3] = i * 1.0
+    
+    rods = ReducedRodComplex(h, meshes, transforms)
+    viewer = PSViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":  
     ps.init() 
     ps.set_ground_plane_height(-collision_eps)
@@ -202,4 +227,6 @@ if __name__ == "__main__":
     wp.init()
     
     # reduced_bunny_rain()
-    spin()
+    # spin()
+    staggered_bars()
+    

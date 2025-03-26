@@ -38,8 +38,9 @@ class RodComplexBC(RodBCBase, RodComplex):
         wp.copy(self.states.x0, self.xcs)
         if self.meshes_filename[0] == "assets/tet.tobj":
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+        elif self.meshes_filename[0] == "assets/bar2.tobj": 
+            wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
-            # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
             pos = self.transforms[:, :3, 3]
             positions = wp.array(pos, dtype = wp.vec3)
             wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
@@ -228,6 +229,6 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    # staggered_bars()
+    staggered_bars()
     # tets()
-    bunny_rain()
+    # bunny_rain()
