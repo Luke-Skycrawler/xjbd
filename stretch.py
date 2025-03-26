@@ -9,10 +9,11 @@ from warp.sparse import *
 from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
-gravity = wp.vec3(0, -0.0, 0)
+gravity = wp.vec3(0, -10.0, 0)
 eps = 1e-4
 h = 5e-3
 rho = 1e3
+omega = 3.0
 @wp.struct 
 class NewtonState: 
     x: wp.array(dtype = wp.vec3)
@@ -42,10 +43,14 @@ def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.
 
 @wp.func
 def should_fix(x: wp.vec3): 
-    return x[0] < -0.5 + eps
-    
+    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
+
     # v0 = wp.vec3(-56.273449910216, 94.689259419722, -19.03583034376)
     # return wp.length_sq(x - v0) < eps
+@wp.func
+def moving_boundary(x: wp.vec3):
+    return x[0] < -0.5 + eps 
+    
 
 @wp.kernel
 def set_b_fixed(geo: FEMMesh,b: wp.array(dtype = wp.vec3)):
@@ -103,6 +108,27 @@ def compute_inertia(state: NewtonState, M: wp.array(dtype = float), inert: wp.ar
     de = wp.length_sq(dx) * M[i]
     wp.atomic_add(inert, 0, de)
 
+@wp.kernel
+def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    xi = state.x[i]
+    c = wp.cos(theta)
+    s = wp.sin(theta)
+    rot = wp.mat22(
+        c, s,
+        -s, c
+    )
+    if moving_boundary(xi):
+    # if False:
+        x_rst= geo.xcs[i]
+        yz_rst = wp.vec2(x_rst[1], x_rst[2])
+        yz = rot @ yz_rst
+        target = wp.vec3(-0.5, yz[0], yz[1])
+        # target = x_rst + wp.vec3(0.0, theta, 0.0)
+        comp_x[i] = xi - target
+    else:
+        comp_x[i] = wp.vec3(0.0)
+
 class PSViewer:
     def __init__(self, rod):
         self.V = rod.xcs.numpy()
@@ -156,6 +182,8 @@ class RodBCBase:
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
 
+        self.theta = 0.0
+
     def define_M(self):
         V = self.xcs.numpy()
         T = self.T.numpy()
@@ -175,6 +203,7 @@ class RodBCBase:
         n_iter = 0
         max_iter = 5
         # while n_iter < max_iter:
+        self.theta += self.h * omega
         while newton_iter:
             self.compute_A()
             self.compute_rhs()
@@ -221,6 +250,11 @@ class RodBCBase:
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         self.set_bc_fixed_grad()
 
+        comp_x = wp.zeros_like(self.states.dx)
+        wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, comp_x])
+        bsr_mv(self.A, comp_x, self.b, beta = 1.0)
+        print(f"compensation = {np.linalg.norm(comp_x.numpy())}")
+
     def set_bc_fixed_grad(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
@@ -232,27 +266,32 @@ class RodBCBase:
             self.states.dx.zero_()
             # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
             cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
-
+    
     def line_search(self):
-        # FIXME: not converged
-        x_tmp = wp.clone(self.states.x)
-        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
         alpha = 1.0
-        while True:
-            wp.copy(self.states.x, x_tmp)
-            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
-            
-            if E1 < E0:
-                break
-            if alpha < 1e-3:
-                wp.copy(self.states.x, x_tmp)
-                alpha = 0.0
-                break
-            alpha *= 0.5
-
-        # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+        wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
         return alpha
+        
+    # def line_search(self):
+    #     # FIXME: not converged
+    #     x_tmp = wp.clone(self.states.x)
+    #     E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+    #     alpha = 1.0
+    #     while True:
+    #         wp.copy(self.states.x, x_tmp)
+    #         wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
+    #         E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            
+    #         if E1 < E0:
+    #             break
+    #         if alpha < 1e-3:
+    #             wp.copy(self.states.x, x_tmp)
+    #             alpha = 0.0
+    #             break
+    #         alpha *= 0.5
+
+    #     # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+    #     return alpha
 
     def compute_collision_energy(self):
         return 0.0
@@ -280,9 +319,16 @@ def drape():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def twist():
+    rod = RodBC(h, "assets/bar2.tobj")
+    viewer = PSViewer(rod)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     wp.init()
-    drape()
+    # drape()
+    twist()
     # multiple_drape()
     
