@@ -4,8 +4,9 @@ import numpy as np
 import warp as wp 
 from warp.sparse import BsrMatrix
 from fem.interface import Rod
-from scipy.sparse import bsr_matrix, csr_matrix, block_array
+from scipy.sparse import bsr_matrix, csr_matrix, block_array, diags
 from scipy.sparse.linalg import eigsh
+from scipy.linalg import null_space
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
 from igl import lbs_matrix
@@ -25,7 +26,7 @@ class PSViewer:
         self.n_modes = Q.shape[1]
         self.B = lbs_matrix(self.V0, Q)
         self.T = np.zeros((4 * self.n_modes, 3))
-        self.T[:3, :] = np.eye(3)
+        # self.T[:3, :] = np.eye(3)
         
         self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
 
@@ -37,7 +38,7 @@ class PSViewer:
         return i, j
 
     def callback(self):
-        self.V_deform = self.B @ self.T
+        self.V_deform = self.B @ self.T + self.V0
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
 
@@ -113,8 +114,9 @@ class RodLBSWeightBC(RodLBSWeight):
 
     def define_sys_dim(self):
         n_handles = 1
+        self.sys_dim = self.n_nodes
         # self.sys_dim = self.n_nodes + 144 * n_handles
-        self.sys_dim = self.n_nodes + 1
+        # self.sys_dim = self.n_nodes + 1
 
     def compute_Aw(self):
         n = self.n_nodes
@@ -146,38 +148,56 @@ class RodLBSWeightBC(RodLBSWeight):
 
     def compute_J(self):
         v_rst = self.xcs.numpy()
+        # v1 = np.hstack((np.ones((v_rst.shape[0], 1)), v_rst))
         v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
         w = np.zeros(self.n_nodes, float)
 
         x_rst = v_rst[:, 0]
         w[x_rst < -0.5 + eps] = 1.0
+        # w = 1.0 - w
         print(f"w sum = {w.sum()}")
         v1 = v1 * w.reshape((-1, 1))
         J = np.kron(np.identity(3, float), v1)
         return J
         
     def define_Jw(self):
-        # J = self.compute_J()
-        # A = self.compute_Aw()
-        # Jwij = []
-        # for ii in range(3):
-        #     for jj in range(4):
-        #         Jwij.append(J.T @ A[ii, jj])
-        # self.Jw = np.vstack(Jwij, )
+        J = self.compute_J()
+        A = self.compute_Aw()
+        Jwij = []
+        for ii in range(3):
+            for jj in range(4):
+                Jwij.append(J.T @ A[ii, jj])
+        self.Jw = np.vstack(Jwij, )
 
-        w = np.zeros(self.n_nodes, float)
-        v_rst = self.xcs.numpy()
-        x_rst = v_rst[:, 0]
-        w[x_rst < -0.5 + eps] = 1.0
-        self.Jw = w.reshape(self.n_nodes, 1)
+        # w = np.zeros(self.n_nodes, float)
+        # v_rst = self.xcs.numpy()
+        # x_rst = v_rst[:, 0]
+        # w[x_rst < -0.5 + eps] = 1.0
+        # self.Jw = w.reshape(self.n_nodes, 1)
     
     def eigs(self):
         K = self.to_scipy_csr()
+        na1 = null_space(self.Jw)
+        print(f"na1 dim = {na1.shape}")
+        tilde_K = na1.T @ K @ na1 
+        tilde_M = na1.T @ na1
+        with wp.ScopedTimer("constrained weight space eigs"):
+            lam, Ql = eigsh(tilde_K, k = 10, which = "SM", tol = 1e-4)
+            Ql = na1 @ Ql
+            Q = Ql[:self.n_nodes]
+            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+            Q /= Q_norm
+        return lam, Q
+
         addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
         K += addon
+        B_diags = np.zeros(self.sys_dim)
+        B_diags[:self.n_nodes] = 1
+        B_diags += 1e-7
+        B = diags(B_diags)
         # print("start weight space eigs")
         with wp.ScopedTimer("constrained weight space eigs"):
-            lam, Ql = eigsh(K, k = 10, which = "SM", tol = 1e-4)
+            lam, Ql = eigsh(K, k = 10, M = B, which = "SM", tol = 1e-4)
             Q = Ql[:self.n_nodes]
             Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
             Q /= Q_norm
