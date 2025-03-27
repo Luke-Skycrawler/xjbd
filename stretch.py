@@ -43,7 +43,7 @@ def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.
 
 @wp.func
 def should_fix(x: wp.vec3): 
-    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
+    return x[0] < -0.5 + eps # or x[0] > 0.5 - eps
 
     # v0 = wp.vec3(-56.273449910216, 94.689259419722, -19.03583034376)
     # return wp.length_sq(x - v0) < eps
@@ -250,10 +250,10 @@ class RodBCBase:
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         self.set_bc_fixed_grad()
 
-        comp_x = wp.zeros_like(self.states.dx)
-        wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, comp_x])
-        bsr_mv(self.A, comp_x, self.b, beta = 1.0)
-        print(f"compensation = {np.linalg.norm(comp_x.numpy())}")
+        # comp_x = wp.zeros_like(self.states.dx)
+        # wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, comp_x])
+        # bsr_mv(self.A, comp_x, self.b, beta = 1.0)
+        # print(f"compensation = {np.linalg.norm(comp_x.numpy())}")
 
     def set_bc_fixed_grad(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])

@@ -4,19 +4,21 @@ import numpy as np
 import warp as wp 
 from warp.sparse import BsrMatrix
 from fem.interface import Rod
-from scipy.sparse import bsr_matrix, csr_matrix
+from scipy.sparse import bsr_matrix, csr_matrix, block_array
 from scipy.sparse.linalg import eigsh
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
 from igl import lbs_matrix
 import os
 
+from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
         self.Q = Q
         self.V0 = V0
         self.F = F
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
+        self.ps_mesh.add_scalar_quantity("weight", Q[:, 0])
 
         self.ui_deformed_mode = 0
 
@@ -45,6 +47,7 @@ class PSViewer:
 
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
         self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
+        self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12])
 
 
 @wp.struct
@@ -86,28 +89,110 @@ class RodLBSWeight(Rod):
         jj = self.Hw.columns.numpy()
         values = self.Hw.values.numpy()
 
-        csr = csr_matrix((values, jj, ii), shape = (self.n_nodes, self.n_nodes))
+        csr = csr_matrix((values, jj, ii), shape = (self.sys_dim, self.sys_dim))
         return csr
-        
+    
+    def define_sys_dim(self):
+        self.sys_dim = self.n_nodes
+
     def define_Hw(self):
+        self.define_sys_dim()
         self.triplets_Hw = CSRTriplets()
         self.triplets_Hw.rows = wp.zeros((self.n_tets * 4 * 4,), dtype = int)
         self.triplets_Hw.cols = wp.zeros_like(self.triplets_Hw.rows)
         self.triplets_Hw.vals = wp.zeros((self.n_tets * 4 *4), dtype = float)
         
-        self.Hw = bsr_zeros(self.n_nodes, self.n_nodes, float)
+        self.Hw = bsr_zeros(self.sys_dim, self.sys_dim, float)
         wp.launch(compute_Hw, (self.n_tets * 4 * 4,), inputs = [self.triplets, self.triplets_Hw])
         bsr_set_from_triplets(self.Hw, self.triplets_Hw.rows, self.triplets_Hw.cols, self.triplets_Hw.vals)
+
+class RodLBSWeightBC(RodLBSWeight):
+    def __init__(self):
+        super().__init__()
+        self.define_Jw()
+
+    def define_sys_dim(self):
+        n_handles = 1
+        # self.sys_dim = self.n_nodes + 144 * n_handles
+        self.sys_dim = self.n_nodes + 1
+
+    def compute_Aw(self):
+        n = self.n_nodes
+
+        A = np.zeros((3, 4, 3 * n, n))
+        x_rst = self.xcs.numpy()
+        xx = x_rst[:, 0]
+        yy = x_rst[:, 1]
+        zz = x_rst[:, 2]
+        X = np.diag(xx)
+        Y = np.diag(yy)
+        Z = np.diag(zz)
+        I = np.identity(n)
+
+        Px = np.zeros((n * 3, n))
+        Py = np.zeros_like(Px)
+        Pz = np.zeros_like(Px)
+
+        Px[:n, :] = np.identity(n, float)
+        Py[n: 2 * n, :] = np.identity(n, float)
+        Pz[2 * n: , :] = np.identity(n, float)
+
+        Rs = [X, Y, Z, I]
+        Ls = [Px, Py, Pz]
+        for ii in range(3):
+            for jj in range(4):
+                A[ii, jj] = Ls[ii] @ Rs[jj]
+        return A
+
+    def compute_J(self):
+        v_rst = self.xcs.numpy()
+        v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
+        w = np.zeros(self.n_nodes, float)
+
+        x_rst = v_rst[:, 0]
+        w[x_rst < -0.5 + eps] = 1.0
+        print(f"w sum = {w.sum()}")
+        v1 = v1 * w.reshape((-1, 1))
+        J = np.kron(np.identity(3, float), v1)
+        return J
+        
+    def define_Jw(self):
+        # J = self.compute_J()
+        # A = self.compute_Aw()
+        # Jwij = []
+        # for ii in range(3):
+        #     for jj in range(4):
+        #         Jwij.append(J.T @ A[ii, jj])
+        # self.Jw = np.vstack(Jwij, )
+
+        w = np.zeros(self.n_nodes, float)
+        v_rst = self.xcs.numpy()
+        x_rst = v_rst[:, 0]
+        w[x_rst < -0.5 + eps] = 1.0
+        self.Jw = w.reshape(self.n_nodes, 1)
+    
+    def eigs(self):
+        K = self.to_scipy_csr()
+        addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
+        K += addon
+        # print("start weight space eigs")
+        with wp.ScopedTimer("constrained weight space eigs"):
+            lam, Ql = eigsh(K, k = 10, which = "SM", tol = 1e-4)
+            Q = Ql[:self.n_nodes]
+            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+            Q /= Q_norm
+        return lam, Q
 
 def vis_weights(): 
     model = "bar2"
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
-    rod = RodLBSWeight()
+    # rod = RodLBSWeight()
+    rod = RodLBSWeightBC()
     lam, Q = None, None
-    if not os.path.exists(f"data/W_{model}.npy"):
-    # if True:
+    # if not os.path.exists(f"data/W_{model}.npy"):
+    if True:
         lam, Q = rod.eigs()
         np.save(f"data/W_{model}.npy", Q)
     else:
