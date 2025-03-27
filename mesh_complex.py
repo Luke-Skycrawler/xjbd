@@ -7,7 +7,9 @@ import numpy as np
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
-        
+
+omega = 3.0
+
 @wp.kernel
 def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
     i = wp.tid()
@@ -28,6 +30,7 @@ class RodComplexBC(RodBCBase, RodComplex):
 
     def reset(self):
         n_verts = 4
+        self.theta = 0.0
         if self.meshes_filename[0] == "assets/bar2.tobj":
             n_verts = 525
         elif self.meshes_filename[0] == "assets/tet.tobj":
@@ -46,13 +49,14 @@ class RodComplexBC(RodBCBase, RodComplex):
             wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
         
 
-    def set_bc_fixed_hessian(self):
-        pass
+    # def set_bc_fixed_hessian(self):
+    #     pass
 
-    def set_bc_fixed_grad(self):
-        pass
+    # def set_bc_fixed_grad(self):
+    #     pass
 
     def step(self):
+        self.theta += omega * self.h
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0
@@ -66,7 +70,8 @@ class RodComplexBC(RodBCBase, RodComplex):
                         with wp.ScopedTimer("detection"):
                             self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
                         with wp.ScopedTimer("hess & grad"):
-                            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                            # triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                            triplets = self.collider.analyze(self.b)
                         with wp.ScopedTimer("build_from_triplets"):
                             self.add_collision_to_sys_matrix(triplets)
                     self.compute_rhs()

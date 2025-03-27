@@ -220,13 +220,26 @@ def staggered_bars():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def twist():
+    n_meshes = 1
+    meshes = ["assets/bar2.tobj"]
+    transfroms = [np.identity(4, dtype = float)]
+    # transfroms[0][1, 3] = 0.2
+    rods = ReducedRodComplex(h, meshes, transfroms)
+    viewer = PSViewer(rods)
+    
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":  
     ps.init() 
-    ps.set_ground_plane_height(-collision_eps)
+    # ps.set_ground_plane_height(-collision_eps)
+    ps.set_ground_plane_mode("none")
     wp.config.max_unroll = 0
     wp.init()
     
     # reduced_bunny_rain()
     # spin()
-    staggered_bars()
+    # staggered_bars()
+    twist()
     
