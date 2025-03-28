@@ -157,6 +157,13 @@ class RodLBSWeightBC(RodLBSWeight):
         # w = 1.0 - w
         print(f"w sum = {w.sum()}")
         v1 = v1 * w.reshape((-1, 1))
+
+        # w2 = np.zeros_like(w)
+        # w2[x_rst > 0.5 - eps] = 1.0
+
+        # js = np.hstack([v1 * w.reshape((-1, 1)), v1 * w2.reshape((-1, 1))])
+        # J = np.kron(np.identity(3, float), js)
+
         J = np.kron(np.identity(3, float), v1)
         return J
         
@@ -182,7 +189,7 @@ class RodLBSWeightBC(RodLBSWeight):
         tilde_K = na1.T @ K @ na1 
         tilde_M = na1.T @ na1
         with wp.ScopedTimer("constrained weight space eigs"):
-            lam, Ql = eigsh(tilde_K, k = 10, which = "SM", tol = 1e-4)
+            lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
             Ql = na1 @ Ql
             Q = Ql[:self.n_nodes]
             Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)

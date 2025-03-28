@@ -130,7 +130,7 @@ class ReducedRodComplex(RodComplexBC):
     
     def solve(self):
         dz = solve(self.A_reduced, self.b_reduced, assume_a = "sym")
-        dx = (self.U @ dz).reshape(-1, 3)
+        dx = (self.U @ dz).reshape(-1, 3) + self.comp_x.numpy()
         print(f"dx[1] = {np.max(np.abs(dx[:, 1]))}")
         self.states.dx.assign(dx)
         

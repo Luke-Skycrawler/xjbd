@@ -10,7 +10,7 @@ from fem.params import FEMMesh, mu, lam
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 gravity = wp.vec3(0, -10.0, 0)
-eps = 1e-4
+eps = 3e-4
 h = 5e-3
 rho = 1e3
 omega = 3.0
@@ -173,6 +173,8 @@ class RodBCBase:
         self.states.dx = wp.zeros_like(self.xcs)
         self.states.xdot = wp.zeros_like(self.xcs)
         self.states.Psi = wp.zeros((self.n_tets,), dtype = float)
+
+        self.comp_x = wp.zeros_like(self.states.dx)
         
         self.reset()
         self.h = h
@@ -249,11 +251,10 @@ class RodBCBase:
     def compute_rhs(self):
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         self.set_bc_fixed_grad()
-
-        # comp_x = wp.zeros_like(self.states.dx)
-        # wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, comp_x])
-        # bsr_mv(self.A, comp_x, self.b, beta = 1.0)
-        # print(f"compensation = {np.linalg.norm(comp_x.numpy())}")
+        self.comp_x.zero_()
+        wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, self.comp_x])
+        bsr_mv(self.A, self.comp_x, self.b, beta = 1.0)
+        print(f"compensation = {np.linalg.norm(self.comp_x.numpy())}")
 
     def set_bc_fixed_grad(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
