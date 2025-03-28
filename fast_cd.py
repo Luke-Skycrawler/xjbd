@@ -4,7 +4,7 @@ import numpy as np
 import warp as wp 
 from warp.sparse import BsrMatrix
 from fem.interface import Rod
-from scipy.sparse import bsr_matrix, csr_matrix, block_array, diags
+from scipy.sparse import bsr_matrix, csr_matrix, bmat, diags
 from scipy.sparse.linalg import eigsh
 from scipy.linalg import null_space
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
@@ -19,7 +19,7 @@ class PSViewer:
         self.V0 = V0
         self.F = F
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
-        self.ps_mesh.add_scalar_quantity("weight", Q[:, 0])
+        self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
 
         self.ui_deformed_mode = 0
 
@@ -48,7 +48,7 @@ class PSViewer:
 
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
         self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
-        self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12])
+        self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12], enabled = True)
 
 
 @wp.struct
@@ -146,14 +146,19 @@ class RodLBSWeightBC(RodLBSWeight):
                 A[ii, jj] = Ls[ii] @ Rs[jj]
         return A
 
-    def compute_J(self):
-        v_rst = self.xcs.numpy()
-        # v1 = np.hstack((np.ones((v_rst.shape[0], 1)), v_rst))
-        v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
+    def get_contraint_weight(self):
+        v_rst = self.xcs.numpy()        
         w = np.zeros(self.n_nodes, float)
 
         x_rst = v_rst[:, 0]
         w[x_rst < -0.5 + eps] = 1.0
+        return w.reshape((-1, 1))
+
+    def compute_J(self):
+        w = self.get_contraint_weight()
+        v_rst = self.xcs.numpy()        
+        v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
+        # v1 = np.hstack((np.ones((v_rst.shape[0], 1)), v_rst))
         # w = 1.0 - w
         print(f"w sum = {w.sum()}")
         v1 = v1 * w.reshape((-1, 1))
@@ -194,6 +199,9 @@ class RodLBSWeightBC(RodLBSWeight):
             Q = Ql[:self.n_nodes]
             Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
             Q /= Q_norm
+
+        w = 1.0 - self.get_contraint_weight()
+        Q = np.hstack([w, Q])
         return lam, Q
 
         addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
