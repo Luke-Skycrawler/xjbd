@@ -125,7 +125,7 @@ def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x:
         yz = rot @ yz_rst
         if x_rst[0] < 0.0:
             yz = wp.transpose(rot) @ yz_rst
-        target = wp.vec3(x_rst[0], yz[0], yz[1])
+        target = wp.vec3(x_rst[0], yz[0], yz[1]) + wp.vec3(0.0, theta, 0.0)
         # target = x_rst + wp.vec3(0.0, theta, 0.0)
         comp_x[i] = xi - target
     else:
@@ -207,7 +207,6 @@ class RodBCBase:
         n_iter = 0
         max_iter = 20
         # while n_iter < max_iter:
-        self.theta += self.h * omega
         while newton_iter:
             self.compute_A()
             self.compute_rhs()
@@ -227,6 +226,7 @@ class RodBCBase:
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
             n_iter += 1
         self.update_x0_xdot()
+        self.theta += self.h * omega
 
     def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])

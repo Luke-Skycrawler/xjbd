@@ -148,12 +148,13 @@ class RodLBSWeightBC(RodLBSWeight):
 
     def get_contraint_weight(self):
         v_rst = self.xcs.numpy()        
-        w = np.zeros((self.n_nodes, 1), float)
+        w = np.zeros((self.n_nodes, 2), float)
 
         x_rst = v_rst[:, 0]
-        # w[x_rst < -0.5 + eps, 0] = 1.0
-        # w[x_rst > 0.5 - eps, 0] = -1.0
-        w[:, 0] = x_rst * 2
+        w[x_rst < -0.5 + eps, 0] = 1.0
+        w[x_rst > 0.5 - eps, 1] = 1.0
+        # w[:, 0] = x_rst * 2
+        # w[:, 1] = 1.
         return w
 
     def compute_J(self):
