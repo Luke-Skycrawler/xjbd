@@ -151,8 +151,9 @@ class RodLBSWeightBC(RodLBSWeight):
         w = np.zeros((self.n_nodes, 1), float)
 
         x_rst = v_rst[:, 0]
-        w[x_rst < -0.5 + eps, 0] = 1.0
-        w[x_rst > 0.5 - eps, 0] = -1.0
+        # w[x_rst < -0.5 + eps, 0] = 1.0
+        # w[x_rst > 0.5 - eps, 0] = -1.0
+        w[:, 0] = x_rst * 2
         return w
 
     def compute_J(self):
@@ -213,12 +214,15 @@ class RodLBSWeightBC(RodLBSWeight):
         # w = 1.0 - w
 
         # w = 1.0 - np.abs(self.get_contraint_weight())
-        w1 = 1.0 - np.abs(self.get_contraint_weight())
         w = self.xcs.numpy()[:, 0:1]
+        w1 = np.ones_like(w)
         v_rst = self.xcs.numpy()        
         x_rst = v_rst[:, 0]
         w[x_rst < -0.5 + eps, 0] = 0.0
         w[x_rst > 0.5 - eps, 0] = 0.0
+
+        w1[x_rst < -0.5 + eps, 0] = 0.0
+        w1[x_rst > 0.5 - eps, 0] = 0.0
         Q = np.hstack([w, w1, Q])
         # Q = np.hstack([w, Q])
         return lam, Q
