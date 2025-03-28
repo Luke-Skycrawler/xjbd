@@ -43,13 +43,13 @@ def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.
 
 @wp.func
 def should_fix(x: wp.vec3): 
-    return x[0] < -0.5 + eps # or x[0] > 0.5 - eps
+    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
 
     # v0 = wp.vec3(-56.273449910216, 94.689259419722, -19.03583034376)
     # return wp.length_sq(x - v0) < eps
 @wp.func
 def moving_boundary(x: wp.vec3):
-    return x[0] < -0.5 + eps 
+    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
     
 
 @wp.kernel
@@ -123,7 +123,9 @@ def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x:
         x_rst= geo.xcs[i]
         yz_rst = wp.vec2(x_rst[1], x_rst[2])
         yz = rot @ yz_rst
-        target = wp.vec3(-0.5, yz[0], yz[1])
+        if x_rst[0] < 0.0:
+            yz = wp.transpose(rot) @ yz_rst
+        target = wp.vec3(x_rst[0], yz[0], yz[1])
         # target = x_rst + wp.vec3(0.0, theta, 0.0)
         comp_x[i] = xi - target
     else:
@@ -203,7 +205,7 @@ class RodBCBase:
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 5
+        max_iter = 20
         # while n_iter < max_iter:
         self.theta += self.h * omega
         while newton_iter:

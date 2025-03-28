@@ -148,11 +148,12 @@ class RodLBSWeightBC(RodLBSWeight):
 
     def get_contraint_weight(self):
         v_rst = self.xcs.numpy()        
-        w = np.zeros(self.n_nodes, float)
+        w = np.zeros((self.n_nodes, 1), float)
 
         x_rst = v_rst[:, 0]
-        w[x_rst < -0.5 + eps] = 1.0
-        return w.reshape((-1, 1))
+        w[x_rst < -0.5 + eps, 0] = 1.0
+        w[x_rst > 0.5 - eps, 0] = -1.0
+        return w
 
     def compute_J(self):
         w = self.get_contraint_weight()
@@ -160,16 +161,16 @@ class RodLBSWeightBC(RodLBSWeight):
         v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
         # v1 = np.hstack((np.ones((v_rst.shape[0], 1)), v_rst))
         # w = 1.0 - w
-        print(f"w sum = {w.sum()}")
-        v1 = v1 * w.reshape((-1, 1))
+        # print(f"w sum = {w.sum()}")
+        # v1 = v1 * w.reshape((-1, 1))
 
         # w2 = np.zeros_like(w)
         # w2[x_rst > 0.5 - eps] = 1.0
-
+        js = np.hstack([v1 * w[:, i: i + 1] for i in range(w.shape[1])])
         # js = np.hstack([v1 * w.reshape((-1, 1)), v1 * w2.reshape((-1, 1))])
         # J = np.kron(np.identity(3, float), js)
 
-        J = np.kron(np.identity(3, float), v1)
+        J = np.kron(np.identity(3, float), js)
         return J
         
     def define_Jw(self):
@@ -180,6 +181,8 @@ class RodLBSWeightBC(RodLBSWeight):
             for jj in range(4):
                 Jwij.append(J.T @ A[ii, jj])
         self.Jw = np.vstack(Jwij, )
+        # w = self.get_contraint_weight()
+        # self.Jw = w.T
 
         # w = np.zeros(self.n_nodes, float)
         # v_rst = self.xcs.numpy()
@@ -200,8 +203,24 @@ class RodLBSWeightBC(RodLBSWeight):
             Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
             Q /= Q_norm
 
-        w = 1.0 - self.get_contraint_weight()
-        Q = np.hstack([w, Q])
+
+
+        # v_rst = self.xcs.numpy()        
+        # w = np.zeros((self.n_nodes, 1), float)
+        # x_rst = v_rst[:, 0]
+        # w[x_rst < -0.5 + eps, 0] = 1.0
+        # w[x_rst > 0.5 - eps, 0] = 1.0
+        # w = 1.0 - w
+
+        # w = 1.0 - np.abs(self.get_contraint_weight())
+        w1 = 1.0 - np.abs(self.get_contraint_weight())
+        w = self.xcs.numpy()[:, 0:1]
+        v_rst = self.xcs.numpy()        
+        x_rst = v_rst[:, 0]
+        w[x_rst < -0.5 + eps, 0] = 0.0
+        w[x_rst > 0.5 - eps, 0] = 0.0
+        Q = np.hstack([w, w1, Q])
+        # Q = np.hstack([w, Q])
         return lam, Q
 
         addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
