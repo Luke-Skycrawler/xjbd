@@ -125,7 +125,7 @@ def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x:
         yz = rot @ yz_rst
         if x_rst[0] < 0.0:
             yz = wp.transpose(rot) @ yz_rst
-        target = wp.vec3(x_rst[0], yz[0], yz[1]) + wp.vec3(0.0, theta, 0.0)
+        target = wp.vec3(x_rst[0], yz[0], yz[1]) # + wp.vec3(0.0, theta, 0.0)
         # target = x_rst + wp.vec3(0.0, theta, 0.0)
         comp_x[i] = xi - target
     else:

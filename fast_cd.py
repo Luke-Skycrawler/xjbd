@@ -9,7 +9,8 @@ from scipy.sparse.linalg import eigsh
 from scipy.linalg import null_space
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
-from igl import lbs_matrix
+from igl import lbs_matrix, massmatrix
+import igl
 import os
 
 from stretch import eps
@@ -110,6 +111,7 @@ class RodLBSWeight(Rod):
 class RodLBSWeightBC(RodLBSWeight):
     def __init__(self):
         super().__init__()
+        self.define_M()
         self.define_Jw()
 
     def define_sys_dim(self):
@@ -157,6 +159,15 @@ class RodLBSWeightBC(RodLBSWeight):
         # w[:, 1] = 1.
         return w
 
+    def define_M(self):
+        V = self.xcs.numpy()
+        T = self.T.numpy()
+        # self.M is a vector composed of diagonal elements 
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        M_diag = np.repeat(self.Mnp, 3)
+        self.M_sparse = diags(M_diag)
+        self.Mw = diags(self.Mnp * 3.0)
+
     def compute_J(self):
         w = self.get_contraint_weight()
         v_rst = self.xcs.numpy()        
@@ -195,9 +206,10 @@ class RodLBSWeightBC(RodLBSWeight):
     def eigs(self):
         K = self.to_scipy_csr()
         na1 = null_space(self.Jw)
+        M = self.Mw
         print(f"na1 dim = {na1.shape}")
         tilde_K = na1.T @ K @ na1 
-        tilde_M = na1.T @ na1
+        tilde_M = na1.T @ M @ na1
         with wp.ScopedTimer("constrained weight space eigs"):
             lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
             Ql = na1 @ Ql
