@@ -7,6 +7,7 @@ from fem.interface import Rod
 from scipy.sparse import bsr_matrix, csr_matrix, bmat, diags
 from scipy.sparse.linalg import eigsh
 from scipy.linalg import null_space
+from scipy.io import savemat, loadmat
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
 from igl import lbs_matrix, massmatrix
@@ -203,19 +204,37 @@ class RodLBSWeightBC(RodLBSWeight):
         # w[x_rst < -0.5 + eps] = 1.0
         # self.Jw = w.reshape(self.n_nodes, 1)
     
+    def eigs_export(self, K, M):
+        f = f"data/eigs/{self.filename}.mat"
+        savemat(f, {"K": K, "M": M})
+        print(f"exported matrices to {f}")
+
     def eigs(self):
         K = self.to_scipy_csr()
-        na1 = null_space(self.Jw)
         M = self.Mw
-        print(f"na1 dim = {na1.shape}")
-        tilde_K = na1.T @ K @ na1 
-        tilde_M = na1.T @ M @ na1
-        with wp.ScopedTimer("constrained weight space eigs"):
-            lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
-            Ql = na1 @ Ql
-            Q = Ql[:self.n_nodes]
-            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-            Q /= Q_norm
+        dim = K.shape[0]
+        if dim >= 3000:
+            self.eigs_export()
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                import matlab.engine
+                eng = matlab.engine.start_matlab()
+                eng.nullspace()
+                Q = loadmat(f"data/eigs/Q_{self.filename}.mat")["V"].astype(np.float64)
+                lam = loadmat(f"data/eigs/Q_{self.filename}.mat")["D"].astype(np.float64)
+                # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+                # Q /= Q_norm
+        else: 
+            na1 = null_space(self.Jw)
+            print(f"na1 dim = {na1.shape}")
+            tilde_K = na1.T @ K @ na1 
+            tilde_M = na1.T @ M @ na1
+            with wp.ScopedTimer("constrained weight space eigs"):
+                lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
+                Ql = na1 @ Ql
+                Q = Ql[:self.n_nodes]
+                Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+                Q /= Q_norm
 
 
 
