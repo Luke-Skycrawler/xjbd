@@ -22,7 +22,7 @@ EE_SET_SIZE = 4096
 GROUND_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e6
+stiffness = 1e5
 
 @wp.struct
 class TriangleSoup:

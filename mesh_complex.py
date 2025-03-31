@@ -49,11 +49,11 @@ class RodComplexBC(RodBCBase, RodComplex):
             wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
         
 
-    # def set_bc_fixed_hessian(self):
-    #     pass
+    def set_bc_fixed_hessian(self):
+        pass
 
-    # def set_bc_fixed_grad(self):
-    #     pass
+    def set_bc_fixed_grad(self):
+        pass
 
     def step(self):
         self.theta += omega * self.h
@@ -70,8 +70,8 @@ class RodComplexBC(RodBCBase, RodComplex):
                         with wp.ScopedTimer("detection"):
                             self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
                         with wp.ScopedTimer("hess & grad"):
-                            # triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
-                            triplets = self.collider.analyze(self.b)
+                            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                            # triplets = self.collider.analyze(self.b)
                         with wp.ScopedTimer("build_from_triplets"):
                             self.add_collision_to_sys_matrix(triplets)
                     self.compute_rhs()
@@ -223,6 +223,20 @@ def bunny_rain():
     viewer = PSViewer(rods)
     ps.set_user_callback(viewer.callback)
     ps.show()
+
+def bar_rain():
+    n_meshes = 10
+    meshes = ["assets/bar2.tobj"] * n_meshes
+    
+    transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
+    v, _ = import_tobj(meshes[0])
+    bb_size = np.max(v, axis = 0) - np.min(v, axis = 0)
+    wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
+    print(f"bb_size = {bb_size}")
+    rods = RodComplexBC(h, meshes, transforms.numpy())
+    viewer = PSViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
     
 if __name__ == "__main__":
     ps.init()
@@ -234,6 +248,7 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    staggered_bars()
+    # staggered_bars()
     # tets()
     # bunny_rain()
+    bar_rain()

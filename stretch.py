@@ -253,10 +253,10 @@ class RodBCBase:
     def compute_rhs(self):
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         self.set_bc_fixed_grad()
-        self.comp_x.zero_()
-        wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, self.comp_x])
-        bsr_mv(self.A, self.comp_x, self.b, beta = 1.0)
-        print(f"compensation = {np.linalg.norm(self.comp_x.numpy())}")
+        # self.comp_x.zero_()
+        # wp.launch(compute_compensation, self.n_nodes, inputs= [self.states, self.geo, self.theta, self.comp_x])
+        # bsr_mv(self.A, self.comp_x, self.b, beta = 1.0)
+        # print(f"compensation = {np.linalg.norm(self.comp_x.numpy())}")
 
     def set_bc_fixed_grad(self):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
