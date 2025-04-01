@@ -32,24 +32,6 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
     Bm[e] = inv_Dm
     W[e] = wp.abs(wp.determinant(Dm)) / 6.0
 
-
-@wp.kernel
-def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), Psi: wp.array(dtype = float)):
-    e = wp.tid()
-    t0 = x[geo.T[e, 0]]
-    t1 = x[geo.T[e, 1]]
-    t2 = x[geo.T[e, 2]]
-    t3 = x[geo.T[e, 3]]
-    
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
-    
-    F = Ds @ Bm[e]
-    I1 = wp.trace(wp.transpose(F) @ F)
-    J = wp.determinant(F)
-    logJ = wp.log(J)
-    psi = mu * 0.5 * (I1 -3.0) - mu * logJ + lam * 0.5 * logJ * logJ
-    # wp.atomic_add(Psi, 0, W[e] * psi)
-    Psi[e] = W[e] * psi
     
 
 # still works, deprecated due to high compile time
