@@ -210,9 +210,14 @@ def staggered_bars():
     meshes = ["assets/bar2.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms[1][:3, :3] = np.zeros((3, 3))
+    transforms[1][0, 1] = 1
+    transforms[1][1, 0] = 1
+    transforms[1][2, 2] = 1
+    
     for i in range(n_meshes):
-        transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 0.2
+        # transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 1.2
         transforms[i][2, 3] = i * 1.0
     
     rods = ReducedRodComplex(h, meshes, transforms)
@@ -240,6 +245,6 @@ if __name__ == "__main__":
     
     # reduced_bunny_rain()
     # spin()
-    # staggered_bars()
-    twist()
+    staggered_bars()
+    # twist()
     
