@@ -22,7 +22,7 @@ EE_SET_SIZE = 4096
 GROUND_SET_SIZE = 4096
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e5
+stiffness = 1e6
 
 @wp.struct
 class TriangleSoup:
@@ -385,7 +385,7 @@ def fill_collision_triplets(pt_set: CollisionList, triangle_soup: TriangleSoup, 
     ds = dcvfdx_s(x0, x1, x2, x3)
     l = signed_distance(e0p, e1p, e2p)
 
-    if l > 0.0:
+    if l < 0.0:
         pass
     else: 
         gl0, gl1, gl2 = gl(l, e2p)
@@ -651,7 +651,7 @@ def collision_energy_pt(pt_set: CollisionList, triangle_soup: TriangleSoup, inve
     # ds = dcvfdx_s(x0, x1, x2, x3)
     l = signed_distance(e0p, e1p, e2p)
 
-    if l > 0.0: 
+    if l < 0.0: 
         pass
     else:
         dpsi = l * l * stiffness

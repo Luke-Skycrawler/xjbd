@@ -143,7 +143,7 @@ def staggered_bars():
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2
+        transforms[i][1, 3] = 1.2 + i * 0.2
         transforms[i][2, 3] = i * 1.0
     
     rods = RodComplexBC(h, meshes, transforms)

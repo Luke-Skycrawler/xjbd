@@ -157,7 +157,8 @@ def flip_face(verts: wp.array(dtype = wp.vec3), normals: wp.array(dtype = wp.vec
     i1 = indices[i * 3 + 1]
     i2 = indices[i * 3 + 2]
     ni = plane_normal(verts[i0], verts[i1], verts[i2])
-    if wp.dot(n, ni) < 0:
+    # if wp.dot(n, ni) < 0:
+    if False:
         # flip v1 v2
         indices[i * 3 + 1] = i2
         indices[i * 3 + 2] = i1
@@ -186,7 +187,7 @@ class TOBJComplex:
         self.n_tets = 0
         V = np.zeros((0, 3), dtype = float)
         T = np.zeros((0, 4), dtype = int)
-
+        F = np.zeros((0, 3), dtype = int)
         while len(transforms) < len(meshes_filename):
             transforms.append(np.identity(4, dtype = float))
         
@@ -214,7 +215,10 @@ class TOBJComplex:
         self.T.assign(T)
 
         FF = igl.boundary_facets(T)  
-        F, _ = igl.bfs_orient(FF)
+        FF, _ = igl.bfs_orient(FF)
+        c, _ = igl.orientable_patches(FF)
+        F, _ = igl.orient_outward(V, FF, c)
+        
         assert(FF.shape[0] == F.shape[0])
         n0 = np.ones(3, dtype = float)
         N = igl.per_face_normals(V, F, n0)
