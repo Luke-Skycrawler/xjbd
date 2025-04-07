@@ -14,6 +14,7 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
+model = "bug"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -70,19 +71,48 @@ def compute_Hw(triplets: Triplets, triplets_Hw: CSRTriplets):
     triplets_Hw.cols[i] = jj
     triplets_Hw.vals[i] = wp.trace(mat)
 
-
     
 class RodLBSWeight(Rod):
     def __init__(self):
-        self.filename = "assets/bar2.tobj"
+        self.filename = f"assets/{model}.tobj"
         super().__init__()
         self.define_Hw()
+        self.define_M()
+
+    def define_M(self):
+        V = self.xcs.numpy()
+        T = self.T.numpy()
+        # self.M is a vector composed of diagonal elements 
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        M_diag = np.repeat(self.Mnp, 3)
+        self.M_sparse = diags(M_diag)
+        self.Mw = diags(self.Mnp * 3.0)
+
+    def eigs_export(self, K, M):
+        f = f"data/eigs/{self.filename}.mat"
+        savemat(f, {"K": K, "M": M})
+        print(f"exported matrices to {f}")
 
     def eigs(self):
         K = self.to_scipy_csr()
         # print("start weight space eigs")
+        dim = K.shape[0]
+        if dim >= 3000:
+            self.eigs_export()
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                import matlab.engine
+                eng = matlab.engine.start_matlab()
+                eng.nullspace()
+
+                data = loadmat(f"data/eigs/Q_{self.filename}.mat")
+                Q = data["V"].astype(np.float64)
+                lam = data["D"].astype(np.float64)
+                # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+                # Q /= Q_norm
         with wp.ScopedTimer("weight space eigs"):
-            lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
+            lam, Q = eigsh(K, k = 10, M = self.Mw, which = "SM")
+            # lam, Q = eigsh(K, k = 10, which = "SM")
             # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
             # Q /= Q_norm
         return lam, Q
@@ -274,7 +304,6 @@ class RodLBSWeightBC(RodLBSWeight):
         return lam, Q
 
 def vis_weights(): 
-    model = "bar2"
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
