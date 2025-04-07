@@ -58,21 +58,19 @@ class MedialRodComplex(RodComplexBC):
     def define_z(self, transforms):
         t = np.array(transforms)
         t = t[0, :3, :4]
-        # FIXME: only take the first mesh for now
-        z = []
-        for ti in t:
-            z.append(vec(ti))
-        zz = np.array(z).reshape(-1)
         self.n_reduced = self.Q.shape[1] * 12 + 12
         self.z = np.zeros(self.n_reduced)
-        self.z[:len(zz)] = zz
+        self.z[:9] = vec(np.identity(3))
         
         self.dz = np.zeros_like(self.z)
 
     def define_collider(self):
         super().define_collider()
         self.slabmesh = SlabMesh("data/bug_v30.ma")
-        V = self.slabmesh.V
+        V = np.copy(self.slabmesh.V)
+        v4 = np.ones((V.shape[0], 4))
+        v4[:, :3] = V
+        V = (v4 @ self.transforms[0].T)[:, :3]
         R = self.slabmesh.R
         E = self.slabmesh.E
         self.dVdq = dxdq_jacobian(V.shape[0] * 3, V)
@@ -93,47 +91,35 @@ class MedialRodComplex(RodComplexBC):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial_rest, self.R_rest, self.E_medial, self.slabmesh.F)
+            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F)
 
         self.n_medial = self.V_medial.shape[0]
 
     def reset(self):
         if hasattr(self, "V_medial"):
-            self.V_medial[:] = self.V_medial_rest
+            self.V_medial[:] = self.V_medial_rest[:]
             self.R[:] = self.R_rest
         super().reset()
         self.reset_z()
 
     def reset_z(self):
-        # FIXME: translation for the bug model only for now
         t = self.transforms[0]
         self.z[:] = 0.0
         self.dz[:] = 0.0
-        self.z[:3] = t[:3, 3]
+        self.z[:9] = vec(np.identity(3))
         self.z[-12:] = self.xcs.numpy()[-4:].reshape(-1)
 
     def compute_Um(self):
-        # x = torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32))
 
-        # x = torch.zeros(self.n_modes)
-        # jac = F.jacobian(self.encoder, x).numpy()
-
-        x = self.z[6: 6 + self.n_modes]
-        jac = self.encoder.jacobian(x)
-
-        # jacobian is 120 * 12
-        n = jac.shape[0]
-        select = np.arange(n)
-        mask = (np.arange(n) % 4) != 3
-        select = select[mask]
-
-        fill = jac[select, :]
-        # self.Um[: fill.shape[0], : fill.shape[1]] = fill
-        q6 = dxdq_jacobian(self.n_medial * 3 - 6, self.V_medial_rest[:-2])
-        self.Um[: -6, :6] = q6
-        self.Um[: fill.shape[0], 6: 6 + fill.shape[1]] = fill
+        # jac = self.encoder.jacobian(x)
+        jac = self.lbs_matrix(self.V_medial_rest[:-2], self.W_medial)
+        fill = jac
+        # q6 = dxdq_jacobian(self.n_medial * 3 - 6, self.V_medial_rest[:-2])
+        # self.Um[: -6, :6] = q6
+        self.Um[: fill.shape[0], :fill.shape[1]] = fill
 
         self.Um[-6:, -6:] = np.identity(6)
+
 
     def add_collision_to_sys_matrix(self, triplets):
         super().add_collision_to_sys_matrix(triplets)
@@ -156,32 +142,20 @@ class MedialRodComplex(RodComplexBC):
 
     def line_search(self):
         self.z -= self.dz
-        wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
+        # wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
+        x = (self.U @ self.z).reshape((-1, 3))
+        self.states.x.assign(x)
+    
         return 1.0
 
     def define_encoder(self):
-        n_modes, n_nodes = 12, 30
-        checkpoint = 4000
-        # self.encoder = Encoder(n_modes, n_nodes)
-        # self.encoder.load_state_dict(torch.load(f"data/pq{checkpoint}_12d.pth"))
-        # self.encoder.eval()
-
-        self.encoder = WarpEncoder(n_modes, n_nodes, )
+        self.intp = TetBaryCentricCompute("bug", 30)
+        self.W_medial = self.intp.compute_weight(self.Q)
 
     def get_VR(self):
-        # p = self.encoder(torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32)))
-        p = self.encoder.forward(self.z[6: 6 + self.n_modes]).reshape(-1, 4)
-        V = p[:, :3]
-        R = p[:, 3]
-
-        dp = self.dVdq @ self.z[0: 6]
-        V += dp.reshape((-1, 3))
-
-        if ad_hoc:
-            rr = np.array([0.1, 0.1])
-            vv = self.z[-6:].reshape((-1, 3))
-            V = np.vstack((V, vv))
-            R = np.concatenate((R, rr))
+        V = (self.Um @ self.z).reshape((-1, 3))# + self.V_medial_rest
+        # V = self.V_medial_rest
+        R = self.R_rest
         return V, R
 
     def process_collision(self):
