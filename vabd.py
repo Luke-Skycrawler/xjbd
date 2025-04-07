@@ -13,7 +13,7 @@ from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
 from fast_cd import RodLBSWeight
 import os 
-from scipy.linalg import solve, cho_factor, cho_solve, polar
+from scipy.linalg import solve, cho_factor, cho_solve, polar, lu_factor, lu_solve
 from scipy.io import loadmat
 from igl import lbs_matrix
 from fast_cd import CSRTriplets, compute_Hw
@@ -28,10 +28,10 @@ ref_A_reduced = False
 def per_node_forces(geo: FEMMesh, b: wp.array(dtype = wp.vec3), h: float):
     i = wp.tid()
     xi = geo.xcs[i][0]
-    fz = wp.cos(2. * wp.pi * xi) * 20.0
-    eps = 1e-3
-    if xi < -0.5 + eps or xi > 0.5 - eps:
-        fz *= 0.5
+    fz = wp.cos(2. * wp.pi * xi) * 2.0
+    # eps = 1e-3
+    # if xi < -0.5 + eps or xi > 0.5 - eps:
+    #     fz *= 0.5
     b[i] -= h * h * wp.vec3(0., 0., fz)
     
 def orthogonalize(U, eps=1e-15):
@@ -165,7 +165,7 @@ class ReducedRodComplex(RodComplexBC):
 
         # self.U = dxdq_jacobian(self.n_nodes * 3, self.xcs.numpy())
 
-        model = "bar2"
+        model = "bug"
         Q = None
         if not os.path.exists(f"data/W_{model}.npy"):
         # if True:
@@ -209,7 +209,7 @@ class ReducedRodComplex(RodComplexBC):
             for i in range(n_objects):
                 self.U[i * n: (i + 1) * n, i * m: (i + 1) * m] = np.copy(U)
         
-        self.U = orthogonalize(U)
+        # self.U = orthogonalize(U)
         self.U0 = uu
         self.U_tilde = self.U[:, 12:]
         self.n_reduced = n_objects * self.n_modes * 12
@@ -260,7 +260,8 @@ class ReducedRodComplex(RodComplexBC):
         # self.K0 = self.U.T @ self.to_scipy_bsr() * h * h @  self.U
         # self.M_tilde = self.U.T @ self.to_scipy_bsr(self.M_sparse) @ self.U
         self.A_tilde = self.K0 + self.M_tilde
-        self.c, self.low = cho_factor(self.A_tilde)
+        # self.c, self.low = cho_factor(self.A_tilde)
+        self.c, self.low = lu_factor(self.A_tilde)
 
     def compute_A(self):
         if ref_A_reduced:
@@ -299,7 +300,8 @@ class ReducedRodComplex(RodComplexBC):
         dz0 = solve(self.A0, self.b0, assume_a = "sym")
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.tilde_z_tilde()) + self.compute_excitement()
 
-        dz_tilde = cho_solve((self.c, self.low), self.b_tilde)
+        # dz_tilde = cho_solve((self.c, self.low), self.b_tilde)
+        dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
         # b1 = self.M_tilde @ self.tilde_z_tilde()
         # z1 = cho_solve((self.c, self.low, ), b1)
 
@@ -427,7 +429,7 @@ def reduced_bunny_rain():
 
 def spin():
     n_meshes = 1
-    meshes = ["assets/bar2.tobj"] * n_meshes
+    meshes = ["assets/bug.tobj"] * n_meshes
     
     # transforms = wp.zeros((n_meshes, 4, 4), dtype = float)
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
