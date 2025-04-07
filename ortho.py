@@ -65,7 +65,8 @@ def fill_gh(g: wp.array(dtype = float), H: wp.array2d(dtype = float), F: wp.arra
 class OrthogonalEnergy:
     def __init__(self):
         pass
-    def gradient(self, ff):
+
+    def analyze(self, ff):
         g = wp.zeros(12, float)
         h = wp.zeros((12, 12), float)
         F = wp.zeros((1, ), dtype = wp.mat33)
@@ -73,23 +74,33 @@ class OrthogonalEnergy:
         F.assign(ff.reshape(1, 3, 3))
         wp.launch(fill_gh, (1), inputs = [g, h, F])
         gg = g.numpy().reshape(-1)
-        return gg
-        # return wp.zeros((12), dtype = float)
-        return np.zeros((12), dtype = float)
-    
-    def hessian(self, ff):
-        g = wp.zeros(12, float)
-        h = wp.zeros((12, 12), float)
-        # F = wp.zeros((1, ), dtype = wp.mat33)
-
-        # F.assign(ff.reshape(1, 3, 3))
-
-        F = wp.array(ff, dtype = wp.mat33)
-        wp.launch(fill_gh, (1), inputs = [g, h, F])
         hh = h.numpy()
-        return hh
-        # return wp.zeros((12, 12), dtype = float)
-        return np.zeros((12, 12), dtype = float)
+        return gg, hh
+    # def gradient(self, ff):
+    #     g = wp.zeros(12, float)
+    #     h = wp.zeros((12, 12), float)
+    #     F = wp.zeros((1, ), dtype = wp.mat33)
+
+    #     F.assign(ff.reshape(1, 3, 3))
+    #     wp.launch(fill_gh, (1), inputs = [g, h, F])
+    #     gg = g.numpy().reshape(-1)
+    #     return gg
+    #     # return wp.zeros((12), dtype = float)
+    #     return np.zeros((12), dtype = float)
+    
+    # def hessian(self, ff):
+    #     g = wp.zeros(12, float)
+    #     h = wp.zeros((12, 12), float)
+    #     # F = wp.zeros((1, ), dtype = wp.mat33)
+
+    #     # F.assign(ff.reshape(1, 3, 3))
+
+    #     F = wp.array(ff, dtype = wp.mat33)
+    #     wp.launch(fill_gh, (1), inputs = [g, h, F])
+    #     hh = h.numpy()
+    #     return hh
+    #     # return wp.zeros((12, 12), dtype = float)
+    #     return np.zeros((12, 12), dtype = float)
 
     
 if __name__ == "__main__":
