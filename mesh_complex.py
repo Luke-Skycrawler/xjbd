@@ -23,10 +23,13 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
-        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0)
+        self.define_collider()
         self.n_pt = 0
         self.n_ee = 0
         self.n_ground = 0
+
+    def define_collider(self):
+        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0)
 
     def reset(self):
         n_verts = 4
@@ -41,7 +44,7 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_verts = 2471
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
-        if self.meshes_filename[0] == "assets/tet.tobj":
+        if self.meshes_filename[0] == "assets/tet.tobj" or self.meshes_filename[1] == "assets/tet.tobj":
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         elif self.meshes_filename[0] == "assets/bar2.tobj" or self.meshes_filename[0] == "assets/bug.tobj": 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
@@ -56,7 +59,16 @@ class RodComplexBC(RodBCBase, RodComplex):
 
     def set_bc_fixed_grad(self):
         pass
-
+    
+    def process_collision(self):
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                # triplets = self.collider.analyze(self.b)
+            with wp.ScopedTimer("build_from_triplets"):
+                self.add_collision_to_sys_matrix(triplets)
     def step(self):
         self.theta += omega * self.h
         with wp.ScopedTimer("step"):
@@ -68,14 +80,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                 with wp.ScopedTimer(f"newton #{n_iter}"):
                     with wp.ScopedTimer("compute A"):
                         self.compute_A()
-                    with wp.ScopedTimer("collision"):
-                        with wp.ScopedTimer("detection"):
-                            self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
-                        with wp.ScopedTimer("hess & grad"):
-                            triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
-                            # triplets = self.collider.analyze(self.b)
-                        with wp.ScopedTimer("build_from_triplets"):
-                            self.add_collision_to_sys_matrix(triplets)
+                    self.process_collision()
                     self.compute_rhs()
 
                     self.solve()
