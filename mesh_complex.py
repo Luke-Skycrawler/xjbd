@@ -37,11 +37,13 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_verts = 4
         elif self.meshes_filename[0] == "assets/bunny_5.tobj":
             n_verts = 1356
+        elif self.meshes_filename[0] == "assets/bug.tobj":
+            n_verts = 2471
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if self.meshes_filename[0] == "assets/tet.tobj":
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif self.meshes_filename[0] == "assets/bar2.tobj": 
+        elif self.meshes_filename[0] == "assets/bar2.tobj" or self.meshes_filename[0] == "assets/bug.tobj": 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
             pos = self.transforms[:, :3, 3]
@@ -133,7 +135,7 @@ def set_vx_kernel(states: NewtonState, thres: int):
 
 def staggered_bars():
     n_meshes = 2 
-    meshes = ["assets/bar2.tobj"] * n_meshes
+    meshes = ["assets/bug.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))

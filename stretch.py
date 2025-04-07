@@ -105,7 +105,7 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
 def compute_inertia(state: NewtonState, M: wp.array(dtype = float), inert: wp.array(dtype = float), h: float):
     i = wp.tid()
     dx = x_minus_tilde(state, h, i)
-    de = wp.length_sq(dx) * M[i]
+    de = wp.length_sq(dx) * M[i] * 0.5
     wp.atomic_add(inert, 0, de)
 
 @wp.kernel
@@ -270,31 +270,31 @@ class RodBCBase:
             # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
             cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
     
-    def line_search(self):
-        alpha = 1.0
-        wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-        return alpha
-        
     # def line_search(self):
-    #     # FIXME: not converged
-    #     x_tmp = wp.clone(self.states.x)
-    #     E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
     #     alpha = 1.0
-    #     while True:
-    #         wp.copy(self.states.x, x_tmp)
-    #         wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-    #         E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
-            
-    #         if E1 < E0:
-    #             break
-    #         if alpha < 1e-3:
-    #             wp.copy(self.states.x, x_tmp)
-    #             alpha = 0.0
-    #             break
-    #         alpha *= 0.5
-
-    #     # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+    #     wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
     #     return alpha
+        
+    def line_search(self):
+        # FIXME: not converged
+        x_tmp = wp.clone(self.states.x)
+        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+        alpha = 1.0
+        while True:
+            wp.copy(self.states.x, x_tmp)
+            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
+            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            
+            if E1 < E0:
+                break
+            if alpha < 1e-3:
+                wp.copy(self.states.x, x_tmp)
+                alpha = 0.0
+                break
+            alpha *= 0.5
+
+        # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+        return alpha
 
     def compute_collision_energy(self):
         return 0.0
