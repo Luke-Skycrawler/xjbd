@@ -42,6 +42,8 @@ class MedialCollisionDetector:
         self.ee_set.a = wp.zeros(CC_SET_SIZE, dtype = wp.vec2i)
         self.ee_set.cnt = wp.zeros(1, dtype = int)
 
+        vv = lambda e: (max(e[0], e[1]), min(e[0], e[1])) 
+        self.vv_adjacency = set([vv(e) for e in E])
         
         
     def refit(self, V, R = None):
@@ -50,6 +52,18 @@ class MedialCollisionDetector:
             self.radius.assign(R)
         self.V[:] = V
         self.vertices.assign(V)
+
+    def is_1_ring(self, e0, e1, e2, e3):
+        return e0 == e2 or e0 == e3 or e1 == e2 or e1 == e3
+
+    
+    def is_connected(self, v0, v1):
+        key = (max(v0, v1), min(v0, v1))
+        return key in self.vv_adjacency
+            
+    def is_2_ring(self, e0, e1, e2, e3):
+        return self.is_connected(e0, e2) or self.is_connected(e0, e3) or self.is_connected(e1, e2) or self.is_connected(e1, e3)
+
 
     def collision_set(self, V, R = None):
         self.refit(V, R)
@@ -73,12 +87,15 @@ class MedialCollisionDetector:
         with wp.ScopedTimer("cone-cone"):
 
             # wp.launch(collision_medial, (n_edges, n_edges), inputs = [self.edges, self.vertices, self.radius, self.ee_set])
-            for i in range(n_edges - 1, n_edges):
+            for i in range(n_edges):
                 # FIXME: ad-hoc for now, only detect collision with the last edge
                 for j in range(i):
                     # brute force edge-edge collision detection
                     e0, e1 = self.E[i]
                     e2, e3 = self.E[j] 
+
+                    if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
+                        continue
 
                     ve0 = self.V[e0]
                     ve1 = self.V[e1]
