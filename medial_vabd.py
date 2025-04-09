@@ -3,7 +3,7 @@ import numpy as np
 import polyscope as ps 
 import polyscope.imgui as gui
 
-from stretch import h, add_dx
+from stretch import h, add_dx, compute_rhs
 from medial_reduced import MedialRodComplex, vec
 
 from scipy.linalg import lu_factor, lu_solve, solve
@@ -169,11 +169,34 @@ class MedialVABD(MedialRodComplex):
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement()
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
-        dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
+        # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
 
         
         # self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
-        self.dz_tilde = solve(self.A_tilde + self.A_col_tilde, self.b_tilde + self.b_col_tilde, assume_a = "sym")
+
+        A_sys = np.zeros((self.n_reduced, self.n_reduced))
+        b_sys = np.zeros(self.n_reduced)
+        
+
+        U_prime = self.compute_U_prime()
+        U_tildeT = U_prime @ self.U_tilde.T
+
+        U_sys = np.vstack([self.U0.T, U_tildeT])
+
+        A_sys = U_sys @ self.to_scipy_bsr() @ U_sys.T 
+        b_sys = U_sys @ self.b.numpy().reshape(-1) 
+        
+        # A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
+        # A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
+
+        # b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
+        # b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
+
+        dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+        
+        
+        dz0 = dz_sys[:self.n_meshes * 12]
+        self.dz_tilde[:] = dz_sys[self.n_meshes * 12:]
 
         dz = np.zeros_like(self.z)
         dz_from_zt = self.dz_tiled2dz(self.dz_tilde, dz0)
@@ -245,8 +268,6 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = 0.0
         self.dz_tilde[:] = 0.0
 
-    def compute_A(self):
-        pass
 
     def process_collision(self):
         V, R = self.get_VR()
@@ -254,10 +275,11 @@ class MedialVABD(MedialRodComplex):
         g, H = self.collider_medial.analyze()
         U_prime = self.compute_U_prime()
         Um_tildeT = U_prime @ self.Um_tilde.T
+        # Um_tildeT = self.Um_tilde.T
 
         rhs = Um_tildeT @ g
         A = Um_tildeT @ H @ Um_tildeT.T 
-        term = self.h * self.h * 2e2
+        term = self.h * self.h * 2e3
 
         self.b_col_tilde = rhs * term
         self.A_col_tilde = A * term
@@ -265,8 +287,17 @@ class MedialVABD(MedialRodComplex):
         self.A0_col = self.Um0.T @ H @ self.Um0 * term
         self.b0_col = self.Um0.T @ g * term
 
+        Um_sys = np.vstack([self.Um0.T, Um_tildeT])
+        self.A_sys_col = Um_sys @ H @ Um_sys.T * term
+        self.b_sys_col = Um_sys @ g * term
+        
+
+    # def compute_A(self):
+    #     pass
+
     def compute_rhs(self):
-        pass
+        wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
+        self.set_bc_fixed_grad()
 
 def staggered_bug():
     
