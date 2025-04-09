@@ -9,7 +9,7 @@ from medial_reduced import MedialRodComplex, vec
 from scipy.linalg import lu_factor, lu_solve, solve
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
-
+from vabd import per_node_forces
 ad_hoc = True
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[]):
@@ -186,10 +186,30 @@ class MedialVABD(MedialRodComplex):
         zh = self.z0 + self.h * self.z_dot
         return zh[i * 12: (i + 1) * 12]
 
+    def compute_U_prime(self):
+        U_prime_dim = self.z_tilde.shape[0]
+        U_prime = np.zeros((U_prime_dim, U_prime_dim))
+        for i in range(self.n_meshes):
+            ri = self.get_F(i)
+            i_m = np.identity((self.n_modes - 12) // 3, float)
+            start  = i * (self.n_modes - 12)
+            end = start + (self.n_modes - 12)
+            U_prime[start:end, start: end] = np.kron(i_m, ri)
+        
+        return U_prime
+
     def compute_excitement(self):
         return np.zeros_like(self.z_tilde)
+        f = self.per_node_forces() * 2.0
+        U_prime = self.compute_U_prime()        
+        Q_tilde = U_prime @ self.U_tilde.T @ f
+        return Q_tilde
     
-    
+    def per_node_forces(self):
+        b = wp.zeros_like(self.b)
+        wp.launch(per_node_forces, (self.n_nodes, ), inputs = [self.geo, b, self.h])
+        return b.numpy().reshape(-1)
+
     def reset_z(self):
         self.z[:] = 0.0
         self.dz[:] = 0.0
@@ -202,6 +222,9 @@ class MedialVABD(MedialRodComplex):
         
         if ad_hoc: 
             self.z_dot[12 + 9: 12 + 12] = np.array([0.0, 0.0, -3.0])
+            
+            # self.z_dot[2] = -1.0
+            # self.z_dot[6] = 1.0
         
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
