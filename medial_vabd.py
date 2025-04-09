@@ -51,6 +51,16 @@ class MedialVABD(MedialRodComplex):
 
             self.U_tilde[start:end, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.lbs_matrix(V, self.Q[:, 1:])
 
+        # fill Um_tilde 
+        self.Um_tilde = np.zeros((self.n_medial * 3, self.z_tilde.shape[0]))
+        self.Um0 = np.zeros((self.n_medial * 3, 12 * self.n_meshes))
+        for i in range(self.n_meshes):
+            start = i * self.n_modes
+            end = (i + 1) * self.n_modes
+
+            self.Um_tilde[:, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.Um[:, start + 12: end]
+            self.Um0[:, i * 12: (i + 1) * 12] = self.Um[:, start: start + 12]
+
     def define_mm(self):
         self.mm = self.U0.T @ self.to_scipy_bsr(self.M_sparse) @ self.U0
     
@@ -158,8 +168,12 @@ class MedialVABD(MedialRodComplex):
         # set b_tilde
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement()
 
-        dz0 = solve(self.A0, self.b0, assume_a="sym")
-        self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
+        # dz0 = solve(self.A0, self.b0, assume_a="sym")
+        dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
+
+        
+        # self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
+        self.dz_tilde = solve(self.A_tilde + self.A_col_tilde, self.b_tilde + self.b_col_tilde, assume_a = "sym")
 
         dz = np.zeros_like(self.z)
         dz_from_zt = self.dz_tiled2dz(self.dz_tilde, dz0)
@@ -235,12 +249,27 @@ class MedialVABD(MedialRodComplex):
         pass
 
     def process_collision(self):
-        pass
+        V, R = self.get_VR()
+        self.collider_medial.collision_set(V, R)
+        g, H = self.collider_medial.analyze()
+        U_prime = self.compute_U_prime()
+        Um_tildeT = U_prime @ self.Um_tilde.T
+
+        rhs = Um_tildeT @ g
+        A = Um_tildeT @ H @ Um_tildeT.T 
+        term = self.h * self.h * 2e2
+
+        self.b_col_tilde = rhs * term
+        self.A_col_tilde = A * term
+
+        self.A0_col = self.Um0.T @ H @ self.Um0 * term
+        self.b0_col = self.Um0.T @ g * term
 
     def compute_rhs(self):
         pass
 
 def staggered_bug():
+    
     n_meshes = 2 
     meshes = ["assets/bug.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes

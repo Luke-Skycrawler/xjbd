@@ -166,7 +166,7 @@ class MedialRodComplexDebug(RodComplexBC):
         self.collider_medial.collision_set(V, R,)
         b, H = self.collider_medial.analyze()
 
-        self.compute_Um()
+        # self.compute_Um()
         rhs = self.Um.T @ b
         A = self.Um.T @ H @ self.Um
 
