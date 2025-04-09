@@ -6,11 +6,13 @@ import polyscope.imgui as gui
 from stretch import h, add_dx, compute_rhs
 from medial_reduced import MedialRodComplex, vec
 
-from scipy.linalg import lu_factor, lu_solve, solve
+from scipy.linalg import lu_factor, lu_solve, solve, polar
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
 ad_hoc = True
+def asym(a):
+    return 0.5 * (a - a.T)
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[]):
         super().__init__(h, meshes, transforms)
@@ -78,7 +80,7 @@ class MedialVABD(MedialRodComplex):
         h = self.h
         self.compute_K()
         self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
-        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde * (h * h)
+        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
 
         self.A_tilde = self.K0 + self.M_tilde
 
@@ -128,13 +130,15 @@ class MedialVABD(MedialRodComplex):
         dz = np.zeros_like(dz_tilde)
 
         for i in range(self.n_meshes):
-            R = self.get_F(i)
+            F = self.get_F(i)
+            R, p = polar(F)
+            
             start = i * (self.n_modes - 12)
             end = start + (self.n_modes - 12)
 
             dzti = dz_tilde[start: end].reshape((-1, 3)).T
             dz0i = dz0[i * 12: (i + 1) * 12]
-            dR = dz0i.reshape((-1, 3)).T[:, :3]
+            dR = asym(dz0i.reshape((-1, 3)).T[:, :3])
 
 
             zti = self.z_tilde[start: end].reshape((-1, 3)).T
@@ -178,21 +182,26 @@ class MedialVABD(MedialRodComplex):
         b_sys = np.zeros(self.n_reduced)
         
 
-        U_prime = self.compute_U_prime()
-        U_tildeT = U_prime @ self.U_tilde.T
 
-        U_sys = np.vstack([self.U0.T, U_tildeT])
+        # U_prime = self.compute_U_prime()
+        # U_tildeT = U_prime @ self.U_tilde.T
+        # U_sys = np.vstack([self.U0.T, U_tildeT])
 
-        A_sys = U_sys @ self.to_scipy_bsr() @ U_sys.T 
-        b_sys = U_sys @ self.b.numpy().reshape(-1) 
+        # A_sys = U_sys @ self.to_scipy_bsr() @ U_sys.T 
+        # b_sys = U_sys @ self.b.numpy().reshape(-1) 
         
-        # A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
-        # A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
+        A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
+        A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = 0.0
+        A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
+        # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
+        # np.save("A_tilde_K0.npy", self.A_tilde)
+        A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
 
-        # b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
-        # b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
+        b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
+        b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
         dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+        # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
         
         dz0 = dz_sys[:self.n_meshes * 12]
@@ -227,7 +236,9 @@ class MedialVABD(MedialRodComplex):
         U_prime_dim = self.z_tilde.shape[0]
         U_prime = np.zeros((U_prime_dim, U_prime_dim))
         for i in range(self.n_meshes):
-            ri = self.get_F(i)
+            fi = self.get_F(i)
+            ri, _ = polar(fi)
+            
             i_m = np.identity((self.n_modes - 12) // 3, float)
             start  = i * (self.n_modes - 12)
             end = start + (self.n_modes - 12)
@@ -268,7 +279,7 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = 0.0
         self.dz_tilde[:] = 0.0
 
-
+        self.frame = 0
     def process_collision(self):
         V, R = self.get_VR()
         self.collider_medial.collision_set(V, R)
@@ -292,12 +303,13 @@ class MedialVABD(MedialRodComplex):
         self.b_sys_col = Um_sys @ g * term
         
 
-    # def compute_A(self):
-    #     pass
+    def compute_A(self):
+        pass
 
     def compute_rhs(self):
-        wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
-        self.set_bc_fixed_grad()
+        pass
+        # wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
+        # self.set_bc_fixed_grad()
 
 def staggered_bug():
     
