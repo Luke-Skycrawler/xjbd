@@ -80,10 +80,12 @@ class RodComplexBC(RodBCBase, RodComplex):
                 with wp.ScopedTimer(f"newton #{n_iter}"):
                     with wp.ScopedTimer("compute A"):
                         self.compute_A()
-                    self.process_collision()
+                    with wp.ScopedTimer("collision"):
+                        self.process_collision()
                     self.compute_rhs()
 
-                    self.solve()
+                    with wp.ScopedTimer("solve"):
+                        self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
                     
                     dxnp = self.states.dx.numpy()
@@ -93,7 +95,8 @@ class RodComplexBC(RodBCBase, RodComplex):
                         break
 
                     # line search stuff, not converged yet
-                    alpha = self.line_search()
+                    with wp.ScopedTimer("line search"):
+                        alpha = self.line_search()
                     if alpha == 0.0:
                         break
 

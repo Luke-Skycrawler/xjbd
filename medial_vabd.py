@@ -5,7 +5,7 @@ import polyscope.imgui as gui
 
 from stretch import h, add_dx, compute_rhs
 from medial_reduced import MedialRodComplex, vec
-
+from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
@@ -194,8 +194,8 @@ class MedialVABD(MedialRodComplex):
         # b_sys = U_sys @ self.b.numpy().reshape(-1) 
         
         A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
-        A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = 0.0
-        A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
+        # A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = 0.0
+        # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
         # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
         # np.save("A_tilde_K0.npy", self.A_tilde)
         A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
@@ -333,23 +333,28 @@ class MedialVABD(MedialRodComplex):
             self.collider_medial.collision_set(V, R)
         with wp.ScopedTimer("analyze"):
             g, H = self.collider_medial.analyze()
-        U_prime = self.compute_U_prime()
-        Um_tildeT = U_prime @ self.Um_tilde.T
+            
+        with wp.ScopedTimer("U prime"):
+            U_prime = self.compute_U_prime()
+        
+        with wp.ScopedTimer("prod 1"):
+            Um_tildeT = U_prime @ self.Um_tilde.T
         # Um_tildeT = self.Um_tilde.T
 
-        rhs = Um_tildeT @ g
-        A = Um_tildeT @ H @ Um_tildeT.T 
         term = self.h * self.h * medial_collision_stiffness
+        with wp.ScopedTimer("collision linalg system"):
+            # rhs = Um_tildeT @ g
+            # A = Um_tildeT @ H @ Um_tildeT.T 
 
-        self.b_col_tilde = rhs * term
-        self.A_col_tilde = A * term
+            # self.b_col_tilde = rhs * term
+            # self.A_col_tilde = A * term
 
-        self.A0_col = self.Um0.T @ H @ self.Um0 * term
-        self.b0_col = self.Um0.T @ g * term
+            # self.A0_col = self.Um0.T @ H @ self.Um0 * term
+            # self.b0_col = self.Um0.T @ g * term
 
-        Um_sys = np.vstack([self.Um0.T, Um_tildeT])
-        self.A_sys_col = Um_sys @ H @ Um_sys.T * term
-        self.b_sys_col = Um_sys @ g * term
+            Um_sys = np.vstack([self.Um0.T, Um_tildeT])
+            self.A_sys_col = Um_sys @ H @ Um_sys.T * term
+            self.b_sys_col = Um_sys @ g * term
         
 
     def compute_A(self):
@@ -383,6 +388,21 @@ def staggered_bug():
     ps.show()
 
 
+def bug_rain():
+    n_meshes = 20
+    meshes = ["assets/bug.tobj"] * n_meshes
+    
+    transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
+    # v, _ = import_tobj(meshes[0])
+    # bb_size = np.max(v, axis = 0) - np.min(v, axis = 0)
+    bb_size = np.ones(3, float)
+    wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
+    print(f"bb_size = {bb_size}")
+    rods = MedialVABD(h, meshes, transforms.numpy())
+    viewer = MedialViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 8), (0, 2, 0))
@@ -391,4 +411,5 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     # bug_drop()
-    staggered_bug()
+    # staggered_bug()
+    bug_rain()

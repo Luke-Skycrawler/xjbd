@@ -196,12 +196,12 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
         nodes_per_mesh = self.n_nodes // self.n_meshes
         x0 = self.xcs.numpy()
-        x00 = x0[:nodes_per_mesh]
-        x01 = x0[nodes_per_mesh:]
-        U0 = self.lbs_matrix(x00, self.Q)
-        U1 = self.lbs_matrix(x01, self.Q)
-        self.U[:nodes_per_mesh * 3, :self.n_modes] = U0
-        self.U[nodes_per_mesh * 3:, self.n_modes:] = U1
+        
+        for i in range(self.n_meshes):
+            xi = x0[i * nodes_per_mesh: (i + 1) * nodes_per_mesh]
+            Ui = self.lbs_matrix(xi, self.Q)
+            self.U[i * nodes_per_mesh * 3: (i + 1) * nodes_per_mesh * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
+            
 
     def define_collider(self):
         super().define_collider()
@@ -209,17 +209,20 @@ class MedialRodComplex(MedialRodComplexDebug):
         V0 = np.copy(self.slabmesh.V)
         v4 = np.ones((V0.shape[0], 4))
         v4[:, :3] = V0
-        R = self.slabmesh.R
-        E = self.slabmesh.E
+        R0 = self.slabmesh.R
+        E0 = self.slabmesh.E
+        
+        R = np.zeros(0, float)
+        E = np.zeros((0, 2), float)
+        V = np.zeros((0, 3))
+        self.n_mdeial_per_mesh = V0.shape[0]
 
-        if ad_hoc:
-            V_bug0 = (v4 @ self.transforms[0].T)[:, :3]
-            V_bug1 = (v4 @ self.transforms[1].T)[:, :3]
-
-            self.cnt = V0.shape[0]
-            V = np.vstack((V_bug0, V_bug1))
-            R = np.concatenate((R, np.copy(R)))
-            E = np.vstack((E, E + self.cnt))
+        for i in range(self.n_meshes):
+            Vi = (v4 @ self.transforms[i].T)[:, : 3]
+            cnt = i * self.n_mdeial_per_mesh
+            V = np.vstack([V, Vi])
+            R = np.concatenate([R, np.copy(R0)])
+            E = np.vstack((E, E0 + cnt))
 
         self.E_medial = E
         self.V_medial_rest = np.copy(V)
@@ -234,7 +237,6 @@ class MedialRodComplex(MedialRodComplexDebug):
             self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F)
 
         self.n_medial = self.V_medial.shape[0]
-        self.n_mdeial_per_mesh = self.n_medial // self.n_meshes
 
     def reset_z(self):
         t = self.transforms[0]
@@ -247,13 +249,11 @@ class MedialRodComplex(MedialRodComplexDebug):
     def compute_Um(self):
 
         # jac = self.encoder.jacobian(x)
+        for i in range(self.n_meshes):
+            Vmi = self.V_medial_rest[i * self.n_mdeial_per_mesh: (i + 1) * self.n_mdeial_per_mesh]
+            jaci = self.lbs_matrix(Vmi, self.W_medial)
+            self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
 
-        Vm_0 = self.V_medial_rest[:self.n_mdeial_per_mesh]
-        Vm_1 = self.V_medial_rest[self.n_mdeial_per_mesh:]
-        jac0 = self.lbs_matrix(Vm_0, self.W_medial)
-        jac1 = self.lbs_matrix(Vm_1, self.W_medial)
-        self.Um[: jac0.shape[0], :jac0.shape[1]] = jac0
-        self.Um[self.n_mdeial_per_mesh * 3: self.n_mdeial_per_mesh * 3 + jac1.shape[0], self.n_modes:] = jac1
 
 def bug_drop():
     n_meshes = 2
