@@ -11,6 +11,7 @@ from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
 ad_hoc = True
+medial_collision_stiffness = 5e3
 def asym(a):
     return 0.5 * (a - a.T)
 class MedialVABD(MedialRodComplex):
@@ -221,11 +222,55 @@ class MedialVABD(MedialRodComplex):
         self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def line_search(self):
-        self.z_tilde -= self.dz_tilde
-        self.z -= self.dz
+        z_tilde_tmp = np.copy(self.z_tilde)
+        z_tmp = np.copy(self.z)
+
+        alpha = 1.0
+        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+        while True:
+            self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
+            self.z[:] = z_tmp - alpha * self.dz
+            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            if E1 < E0:
+                break
+            if alpha < 1e-3:
+                self.z_tilde[:] = z_tilde_tmp
+                self.z[:] = z_tmp
+                alpha = 0.0
+                break
+            alpha *= 0.5
+        print(f"line search alpha = {alpha}")
+        return alpha
+    
+    def compute_psi(self):
+        return 0.
+
+    def compute_inertia(self):
+        h2 = self.h ** 2
+        ret = 0.0
+        for i in range(self.n_meshes):
+            fi = self.get_F(i)
+            e = self.ortho.energy(fi)
+            mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
+
+            dz = self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i)
+            ret += e * h2 * self.sum_W[i] + 0.5 * dz @ mmi @ dz
+
+        dzt = self.z_tilde - self.z_tilde_hat()
+        ret += (self.z_tilde @ self.K0 @ self.z_tilde + dzt @ self.M_tilde @ dzt) * 0.5
+        return ret
+
+    def compute_collision_energy(self):
+        V, R = self.get_VR()
+        h = self.h
+        return self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+
+    # def line_search(self):
+    #     self.z_tilde -= self.dz_tilde
+    #     self.z -= self.dz
         
-        # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
-        return 1.0
+    #     # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+    #     return 1.0
         
     def z_tilde_hat(self):
         return self.h * self.z_tilde_dot + self.z_tilde0
@@ -294,7 +339,7 @@ class MedialVABD(MedialRodComplex):
 
         rhs = Um_tildeT @ g
         A = Um_tildeT @ H @ Um_tildeT.T 
-        term = self.h * self.h * 5e3
+        term = self.h * self.h * medial_collision_stiffness
 
         self.b_col_tilde = rhs * term
         self.A_col_tilde = A * term

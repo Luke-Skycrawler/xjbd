@@ -76,6 +76,11 @@ class OrthogonalEnergy:
         gg = g.numpy().reshape(-1)
         hh = h.numpy()
         return gg, hh
+    
+    def energy(self, F):
+        df = F.T @ F - np.identity(3)
+        return np.sum(df * df) * kappa
+    
     # def gradient(self, ff):
     #     g = wp.zeros(12, float)
     #     h = wp.zeros((12, 12), float)

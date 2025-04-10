@@ -158,6 +158,7 @@ class MedialCollisionDetector:
 
         if len(self.cc_set):
             print(f"{len(self.cc_set)} collision detected")
+
     def collision_set_slow(self, V, R = None):
         self.refit(V, R)
         # point-slab, cone-cone
@@ -245,7 +246,18 @@ class MedialCollisionDetector:
     
         return b, H
 
-    
+    def energy(self, V, R = None):
+        self.collision_set(V, R)
+        energy = 0.0
+        for cc, ccid in zip(self.cc_set, self.cc_id):
+            e0, e1, e2, e3 = ccid
+
+            if self.is_2_ring(e0, e1, e2, e3):
+                continue
+            dist = cc.compute_distance()
+            energy += -dist
+        return energy
+        
                     
 
             
