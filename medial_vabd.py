@@ -117,7 +117,7 @@ class MedialVABD(MedialRodComplex):
         return z0
 
     def update_x0_xdot(self):
-        super().update_x0_xdot()
+        # super().update_x0_xdot()
 
         z = self.extract_z0(self.z)
         self.z_dot[:] = (z - self.z0) / self.h
@@ -125,6 +125,8 @@ class MedialVABD(MedialRodComplex):
 
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
+
+        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def dz_tiled2dz(self, dz_tilde, dz0):
         dz = np.zeros_like(dz_tilde)
@@ -222,7 +224,7 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde -= self.dz_tilde
         self.z -= self.dz
         
-        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         return 1.0
         
     def z_tilde_hat(self):
@@ -282,15 +284,17 @@ class MedialVABD(MedialRodComplex):
         self.frame = 0
     def process_collision(self):
         V, R = self.get_VR()
-        self.collider_medial.collision_set(V, R)
-        g, H = self.collider_medial.analyze()
+        with wp.ScopedTimer("detect"):
+            self.collider_medial.collision_set(V, R)
+        with wp.ScopedTimer("analyze"):
+            g, H = self.collider_medial.analyze()
         U_prime = self.compute_U_prime()
         Um_tildeT = U_prime @ self.Um_tilde.T
         # Um_tildeT = self.Um_tilde.T
 
         rhs = Um_tildeT @ g
         A = Um_tildeT @ H @ Um_tildeT.T 
-        term = self.h * self.h * 2e3
+        term = self.h * self.h * 5e3
 
         self.b_col_tilde = rhs * term
         self.A_col_tilde = A * term

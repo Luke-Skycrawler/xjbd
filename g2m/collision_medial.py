@@ -53,7 +53,7 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
         if dist < 0.0:
-            col = wp.vec4i(ex[0], ex[1], ex[2], ex[3])
+            col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
             append(cc_list, col)
     
 class MedialCollisionDetector:
