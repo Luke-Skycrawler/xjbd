@@ -14,7 +14,7 @@ from g2m.viewer import MedialViewer
 from vabd import per_node_forces
 
 ad_hoc = True
-medial_collision_stiffness = 5e3
+medial_collision_stiffness = 1e3
 solver_choice = "woodbury"
 assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
@@ -188,10 +188,22 @@ class MedialVABD(MedialRodComplex):
             z0[i * 12: (i + 1) * 12] = self.z[start: end]
         return z0
 
+    def z_tilde2z(self, z, ztilde):
+        for i in range(self.n_meshes):
+            fi = self.get_F(i)
+            R, _ = polar(fi)
+            start = i * (self.n_modes) + 12
+            end = (i + 1) * self.n_modes
+            
+            zz= R @ (ztilde[i * (self.n_modes -12) : (i+ 1) * (self.n_modes - 12)].reshape((-1, 3)).T)
+            self.z[start:end] = (zz.T).reshape(-1)
+
     def update_x0_xdot(self):
         # super().update_x0_xdot()
 
         z = self.extract_z0(self.z)
+        self.z_tilde2z(z, self.z_tilde)
+
         self.z_dot[:] = (z - self.z0) / self.h
         self.z0[:] = z
 
@@ -515,7 +527,7 @@ def bug_rain():
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 8), (0, 2, 0))
-    # ps.set_ground_plane_mode("none")
+    ps.set_ground_plane_mode("none")
     # ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
