@@ -58,7 +58,7 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
             append(cc_list, col)
     
 class MedialCollisionDetector:
-    def __init__(self, V_medial, R, E, F, ground = None): 
+    def __init__(self, V_medial, R, E, F, ground = None, dense = True): 
         '''
         medial-medial collision detection & response
         '''
@@ -76,6 +76,7 @@ class MedialCollisionDetector:
         
         # warp arrays 
         self.medial_geo = MedialGeometry()
+        self.indices_set:set[int] = set()
         
         self.medial_geo.vertices = wp.array(V_medial, dtype = wp.vec3)
         self.medial_geo.radius = wp.array(R, dtype = float)
@@ -92,7 +93,7 @@ class MedialCollisionDetector:
 
         vv = lambda e: (max(e[0], e[1]), min(e[0], e[1])) 
         self.vv_adjacency = set([vv(e) for e in E])
-        
+        self.dense = dense
         
     def refit(self, V, R = None):
         if R is not None:
@@ -222,11 +223,13 @@ class MedialCollisionDetector:
 
     def analyze(self):
         b = np.zeros(self.n_vertices * 3)
-        # H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+        # if self.dense:
+        #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
 
         rows = []
         cols = []
         blocks = []
+        self.indices_set.clear()
         for cc, ccid in zip(self.cc_set, self.cc_id):
             # i, j = ccid
 
@@ -238,6 +241,7 @@ class MedialCollisionDetector:
                 continue
 
             E = [e0, e1, e2, e3]
+            ee = np.array(E)# * 3
 
             g, h = cc.get_dist_gh()
             b[e0 * 3: (e0 + 1) * 3] += g[:3]
@@ -245,20 +249,37 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += g[9:12]
 
-            # for ii in range(4):
-            #     for jj in range(4):
-            #         H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
-            for ii in range(4):
-                for jj in range(4):
-                    rows.append(E[ii])
-                    cols.append(E[jj])
-                    blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+            self.indices_set.update(ee)
+            # self.indices_set.update(ee + 1)
+            # self.indices_set.update(ee + 2)
+            # if self.dense:
+            if False:
+                for ii in range(4):
+                    for jj in range(4):
+                        H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
+            else:
+                for ii in range(4):
+                    for jj in range(4):
+                        rows.append(E[ii])
+                        cols.append(E[jj])
+                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
 
-        hh = bsr_zeros(self.n_vertices, self.n_vertices, wp.mat33, device = "cpu")
-        bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
-        H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
-        # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
-        return b, H
+        if not self.dense:
+            hh = bsr_zeros(self.n_vertices, self.n_vertices, wp.mat33, device = "cpu")
+            bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
+            H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
+            # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
+        idx = sorted(self.indices_set)
+        H_dim = len(idx) * 3
+        idx_inv = dict(zip(idx, range(len(idx))))
+        H = np.zeros((H_dim, H_dim))
+        for r, c, bb in zip(rows, cols, blocks):
+            i = idx_inv[r]
+            j = idx_inv[c]
+            H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
+        
+        idx = np.array(idx, int).reshape((-1, 1))
+        return b, H, np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
 
     def energy(self, V, R = None):
         self.collision_set(V, R)

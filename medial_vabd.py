@@ -352,7 +352,7 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("detect"):
             self.collider_medial.collision_set(V, R)
         with wp.ScopedTimer("analyze"):
-            g, H = self.collider_medial.analyze()
+            g, H, idx = self.collider_medial.analyze()
             
         with wp.ScopedTimer("U prime"):
             U_prime = self.compute_U_prime()
@@ -372,10 +372,10 @@ class MedialVABD(MedialRodComplex):
             # self.A0_col = self.Um0.T @ H @ self.Um0 * term
             # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = np.vstack([self.Um0.T, Um_tildeT])
+            Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
-            self.b_sys_col = Um_sys @ (g * term)
+            self.b_sys_col = Um_sys @ (g[idx] * term)
         with wp.ScopedTimer("step 2"):
             self.A_sys_col = step1 @ Um_sys.T
         
