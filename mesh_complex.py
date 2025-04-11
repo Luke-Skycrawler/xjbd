@@ -88,22 +88,24 @@ class RodComplexBC(RodBCBase, RodComplex):
                         self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
                     
-                    dxnp = self.states.dx.numpy()
-                    norm_dx = np.linalg.norm(dxnp)
-                    newton_iter = norm_dx > 1e-3 and n_iter < max_iter
-                    if norm_dx < 1e-5:
-                        break
-
+                    newton_iter = not (self.converged() or n_iter >= max_iter)
                     # line search stuff, not converged yet
                     with wp.ScopedTimer("line search"):
                         alpha = self.line_search()
                     if alpha == 0.0:
                         break
 
-                    print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
+                    print(f"iter = {n_iter}")
                     n_iter += 1
             self.update_x0_xdot()
 
+
+    def converged(self):
+        dxnp = self.states.dx.numpy()
+        norm_dx = np.linalg.norm(dxnp)
+        print(f"norm dx = {np.linalg.norm(dxnp)}")
+        return norm_dx < 1e-3
+            
     def add_collision_to_sys_matrix(self, triplets: Triplets):
 
         collision_force_derivatives = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)

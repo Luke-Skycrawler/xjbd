@@ -221,8 +221,12 @@ class MedialVABD(MedialRodComplex):
             dz[start + 12: end] = dz_from_zt[i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)]
 
         self.dz[:] = dz
-        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
+        # self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
+    def converged(self):
+        norm_dz = np.linalg.norm(self.dz)
+        return norm_dz < 1e-3
+        
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
         z_tmp = np.copy(self.z)
