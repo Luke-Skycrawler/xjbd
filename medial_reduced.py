@@ -51,7 +51,8 @@ class MedialRodComplexDebug(RodComplexBC):
         self.U[-12:, -12:] = np.identity(12)
         
     def load_Q(self):
-        self.Q = np.load("data/W_bug.npy")
+        Q = np.load("data/W_bug.npy")
+        self.Q = Q[:, 0: 3]
         self.Q[:, 0] = 1.0
         
         

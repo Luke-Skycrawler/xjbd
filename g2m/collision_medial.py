@@ -2,7 +2,8 @@ import warp as wp
 import numpy as np
 from geometry.collision_cell import EdgeEdgeCollisionList, CollisionList, GroundCollisionList
 from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
-
+from scipy.sparse import bsr_array, bsr_matrix
+from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone
 CC_SET_SIZE = 256
 SS_SET_SIZE = 256
@@ -221,7 +222,11 @@ class MedialCollisionDetector:
 
     def analyze(self):
         b = np.zeros(self.n_vertices * 3)
-        H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+        # H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+
+        rows = []
+        cols = []
+        blocks = []
         for cc, ccid in zip(self.cc_set, self.cc_id):
             # i, j = ccid
 
@@ -240,10 +245,19 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += g[9:12]
 
+            # for ii in range(4):
+            #     for jj in range(4):
+            #         H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
             for ii in range(4):
                 for jj in range(4):
-                    H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
-    
+                    rows.append(E[ii])
+                    cols.append(E[jj])
+                    blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+
+        hh = bsr_zeros(self.n_vertices, self.n_vertices, wp.mat33, device = "cpu")
+        bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
+        H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
+        # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
         return b, H
 
     def energy(self, V, R = None):

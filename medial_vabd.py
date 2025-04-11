@@ -7,6 +7,7 @@ from stretch import h, add_dx, compute_rhs
 from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar
+from scipy.sparse import *
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
@@ -203,7 +204,8 @@ class MedialVABD(MedialRodComplex):
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
-        dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+        with wp.ScopedTimer("linalg system"): 
+            dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
         
@@ -281,7 +283,8 @@ class MedialVABD(MedialRodComplex):
 
     def compute_U_prime(self):
         U_prime_dim = self.z_tilde.shape[0]
-        U_prime = np.zeros((U_prime_dim, U_prime_dim))
+        # U_prime = np.zeros((U_prime_dim, U_prime_dim))
+        diags = []
         for i in range(self.n_meshes):
             fi = self.get_F(i)
             ri, _ = polar(fi)
@@ -289,8 +292,11 @@ class MedialVABD(MedialRodComplex):
             i_m = np.identity((self.n_modes - 12) // 3, float)
             start  = i * (self.n_modes - 12)
             end = start + (self.n_modes - 12)
-            U_prime[start:end, start: end] = np.kron(i_m, ri)
-        
+            # U_prime[start:end, start: end] = np.kron(i_m, ri)
+            m = (self.n_modes - 12) // 3
+            diags += [ri] * m
+        U_prime = block_diag(diags, )
+        assert U_prime.shape[0] == U_prime_dim
         return U_prime
 
     def compute_excitement(self):
@@ -315,12 +321,16 @@ class MedialVABD(MedialRodComplex):
         self.z0[:] = self.extract_z0(self.z)
         self.z_dot[:] = 0.0
         
-        if ad_hoc: 
+        if self.n_meshes == 2: 
             self.z_dot[12 + 9: 12 + 12] = np.array([0.0, 0.0, -3.0])
             
             # self.z_dot[2] = -1.0
             # self.z_dot[6] = 1.0
-        
+        else:
+            for i in range(self.n_meshes):
+                ti = self.transforms[i][:3, 3]
+                self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
+
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
         self.z_tilde_dot[:] = 0.0
@@ -353,8 +363,11 @@ class MedialVABD(MedialRodComplex):
             # self.b0_col = self.Um0.T @ g * term
 
             Um_sys = np.vstack([self.Um0.T, Um_tildeT])
-            self.A_sys_col = Um_sys @ H @ Um_sys.T * term
-            self.b_sys_col = Um_sys @ g * term
+            step1 = Um_sys @ (H * term)
+            # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+            self.b_sys_col = Um_sys @ (g * term)
+        with wp.ScopedTimer("step 2"):
+            self.A_sys_col = step1 @ Um_sys.T
         
 
     def compute_A(self):
