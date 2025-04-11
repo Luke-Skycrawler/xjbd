@@ -279,7 +279,8 @@ class MedialCollisionDetector:
             H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
         
         idx = np.array(idx, int).reshape((-1, 1))
-        return b, H, np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
+        ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
+        return b[ret_idx], H, ret_idx
 
     def energy(self, V, R = None):
         self.collision_set(V, R)

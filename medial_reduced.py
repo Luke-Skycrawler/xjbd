@@ -9,6 +9,7 @@ from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffn
 
 import os
 from scipy.linalg import solve
+from scipy.sparse import block_diag
 from scipy.io import loadmat
 from g2m.viewer import MedialViewer
 from g2m.dxdq import dxdq_jacobian
@@ -35,7 +36,7 @@ class MedialRodComplexDebug(RodComplexBC):
         self.A_reduced = np.zeros((n_reduced, n_reduced))
         self.b_reduced = np.zeros(n_reduced)
         self.define_U()
-        self.Um = np.zeros((self.n_medial * 3, n_reduced))
+        # self.Um = np.zeros((self.n_medial * 3, n_reduced))
         self.compute_Um()
 
     def lbs_matrix(self, V, W):
@@ -250,10 +251,13 @@ class MedialRodComplex(MedialRodComplexDebug):
     def compute_Um(self):
 
         # jac = self.encoder.jacobian(x)
+        diags = []
         for i in range(self.n_meshes):
             Vmi = self.V_medial_rest[i * self.n_mdeial_per_mesh: (i + 1) * self.n_mdeial_per_mesh]
             jaci = self.lbs_matrix(Vmi, self.W_medial)
-            self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
+            diags.append(jaci)
+            # self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
+        self.Um = block_diag(diags)
 
 
 def bug_drop():

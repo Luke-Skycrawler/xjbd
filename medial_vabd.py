@@ -57,14 +57,25 @@ class MedialVABD(MedialRodComplex):
 
         # fill Um_tilde 
         self.Um_tilde = np.zeros((self.n_medial * 3, self.z_tilde.shape[0]))
-        self.Um0 = np.zeros((self.n_medial * 3, 12 * self.n_meshes))
+        # self.Um0 = np.zeros((self.n_medial * 3, 12 * self.n_meshes))
+        diags0 = []
+        diags_tilde = []
         for i in range(self.n_meshes):
-            start = i * self.n_modes
-            end = (i + 1) * self.n_modes
+            # start = i * self.n_modes
+            # end = (i + 1) * self.n_modes
 
-            self.Um_tilde[:, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.Um[:, start + 12: end]
-            self.Um0[:, i * 12: (i + 1) * 12] = self.Um[:, start: start + 12]
+            # self.Um_tilde[:, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.Um[:, start + 12: end]
+            # self.Um0[:, i * 12: (i + 1) * 12] = self.Um[:, start: start + 12]
+            Vmi = self.V_medial_rest[i * self.n_mdeial_per_mesh: (i + 1) * self.n_mdeial_per_mesh]
 
+            ji = self.lbs_matrix(Vmi, self.W_medial)
+            j0i = ji[:,: 12]
+            jti = ji[:, 12:]
+            diags0.append(j0i)
+            diags_tilde.append(jti)
+
+        self.Um0 = block_diag(diags0)
+        self.Um_tilde = block_diag(diags_tilde)
     def define_mm(self):
         self.mm = self.U0.T @ self.to_scipy_bsr(self.M_sparse) @ self.U0
     
@@ -372,10 +383,11 @@ class MedialVABD(MedialRodComplex):
             # self.A0_col = self.Um0.T @ H @ self.Um0 * term
             # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
+            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+            # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
-            self.b_sys_col = Um_sys @ (g[idx] * term)
+            self.b_sys_col = Um_sys @ (g * term)
         with wp.ScopedTimer("step 2"):
             self.A_sys_col = step1 @ Um_sys.T
         
@@ -433,6 +445,5 @@ if __name__ == "__main__":
     # ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    # bug_drop()
     # staggered_bug()
     bug_rain()
