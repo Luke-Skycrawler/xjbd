@@ -8,6 +8,7 @@ from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar, inv
 from scipy.sparse import *
+from scipy.sparse.linalg import splu
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
@@ -23,7 +24,8 @@ def asym(a):
 class WoodburySolver:
     def __init__(self, A0_dim, A_tilde):
         self.A_tilde = A_tilde
-        self.lu, self.piv = lu_factor(self.A_tilde)
+        # self.lu, self.piv = lu_factor(self.A_tilde)
+        self.tilde_solve = splu(self.A_tilde)
         self.A0 = np.zeros((A0_dim, A0_dim))
         self.A0_dim = A0_dim
         self.k = 0
@@ -37,13 +39,14 @@ class WoodburySolver:
         self.lu0, self.piv0 = lu_factor(self.A0)
         
         self.k = self.U.shape[1]
-        self.add_rank = self.k > 0 and np.linalg.det(self.C) > 1e-3
+        self.add_rank = self.k > 0 and np.linalg.det(self.C) > 1e-5
         if self.add_rank:
             self.A_inv_U = self.apply_inv_A(self.U)
             self.central_term = inv(self.C) + self.V @ self.A_inv_U 
 
     def apply_inv_A(self, b):
-        x_tilde = lu_solve((self.lu, self.piv), b[self.A0_dim:])
+        # x_tilde = lu_solve((self.lu, self.piv), b[self.A0_dim:])
+        x_tilde = self.tilde_solve.solve(b[self.A0_dim:])
 
         x0 = lu_solve((self.lu0, self.piv0), b[:self.A0_dim])
         # x0 = solve(self.A0, b[:self.A0_dim])
@@ -86,25 +89,33 @@ class MedialVABD(MedialRodComplex):
         self.b_tilde = np.zeros((self.n_meshes * (self.n_modes - 12),))
 
     def split_U0_U_tilide(self):
-        self.U0 = np.zeros((self.n_nodes * 3, self.n_meshes * 12))
-        self.U_tilde = np.zeros((self.n_nodes * 3, (self.n_modes - 12) * self.n_meshes))
+        # self.U0 = np.zeros((self.n_nodes * 3, self.n_meshes * 12))
+        # self.U_tilde = np.zeros((self.n_nodes * 3, (self.n_modes - 12) * self.n_meshes))
         n_nodes_per_mesh = self.n_nodes // self.n_meshes
         x0np = self.xcs.numpy()
+        diags0 = []
+        diags_tilde = []
         for i in range(self.n_meshes):
             start = i * n_nodes_per_mesh * 3
             end = start + n_nodes_per_mesh * 3
             
             V = x0np[i * n_nodes_per_mesh: (i + 1) * n_nodes_per_mesh]
-            w0 = self.Q[:, 0: 1]
+            w = self.Q
+            jac = self.lbs_matrix(V, w)
             
-            rhs = self.lbs_matrix(V, w0)
-            self.U0[start: end, 12 * i: 12 * (i + 1)] = rhs
+            diags0.append(jac[:, :12])
+            diags_tilde.append(jac[:, 12:])
+            # self.U0[start: end, 12 * i: 12 * (i + 1)] = rhs
 
 
-            self.U_tilde[start:end, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.lbs_matrix(V, self.Q[:, 1:])
+            # self.U_tilde[start:end, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.lbs_matrix(V, self.Q[:, 1:])
+
+        self.U0 = block_diag(diags0)
+        self.U_tilde = block_diag(diags_tilde)
 
         # fill Um_tilde 
-        self.Um_tilde = np.zeros((self.n_medial * 3, self.z_tilde.shape[0]))
+        
+        # self.Um_tilde = np.zeros((self.n_medial * 3, self.z_tilde.shape[0]))
         # self.Um0 = np.zeros((self.n_medial * 3, 12 * self.n_meshes))
         diags0 = []
         diags_tilde = []
@@ -246,25 +257,27 @@ class MedialVABD(MedialRodComplex):
         
         # self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
 
-        A_sys = np.zeros((self.n_reduced, self.n_reduced))
+        if solver_choice in ["direct", "compare"]:
+            
+            A_sys = np.zeros((self.n_reduced, self.n_reduced))
+            
+
+
+            # U_prime = self.compute_U_prime()
+            # U_tildeT = U_prime @ self.U_tilde.T
+            # U_sys = np.vstack([self.U0.T, U_tildeT])
+
+            # A_sys = U_sys @ self.to_scipy_bsr() @ U_sys.T 
+            # b_sys = U_sys @ self.b.numpy().reshape(-1) 
+
+            A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
+            # A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = 0.0
+            # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
+            # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
+            # np.save("A_tilde_K0.npy", self.A_tilde)
+            A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
+
         b_sys = np.zeros(self.n_reduced)
-        
-
-
-        # U_prime = self.compute_U_prime()
-        # U_tildeT = U_prime @ self.U_tilde.T
-        # U_sys = np.vstack([self.U0.T, U_tildeT])
-
-        # A_sys = U_sys @ self.to_scipy_bsr() @ U_sys.T 
-        # b_sys = U_sys @ self.b.numpy().reshape(-1) 
-        
-        A_sys[:self.n_meshes * 12, :self.n_meshes * 12] = self.A0# + self.A0_col
-        # A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = 0.0
-        # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
-        # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
-        # np.save("A_tilde_K0.npy", self.A_tilde)
-        A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
-
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
