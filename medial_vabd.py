@@ -23,7 +23,7 @@ class MedialVABD(MedialRodComplex):
         self.prefactor_once()
         self.define_A0_b0_btilde()
         
-        self.ortho = OrthogonalEnergy()
+        self.ortho = OrthogonalEnergy(self.n_meshes)
         self.sum_weights()
 
     def sum_weights(self):
@@ -165,13 +165,19 @@ class MedialVABD(MedialRodComplex):
         h2 = self.h * self.h
         
         # set A0, b0
-        for i in range(self.n_meshes):
-            fi = self.get_F(i)
+        
+        with wp.ScopedTimer("compute A0"):
+            Fs = [self.get_F(i) for i in range(self.n_meshes)]
+            gg, HH = self.ortho.analyze(np.array(Fs))
+            for i in range(self.n_meshes):
+                # fi = self.get_F(i)
 
-            g, H = self.ortho.analyze(fi)
-            mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
-            self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = H * h2 * self.sum_W[i] + mmi
-            self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
+                # g, H = self.ortho.analyze(fi)
+                g = gg[i]
+                H = HH[i]
+                mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
+                self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = H * h2 * self.sum_W[i] + mmi
+                self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
 
         # set b_tilde
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement()

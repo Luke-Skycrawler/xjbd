@@ -52,28 +52,34 @@ def test_hessian():
     print(H)
 
 @wp.kernel(enable_backward= False)
-def fill_gh(g: wp.array(dtype = float), H: wp.array2d(dtype = float), F: wp.array(dtype = wp.mat33)):
-    gg = gradient(F[0])
-    hh = hessian(F[0])
+def fill_gh(g: wp.array2d(dtype = float), H: wp.array3d(dtype = float), F: wp.array(dtype = wp.mat33)):
+    i = wp.tid()
+    gg = gradient(F[i])
+    hh = hessian(F[i])
     
     for ii in range(9):
-        g[ii] = gg[ii]
+        g[i, ii] = gg[ii]
         for jj in range(9):
-            H[ii, jj] = hh[ii, jj]
+            H[i, ii, jj] = hh[ii, jj]
         
 
 class OrthogonalEnergy:
-    def __init__(self):
-        pass
+    def __init__(self, n_meshes = 1):
+        self.g = wp.zeros((n_meshes, 12), float)
+        self.h = wp.zeros((n_meshes, 12, 12), float)
+        self.F = wp.zeros((n_meshes, ), dtype = wp.mat33)
+        self.n_meshes = n_meshes
 
     def analyze(self, ff):
-        g = wp.zeros(12, float)
-        h = wp.zeros((12, 12), float)
-        F = wp.zeros((1, ), dtype = wp.mat33)
+        self.g.zero_()
+        self.h.zero_()
+        g = self.g
+        h = self.h
 
-        F.assign(ff.reshape(1, 3, 3))
-        wp.launch(fill_gh, (1), inputs = [g, h, F])
-        gg = g.numpy().reshape(-1)
+
+        self.F.assign(ff.reshape((-1, 3, 3)))
+        wp.launch(fill_gh, (self.n_meshes), inputs = [g, h, self.F])
+        gg = g.numpy()
         hh = h.numpy()
         return gg, hh
     
