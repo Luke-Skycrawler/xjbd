@@ -6,15 +6,63 @@ import polyscope.imgui as gui
 from stretch import h, add_dx, compute_rhs
 from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
-from scipy.linalg import lu_factor, lu_solve, solve, polar
+from scipy.linalg import lu_factor, lu_solve, solve, polar, inv
 from scipy.sparse import *
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
+
 ad_hoc = True
 medial_collision_stiffness = 5e3
+solver_choice = "woodbury"
+assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
     return 0.5 * (a - a.T)
+
+
+class WoodburySolver:
+    def __init__(self, A0_dim, A_tilde):
+        self.A_tilde = A_tilde
+        self.lu, self.piv = lu_factor(self.A_tilde)
+        self.A0 = np.zeros((A0_dim, A0_dim))
+        self.A0_dim = A0_dim
+        self.k = 0
+    
+    def update(self, A0, U, C, V):
+        self.A0[:] = A0
+        self.U = U.toarray()
+        self.C = C
+        self.V = V.toarray()
+
+        self.lu0, self.piv0 = lu_factor(self.A0)
+        
+        self.k = self.U.shape[1]
+        self.add_rank = self.k > 0 and np.linalg.det(self.C) > 1e-3
+        if self.add_rank:
+            self.A_inv_U = self.apply_inv_A(self.U)
+            self.central_term = inv(self.C) + self.V @ self.A_inv_U 
+
+    def apply_inv_A(self, b):
+        x_tilde = lu_solve((self.lu, self.piv), b[self.A0_dim:])
+
+        x0 = lu_solve((self.lu0, self.piv0), b[:self.A0_dim])
+        # x0 = solve(self.A0, b[:self.A0_dim])
+        return np.concatenate([x0, x_tilde])
+    
+    def solve(self, b):
+        vi = self.apply_inv_A(b) 
+        term1 = vi
+
+        if self.add_rank:
+            VA_inv = self.V @ vi 
+            
+            tmp = solve(self.central_term, VA_inv)
+            term2 = self.A_inv_U @ tmp
+        else:
+            return term1
+
+        return term1 - term2 
+
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[]):
         super().__init__(h, meshes, transforms)
@@ -98,8 +146,8 @@ class MedialVABD(MedialRodComplex):
         self.A_tilde = self.K0 + self.M_tilde
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
-        self.c, self.low = lu_factor(self.A_tilde)
-        
+        # self.c, self.low = lu_factor(self.A_tilde)
+        self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
 
     def define_z(self, transforms):
         self.n_modes = self.Q.shape[1] * 12 
@@ -176,7 +224,6 @@ class MedialVABD(MedialRodComplex):
         h2 = self.h * self.h
         
         # set A0, b0
-        
         with wp.ScopedTimer("compute A0"):
             Fs = [self.get_F(i) for i in range(self.n_meshes)]
             gg, HH = self.ortho.analyze(np.array(Fs))
@@ -221,8 +268,20 @@ class MedialVABD(MedialRodComplex):
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
-        with wp.ScopedTimer("linalg system"): 
-            dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+        if solver_choice in ["direct", "compare"]:
+            with wp.ScopedTimer("linalg system"): 
+                dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+
+        if solver_choice in ["woodbury", "compare"]:
+            with wp.ScopedTimer("woodbury solver"): 
+                self.solver.update(self.A0, self.U_col, self.C_col, self.U_col.T)
+                dz_sys_wb = self.solver.solve(b_sys + self.b_sys_col)
+        
+        if solver_choice == "compare":
+            print(f"diff from solvers = {np.linalg.norm(dz_sys - dz_sys_wb)}")
+        elif solver_choice == "woodbury":
+            dz_sys = dz_sys_wb
+
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
         
@@ -388,9 +447,11 @@ class MedialVABD(MedialRodComplex):
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
             self.b_sys_col = Um_sys @ (g * term)
-        with wp.ScopedTimer("step 2"):
+
             self.A_sys_col = step1 @ Um_sys.T
         
+        self.U_col = Um_sys
+        self.C_col = H
 
     def compute_A(self):
         pass
