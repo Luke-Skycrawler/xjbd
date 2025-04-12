@@ -8,7 +8,7 @@ from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar, inv
 from scipy.sparse import *
-from scipy.sparse.linalg import splu
+from scipy.sparse.linalg import splu, norm
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
@@ -119,6 +119,7 @@ class MedialVABD(MedialRodComplex):
         # self.Um0 = np.zeros((self.n_medial * 3, 12 * self.n_meshes))
         diags0 = []
         diags_tilde = []
+        self.diags_tilde_lhs = []
         for i in range(self.n_meshes):
             # start = i * self.n_modes
             # end = (i + 1) * self.n_modes
@@ -133,12 +134,21 @@ class MedialVABD(MedialRodComplex):
             diags0.append(j0i)
             diags_tilde.append(jti)
 
+            di = self.lbs_no_kron(Vmi, self.W_medial[:, 1:])
+            self.diags_tilde_lhs.append(di)
+
         self.Um0 = block_diag(diags0)
         self.Um_tilde = block_diag(diags_tilde)
     def define_mm(self):
         self.mm = self.U0.T @ self.to_scipy_bsr(self.M_sparse) @ self.U0
     
-    
+    def lbs_no_kron(self, V, W):
+        nvm = V.shape[0]
+        v1 = np.ones((nvm, 4))
+        v1[:, :3] = V
+        lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
+        return lhs
+
     def get_F(self, i):
         '''
         columns of F is formed by segments of z 
@@ -445,6 +455,18 @@ class MedialVABD(MedialRodComplex):
         self.dz_tilde[:] = 0.0
 
         self.frame = 0
+
+    def compute_Um_tildeT(self):
+        diags = []
+        for i in range(self.n_meshes):
+            fi = self.get_F(i)
+            # R, _ = polar(fi)
+            R = fi
+            diags.append(np.kron(self.diags_tilde_lhs[i].T, R.T))
+        with wp.ScopedTimer("build csc"):
+            ret = block_diag(diags, "csc")
+        return ret
+
     def process_collision(self):
         V, R = self.get_VR()
         with wp.ScopedTimer("detect"):
@@ -452,12 +474,16 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("analyze"):
             g, H, idx = self.collider_medial.analyze()
             
-        with wp.ScopedTimer("U prime"):
-            U_prime = self.compute_U_prime()
+        # with wp.ScopedTimer("U prime"):
+        #     U_prime = self.compute_U_prime()
         
-        with wp.ScopedTimer("prod 1"):
-            Um_tildeT = U_prime @ self.Um_tilde.T
-        # Um_tildeT = self.Um_tilde.T
+        # with wp.ScopedTimer("prod 1"):
+        #     Um_tildeT = U_prime @ self.Um_tilde.T
+
+        with wp.ScopedTimer("Um tildeT"):
+            Um_tildeT = self.compute_Um_tildeT()
+
+        # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
         term = self.h * self.h * medial_collision_stiffness
         with wp.ScopedTimer("collision linalg system"):
