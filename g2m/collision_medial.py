@@ -25,6 +25,7 @@ class MedialGeometry:
 @wp.struct
 class ConeConeCollisionList:
     a: wp.array(dtype = wp.vec4i)
+    dist: wp.array(dtype = float)
     E: wp.array(dtype = float)
     cnt: wp.array(dtype = int)
 
@@ -38,8 +39,8 @@ class SlabSphereCollisionList:
 def append(cc_list: ConeConeCollisionList, element: wp.vec4i, dist: float):
     id = wp.atomic_add(cc_list.cnt, 0, 1)
     cc_list.a[id] = element
-    # cc_list.dist[id] = dist
-    wp.atomic_add(cc_list.E, 0, dist)
+    cc_list.dist[id] = dist
+    # wp.atomic_add(cc_list.E, 0, dist)
 
 @wp.func
 def is_1_ring(a: int, b: int, c: int, d:int):
@@ -82,11 +83,23 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
+        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1])# or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
             append(cc_list, col, dist)
     
+@wp.kernel
+def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
+    i = wp.tid()
+    if i < cc_list.cnt[0]:
+        a = cc_list.a[i]
+        e0 = a[0]
+        e1 = a[1]
+        e2 = a[2]
+        e3 = a[3]
+        if not is_2_ring(geo, e0, e1, e2, e3):
+            wp.atomic_add(cc_list.E, 0, cc_list.dist[i])
+        
 class MedialCollisionDetector:
     def __init__(self, V_medial, R, E, F, ground = None, dense = True): 
         '''
@@ -126,6 +139,7 @@ class MedialCollisionDetector:
         self.ee_set.a = wp.zeros(CC_SET_SIZE, dtype = wp.vec4i)
         self.ee_set.cnt = wp.zeros(1, dtype = int)
         self.ee_set.E = wp.zeros(1, dtype = float)
+        self.ee_set.dist = wp.zeros(CC_SET_SIZE, dtype = float)
 
         vv = lambda e: (max(e[0], e[1]), min(e[0], e[1])) 
         self.vv_adjacency = set([vv(e) for e in E])
@@ -159,6 +173,7 @@ class MedialCollisionDetector:
 
         # self.cc_set = []
         # self.cc_id = cc_id
+        wp.launch(refuse_2_ring, CC_SET_SIZE, [self.medial_geo, self.ee_set])
         return self.ee_set.E.numpy()[0]
 
     def collision_set(self, V, R = None):
