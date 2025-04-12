@@ -368,9 +368,12 @@ class MedialVABD(MedialRodComplex):
         return ret
 
     def compute_collision_energy(self):
-        V, R = self.get_VR()
+        with wp.ScopedTimer("get V, R"):
+            V, R = self.get_VR()
         h = self.h
-        return self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+        with wp.ScopedTimer("energy"):
+            ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+        return ret
 
     # def line_search(self):
     #     self.z_tilde -= self.dz_tilde

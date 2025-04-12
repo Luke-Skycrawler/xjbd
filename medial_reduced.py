@@ -36,7 +36,6 @@ class MedialRodComplexDebug(RodComplexBC):
         self.A_reduced = np.zeros((n_reduced, n_reduced))
         self.b_reduced = np.zeros(n_reduced)
         self.define_U()
-        # self.Um = np.zeros((self.n_medial * 3, n_reduced))
         self.compute_Um()
 
     def lbs_matrix(self, V, W):
@@ -111,7 +110,7 @@ class MedialRodComplexDebug(RodComplexBC):
         self.z[-12:] = self.xcs.numpy()[-4:].reshape(-1)
 
     def compute_Um(self):
-
+        self.Um = np.zeros((self.n_medial * 3, self.n_reduced))
         # jac = self.encoder.jacobian(x)
         jac = self.lbs_matrix(self.V_medial_rest[:-2], self.W_medial)
         fill = jac
