@@ -77,6 +77,15 @@ class MedialVABD(MedialRodComplex):
         self.ortho = OrthogonalEnergy(self.n_meshes)
         self.sum_weights()
 
+        self.gen_F_idx()
+
+    def gen_F_idx(self):
+        '''
+        optioal, only used in optimizing fetching the deformation gradient 
+        '''
+        idx = [np.arange(i * self.n_modes, i * self.n_modes + 9) for i in range(self.n_meshes)]
+        self.F_idx = np.array(idx)
+
     def sum_weights(self):
         ww  = self.W.numpy()
         n_nodes_per_mesh = self.n_nodes // self.n_meshes
@@ -139,6 +148,7 @@ class MedialVABD(MedialRodComplex):
 
         self.Um0 = block_diag(diags0)
         self.Um_tilde = block_diag(diags_tilde)
+
     def define_mm(self):
         self.mm = self.U0.T @ self.to_scipy_bsr(self.M_sparse) @ self.U0
     
@@ -157,6 +167,14 @@ class MedialVABD(MedialRodComplex):
         z = self.z[i * self.n_modes: i * self.n_modes + 12]
         F = z.reshape((-1, 3)).T
         return F[:, :3]
+
+    def get_F_batch(self):
+        '''
+        columns of F is formed by segments of z 
+        vec(F) = z
+        '''
+        f = self.z[self.F_idx].reshape((self.n_meshes, 3, 3)) # n_meshes x 3 x3
+        return np.transpose(f, axes = (0, 2, 1))
 
     def prefactor_once(self):
         h = self.h
@@ -343,11 +361,20 @@ class MedialVABD(MedialRodComplex):
         z_tmp = np.copy(self.z)
 
         alpha = 1.0
-        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+        e00 = self.compute_psi() + self.compute_inertia()
+        E0 = e00 + self.compute_collision_energy()
+
+        # e01 = self.compute_inertia2()
+        # print(f"diff energy = {e01 - e00}, e = {e01}")
+
         while True:
             self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
             self.z[:] = z_tmp - alpha * self.dz
-            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            e10 = self.compute_psi() + self.compute_inertia()
+            # e11 = self.compute_inertia2()
+            # print(f"diff energy = {e11 - e10}, e = {e11}")
+
+            E1 = e10 + self.compute_collision_energy()
             if E1 < E0:
                 break
             if alpha < 1e-3:
@@ -360,22 +387,38 @@ class MedialVABD(MedialRodComplex):
         return alpha
     
     def compute_psi(self):
-        return 0.
+        with wp.ScopedTimer("Psi"):
+            h2 = self.h ** 2
+            ff = self.get_F_batch()
+            e = self.ortho.energy_batch(ff)
+            ret = np.sum(e * self.sum_W) * h2
+        return ret + self.z_tilde @ self.K0 @ self.z_tilde * 0.5
 
     def compute_inertia(self):
-        h2 = self.h ** 2
-        ret = 0.0
-        for i in range(self.n_meshes):
-            fi = self.get_F(i)
-            e = self.ortho.energy(fi)
-            mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
+        with wp.ScopedTimer("inertia"):
 
-            dz = self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i)
-            ret += e * h2 * self.sum_W[i] + 0.5 * dz @ mmi @ dz
+            zh = self.z0 + self.h * self.z_dot
+            z0 = self.extract_z0(self.z)
+            dz0 = z0 - zh
 
-        dzt = self.z_tilde - self.z_tilde_hat()
-        ret += (self.z_tilde @ self.K0 @ self.z_tilde + dzt @ self.M_tilde @ dzt) * 0.5
+            dzt = self.z_tilde - self.z_tilde_hat()
+            ret = (dz0 @ self.mm @ dz0 + dzt @ self.M_tilde @ dzt) * 0.5
         return ret
+    
+    # def compute_inertia2(self):
+    #     h2 = self.h ** 2
+    #     ret = 0.0
+    #     for i in range(self.n_meshes):
+    #         fi = self.get_F(i)
+    #         e = self.ortho.energy(fi)
+    #         mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
+
+    #         dz = self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i)
+    #         ret += e * h2 * self.sum_W[i] + 0.5 * dz @ mmi @ dz
+
+    #     dzt = self.z_tilde - self.z_tilde_hat()
+    #     ret += (self.z_tilde @ self.K0 @ self.z_tilde + dzt @ self.M_tilde @ dzt) * 0.5
+    #     return ret
 
     def compute_collision_energy(self):
         with wp.ScopedTimer("get V, R"):

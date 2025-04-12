@@ -87,6 +87,11 @@ class OrthogonalEnergy:
         df = F.T @ F - np.identity(3)
         return np.sum(df * df) * kappa
     
+    def energy_batch(self, F):
+        FT = np.transpose(F, (0, 2, 1))
+        FTF = FT @ F - np.identity(3)
+        return np.sum(FTF * FTF, axis = (1,2)) * kappa
+        
     # def gradient(self, ff):
     #     g = wp.zeros(12, float)
     #     h = wp.zeros((12, 12), float)
