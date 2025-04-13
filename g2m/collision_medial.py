@@ -20,11 +20,13 @@ class MedialGeometry:
     radius: wp.array(dtype = float)
     edges: wp.array(dtype = wp.vec2i)
     faces: wp.array(dtype = wp.vec3i)
-    
+    connectivity: wp.array(dtype = int)
 
 @wp.struct
 class ConeConeCollisionList:
     a: wp.array(dtype = wp.vec4i)
+    dist: wp.array(dtype = float)
+    E: wp.array(dtype = float)
     cnt: wp.array(dtype = int)
 
 @wp.struct
@@ -34,9 +36,37 @@ class SlabSphereCollisionList:
 
 
 @wp.func
-def append(cc_list: ConeConeCollisionList, element: wp.vec4i):
+def append(cc_list: ConeConeCollisionList, element: wp.vec4i, dist: float):
     id = wp.atomic_add(cc_list.cnt, 0, 1)
     cc_list.a[id] = element
+    cc_list.dist[id] = dist
+    # wp.atomic_add(cc_list.E, 0, dist)
+
+@wp.func
+def is_1_ring(a: int, b: int, c: int, d:int):
+    return a == c or a == d  or b == c or b == d
+
+@wp.func
+def to_hash(x: int, y: int, geo: MedialGeometry):
+    i = wp.min(x, y)
+    j = wp.max(x, y)
+    n_verts = geo.vertices.shape[0]
+    return i * n_verts + j
+
+@wp.func
+def is_2_ring(geo: MedialGeometry, ea0: int, ea1: int, eb0: int, eb1: int):
+    return is_connected(geo, ea0, eb0) or is_connected(geo, ea0, eb1) or is_connected(geo, ea1, eb0) or is_connected(geo, ea1, eb1)    
+
+@wp.func
+def is_connected(geo: MedialGeometry, x: int, y: int):
+    h = to_hash(x, y, geo)
+    f = wp.lower_bound(geo.connectivity, 0, geo.connectivity.shape[0], h)
+    return h == geo.connectivity[f]
+    
+def to_hash_np(x, y, n_vertices):
+    i = np.minimum(x, y)
+    j = np.maximum(x, y)
+    return i * n_vertices + j
 
 @wp.kernel
 def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList):
@@ -53,10 +83,23 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        if dist < 0.0:
+        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1])# or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
+        if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
-            append(cc_list, col)
+            append(cc_list, col, dist)
     
+@wp.kernel
+def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
+    i = wp.tid()
+    if i < cc_list.cnt[0]:
+        a = cc_list.a[i]
+        e0 = a[0]
+        e1 = a[1]
+        e2 = a[2]
+        e3 = a[3]
+        if not is_2_ring(geo, e0, e1, e2, e3):
+            wp.atomic_add(cc_list.E, 0, cc_list.dist[i])
+        
 class MedialCollisionDetector:
     def __init__(self, V_medial, R, E, F, ground = None, dense = True): 
         '''
@@ -82,6 +125,11 @@ class MedialCollisionDetector:
         self.medial_geo.radius = wp.array(R, dtype = float)
         self.medial_geo.edges = wp.array(E, dtype = wp.vec2i)
         self.medial_geo.faces = wp.array(F, dtype = wp.vec3i)
+        n_verts= V_medial.shape[0]
+        conn = to_hash_np(E[:, 0], E[:, 1], n_verts)
+        conn = np.sort(conn)
+        self.medial_geo.connectivity = wp.array(conn, dtype = int)
+        
 
         self.n_vertices = V_medial.shape[0]
         self.n_edges = E.shape[0]
@@ -90,6 +138,8 @@ class MedialCollisionDetector:
         self.ee_set = ConeConeCollisionList()
         self.ee_set.a = wp.zeros(CC_SET_SIZE, dtype = wp.vec4i)
         self.ee_set.cnt = wp.zeros(1, dtype = int)
+        self.ee_set.E = wp.zeros(1, dtype = float)
+        self.ee_set.dist = wp.zeros(CC_SET_SIZE, dtype = float)
 
         vv = lambda e: (max(e[0], e[1]), min(e[0], e[1])) 
         self.vv_adjacency = set([vv(e) for e in E])
@@ -112,6 +162,29 @@ class MedialCollisionDetector:
             
     def is_2_ring(self, e0, e1, e2, e3):
         return self.is_connected(e0, e2) or self.is_connected(e0, e3) or self.is_connected(e1, e2) or self.is_connected(e1, e3)
+
+    def collision_set_naked(self, V, R = None):
+        self.refit(V, )
+        self.ee_set.E.zero_()
+        self.ee_set.cnt.zero_()
+        wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
+
+        wp.launch(refuse_2_ring, CC_SET_SIZE, [self.medial_geo, self.ee_set])
+        ret = self.ee_set.E.numpy()[0]
+
+
+        # testing 2 ring neighbors
+        # ncc = self.ee_set.cnt.numpy()[0]
+        # cc_id = self.ee_set.a.numpy()[:ncc]
+        # energy = np.sum(self.ee_set.dist.numpy()[:ncc])
+
+        # for id in cc_id:
+        #     e0, e1, e2, e3 = id
+        #     if self.is_2_ring(e0, e1, e2, e3):
+        #         print(f"modified version included 2 ring neighbor: {e0}, {e1}, {e2}, {e3}")
+        #         quit()
+        # print(f"dist sum = {energy}, kernel output = {ret}, diff = {energy - ret}")
+        return ret
 
     def collision_set(self, V, R = None):
         self.refit(V, R)
@@ -283,6 +356,8 @@ class MedialCollisionDetector:
         return b[ret_idx], H, ret_idx
 
     def energy(self, V, R = None):
+        ee = -self.collision_set_naked(V, R)
+        return ee
         self.collision_set(V, R)
         energy = 0.0
         for cc, ccid in zip(self.cc_set, self.cc_id):
@@ -292,6 +367,8 @@ class MedialCollisionDetector:
                 continue
             dist = cc.compute_distance()
             energy += -dist
+        
+        print(f"energy = {energy}, diff = {energy - ee}")
         return energy
         
                     

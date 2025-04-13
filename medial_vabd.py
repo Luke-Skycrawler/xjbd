@@ -97,6 +97,19 @@ class MedialVABD(MedialRodComplex):
         self.b0 = np.zeros((self.n_meshes * 12,))
         self.b_tilde = np.zeros((self.n_meshes * (self.n_modes - 12),))
 
+
+    def define_U(self):
+        # self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
+        nodes_per_mesh = self.n_nodes // self.n_meshes
+        x0 = self.xcs.numpy()
+        diags = []
+        
+        for i in range(self.n_meshes): 
+            xi = x0[i * nodes_per_mesh: (i + 1) * nodes_per_mesh]
+            Ui = self.lbs_matrix(xi, self.Q)
+            diags.append(Ui)
+        self.U = block_diag(diags)
+
     def split_U0_U_tilide(self):
         # self.U0 = np.zeros((self.n_nodes * 3, self.n_meshes * 12))
         # self.U_tilde = np.zeros((self.n_nodes * 3, (self.n_modes - 12) * self.n_meshes))
