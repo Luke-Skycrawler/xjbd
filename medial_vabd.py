@@ -12,13 +12,30 @@ from scipy.sparse.linalg import splu, norm
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
-
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv
+from fem.fem import Triplets
 ad_hoc = True
-medial_collision_stiffness = 1e3
+medial_collision_stiffness = 2e3
 solver_choice = "woodbury"
 assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
     return 0.5 * (a - a.T)
+
+@wp.kernel
+def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
+    i, j, k = wp.tid()
+    xx = W.shape[0]
+    yy = W.shape[1]
+    block_nnz = 4 * xx * yy
+
+    idx = (i * yy + j) * 4 + k + block_nnz * mesh_id
+    xid = i + mesh_id * xx
+    triplets.rows[idx] = xid
+    triplets.cols[idx] = j * 4 + k + mesh_id * yy * 4
+    c = float(1.0)
+    if k < 3:
+        c = xcs[xid][k]
+    triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
 
 
 class WoodburySolver:
@@ -109,6 +126,21 @@ class MedialVABD(MedialRodComplex):
             Ui = self.lbs_matrix(xi, self.Q)
             diags.append(Ui)
         self.U = block_diag(diags)
+
+        self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
+        q = wp.array(self.Q, dtype = float)
+        triplets = Triplets()
+        nnz = q.shape[0] * q.shape[1] * 4 * self.n_meshes
+        triplets.cols = wp.zeros((nnz, ), int)
+        triplets.rows = wp.zeros((nnz, ), int)
+        triplets.vals = wp.zeros((nnz,), wp.mat33)
+
+        for i in range(self.n_meshes):
+            wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, self.geo.xcs, q, triplets])
+        bsr_set_from_triplets(self.Uwp, triplets.rows, triplets.cols, triplets.vals, )
+        
+        # Uwp = self.to_scipy_bsr(self.Uwp)
+        # print(f"U norm = {norm(self.U)}, diff norm = {norm(self.U - Uwp)}")
 
     def split_U0_U_tilide(self):
         # self.U0 = np.zeros((self.n_nodes * 3, self.n_meshes * 12))
@@ -251,7 +283,9 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
+        bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
 
     def dz_tiled2dz(self, dz_tilde, dz0):
         dz = np.zeros_like(dz_tilde)
