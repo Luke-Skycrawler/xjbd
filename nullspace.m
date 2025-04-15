@@ -1,8 +1,9 @@
 
 % K = sparse(rows + 1, cols + 1, values);
 % spy(K);
-
-load data/eigs/bug.tobj.mat
+function Vv = nullspace(name)
+load data/eigs/squishy_ball_lowlow.mat
+% load data/eigs/tmp.mat
 % load output/bug/A1.mat;
 % na1 = null(A1');
 
@@ -16,5 +17,6 @@ tilde_M = M;
 % diagVMV = diag(Vv' * tilde_M * Vv);
 % Vv = Vv ./ sqrt(diagVMV');
 % V = na1 * Vv;
-save data/eigs/Q_bug.tobj.mat V D
+save data/eigs/Q_squishy_ball_lowlow.mat Vv D
 
+end
