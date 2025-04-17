@@ -15,7 +15,7 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv
 from fem.fem import Triplets
 ad_hoc = True
-medial_collision_stiffness = 2e3
+medial_collision_stiffness = 1e4
 solver_choice = "woodbury"
 assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
@@ -650,5 +650,5 @@ if __name__ == "__main__":
     # ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    # staggered_bug()
-    bug_rain()
+    staggered_bug()
+    # bug_rain()

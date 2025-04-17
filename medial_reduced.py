@@ -165,11 +165,11 @@ class MedialRodComplexDebug(RodComplexBC):
 
         V, R = self.get_VR()
         self.collider_medial.collision_set(V, R,)
-        b, H = self.collider_medial.analyze()
+        b, H, indices = self.collider_medial.analyze()
 
         # self.compute_Um()
-        rhs = self.Um.T @ b
-        A = self.Um.T @ H @ self.Um
+        rhs = self.Um.T[:, indices] @ b
+        A = self.Um.T[:, indices] @ H @ self.Um[indices, :]
 
         term = self.h * self.h * 2e4
         self.A_reduced += A * term
@@ -256,7 +256,7 @@ class MedialRodComplex(MedialRodComplexDebug):
             jaci = self.lbs_matrix(Vmi, self.W_medial)
             diags.append(jaci)
             # self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
-        self.Um = block_diag(diags)
+        self.Um = block_diag(diags, "csr")
 
 
 def bug_drop():

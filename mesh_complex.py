@@ -255,6 +255,28 @@ def bar_rain():
     ps.set_user_callback(viewer.callback)
     ps.show()
     
+def staggered_bug():
+    
+    n_meshes = 2 
+    meshes = ["assets/bug.tobj"] * n_meshes
+    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms[1][:3, :3] = np.zeros((3, 3))
+    transforms[1][0, 1] = 1
+    transforms[1][1, 0] = 1
+    transforms[1][2, 2] = 1
+
+    for i in range(n_meshes):
+        # transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 1.2 + i * 0.2
+        transforms[i][2, 3] = i * 1.0
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+    rods = RodComplexBC(h, meshes, transforms)
+    viewer = PSViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 8), (0, 2, 0))
@@ -265,7 +287,8 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    staggered_bars()
+    # staggered_bars()
+    staggered_bug()
     # tets()
     # bunny_rain()
     # bar_rain()

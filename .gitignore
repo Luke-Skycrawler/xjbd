@@ -1,3 +1,4 @@
 *.pyc
 *.ini
 output/
+data/eigs/
