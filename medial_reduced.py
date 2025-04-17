@@ -121,32 +121,36 @@ class MedialRodComplexDebug(RodComplexBC):
         self.Um[-6:, -6:] = np.identity(6)
 
 
-    def add_collision_to_sys_matrix(self, triplets):
-        super().add_collision_to_sys_matrix(triplets)
-        self.compute_A_reduced()
+    # def add_collision_to_sys_matrix(self, triplets):
+    #     super().add_collision_to_sys_matrix(triplets)
+    #     self.compute_A_reduced()
 
     def compute_A_reduced(self):
         self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
 
-    def compute_rhs(self):
-        super().compute_rhs()
-        b = self.b.numpy().reshape(-1)
-        self.b_reduced = self.U.T @ b
-        if ad_hoc:
-            self.b_reduced += self.col_b
+    # def compute_rhs(self):
+    #     super().compute_rhs()
+    #     b = self.b.numpy().reshape(-1)
+    #     self.b_reduced = self.U.T @ b
+    #     if ad_hoc:
+    #         self.b_reduced += self.col_b
 
     def solve(self):
+
+        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
+        self.b_reduced = self.U.T @ self.b.numpy().reshape(-1)
+        
         dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
         self.dz[:] = dz
         self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
-    def line_search(self):
-        self.z -= self.dz
-        # wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
-        x = (self.U @ self.z).reshape((-1, 3))
-        self.states.x.assign(x)
+    # def line_search(self):
+    #     self.z -= self.dz
+    #     # wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
+    #     x = (self.U @ self.z).reshape((-1, 3))
+    #     self.states.x.assign(x)
     
-        return 1.0
+    #     return 1.0
 
     def define_encoder(self):
         self.intp = TetBaryCentricCompute("bug", 30)
@@ -158,24 +162,34 @@ class MedialRodComplexDebug(RodComplexBC):
         R = self.R_rest
         return V, R
 
+    # def process_collision(self):
+    #     # super().process_collision()
+    #     # self.add_collision_to_sys_matrix()
+    #     self.compute_A_reduced()
+
+    #     V, R = self.get_VR()
+    #     self.collider_medial.collision_set(V, R,)
+    #     b, H, indices = self.collider_medial.analyze()
+
+    #     # self.compute_Um()
+    #     rhs = self.Um.T[:, indices] @ b
+    #     A = self.Um.T[:, indices] @ H @ self.Um[indices, :]
+
+    #     term = self.h * self.h * 2e4
+    #     self.A_reduced += A * term
+    #     self.col_b = rhs * term
+
+    #     # self.add_collision_to_sys_matrix()
+
     def process_collision(self):
-        # super().process_collision()
-        # self.add_collision_to_sys_matrix()
-        self.compute_A_reduced()
-
-        V, R = self.get_VR()
-        self.collider_medial.collision_set(V, R,)
-        b, H, indices = self.collider_medial.analyze()
-
-        # self.compute_Um()
-        rhs = self.Um.T[:, indices] @ b
-        A = self.Um.T[:, indices] @ H @ self.Um[indices, :]
-
-        term = self.h * self.h * 2e4
-        self.A_reduced += A * term
-        self.col_b = rhs * term
-
-        # self.add_collision_to_sys_matrix()
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                # triplets = self.collider.analyze(self.b)
+            with wp.ScopedTimer("build_from_triplets"):
+                self.add_collision_to_sys_matrix(triplets)
 
 
 class MedialRodComplex(MedialRodComplexDebug):
