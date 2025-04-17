@@ -12,11 +12,11 @@ from scipy.sparse.linalg import splu, norm
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
-from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 ad_hoc = True
 medial_collision_stiffness = 1e4
-solver_choice = "woodbury"
+solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
     return 0.5 * (a - a.T)
@@ -362,7 +362,7 @@ class MedialVABD(MedialRodComplex):
             # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
             # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
             # np.save("A_tilde_K0.npy", self.A_tilde)
-            A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde# + self.A_col_tilde
+            A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
 
         b_sys = np.zeros(self.n_reduced)
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
@@ -397,7 +397,7 @@ class MedialVABD(MedialRodComplex):
             dz[start + 12: end] = dz_from_zt[i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)]
 
         self.dz[:] = dz
-        # self.states.dx.assign((self.U @ dz).reshape(-1, 3))
+        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
@@ -417,6 +417,10 @@ class MedialVABD(MedialRodComplex):
         while True:
             self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
             self.z[:] = z_tmp - alpha * self.dz
+
+            zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
+            bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
+
             e10 = self.compute_psi() + self.compute_inertia()
             # e11 = self.compute_inertia2()
             # print(f"diff energy = {e11 - e10}, e = {e11}")
@@ -468,12 +472,14 @@ class MedialVABD(MedialRodComplex):
     #     return ret
 
     def compute_collision_energy(self):
-        with wp.ScopedTimer("get V, R"):
-            V, R = self.get_VR()
-        h = self.h
-        with wp.ScopedTimer("energy"):
-            ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
-        return ret
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
+        # with wp.ScopedTimer("get V, R"):
+        #     V, R = self.get_VR()
+        # h = self.h
+        # with wp.ScopedTimer("energy"):
+        #     ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+        # return ret
 
     # def line_search(self):
     #     self.z_tilde -= self.dz_tilde
@@ -557,45 +563,96 @@ class MedialVABD(MedialRodComplex):
             ret = block_diag(diags, "csc")
         return ret
 
-    def process_collision(self):
-        V, R = self.get_VR()
-        with wp.ScopedTimer("detect"):
-            self.collider_medial.collision_set(V, R)
-        with wp.ScopedTimer("analyze"):
-            g, H, idx = self.collider_medial.analyze()
+    # def process_collision(self):
+    #     V, R = self.get_VR()
+    #     with wp.ScopedTimer("detect"):
+    #         self.collider_medial.collision_set(V, R)
+    #     with wp.ScopedTimer("analyze"):
+    #         g, H, idx = self.collider_medial.analyze()
             
-        # with wp.ScopedTimer("U prime"):
-        #     U_prime = self.compute_U_prime()
+    #     # with wp.ScopedTimer("U prime"):
+    #     #     U_prime = self.compute_U_prime()
         
-        # with wp.ScopedTimer("prod 1"):
-        #     Um_tildeT = U_prime @ self.Um_tilde.T
+    #     # with wp.ScopedTimer("prod 1"):
+    #     #     Um_tildeT = U_prime @ self.Um_tilde.T
 
-        with wp.ScopedTimer("Um tildeT"):
-            Um_tildeT = self.compute_Um_tildeT()
+    #     with wp.ScopedTimer("Um tildeT"):
+    #         Um_tildeT = self.compute_Um_tildeT()
 
-        # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
+    #     # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
-        term = self.h * self.h * medial_collision_stiffness
-        with wp.ScopedTimer("collision linalg system"):
-            # rhs = Um_tildeT @ g
-            # A = Um_tildeT @ H @ Um_tildeT.T 
+    #     term = self.h * self.h * medial_collision_stiffness
+    #     with wp.ScopedTimer("collision linalg system"):
+    #         # rhs = Um_tildeT @ g
+    #         # A = Um_tildeT @ H @ Um_tildeT.T 
 
-            # self.b_col_tilde = rhs * term
-            # self.A_col_tilde = A * term
+    #         # self.b_col_tilde = rhs * term
+    #         # self.A_col_tilde = A * term
 
-            # self.A0_col = self.Um0.T @ H @ self.Um0 * term
-            # self.b0_col = self.Um0.T @ g * term
+    #         # self.A0_col = self.Um0.T @ H @ self.Um0 * term
+    #         # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
-            # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
-            step1 = Um_sys @ (H * term)
-            # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
-            self.b_sys_col = Um_sys @ (g * term)
+    #         Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+    #         # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
+    #         step1 = Um_sys @ (H * term)
+    #         # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+    #         self.b_sys_col = Um_sys @ (g * term)
 
-            self.A_sys_col = step1 @ Um_sys.T
+    #         self.A_sys_col = step1 @ Um_sys.T
         
-        self.U_col = Um_sys
-        self.C_col = H
+    #     self.U_col = Um_sys
+    #     self.C_col = H
+
+    def process_collision(self):
+        self.b.zero_()
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                # triplets = self.collider.analyze(self.b)
+            with wp.ScopedTimer("build_from_triplets"):
+
+                collision_force_derivatives = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+                bsr_set_from_triplets(collision_force_derivatives, triplets.rows, triplets.cols, triplets.vals)
+                # bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
+                H = self.to_scipy_bsr(collision_force_derivatives)
+                g = self.b.numpy().reshape(-1)
+
+
+                # self.add_collision_to_sys_matrix(triplets)
+
+                U_prime = self.compute_U_prime()
+        
+                U_tildeT = U_prime @ self.U_tilde.T
+                U_sys = vstack([self.U0.T, U_tildeT])
+                self.A_sys_col = U_sys @ (H * h * h) @ U_sys.T
+                self.b_sys_col = U_sys @ -g * h * h
+
+
+    #     with wp.ScopedTimer("Um tildeT"):
+    #         Um_tildeT = self.compute_Um_tildeT()
+
+    #     # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
+
+    #     term = self.h * self.h * medial_collision_stiffness
+    #     with wp.ScopedTimer("collision linalg system"):
+    #         # rhs = Um_tildeT @ g
+    #         # A = Um_tildeT @ H @ Um_tildeT.T 
+
+    #         # self.b_col_tilde = rhs * term
+    #         # self.A_col_tilde = A * term
+
+    #         # self.A0_col = self.Um0.T @ H @ self.Um0 * term
+    #         # self.b0_col = self.Um0.T @ g * term
+
+    #         Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+    #         # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
+    #         step1 = Um_sys @ (H * term)
+    #         # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+    #         self.b_sys_col = Um_sys @ (g * term)
+
+    #         self.A_sys_col = step1 @ Um_sys.T
 
     def compute_A(self):
         pass
