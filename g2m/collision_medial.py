@@ -9,6 +9,7 @@ CC_SET_SIZE = 256
 SS_SET_SIZE = 256
 G_SET_SIZE = 256
 
+ground_rel_stiffness = 10.0
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
@@ -248,9 +249,11 @@ class MedialCollisionDetector:
         ret = -self.ee_set.E.numpy()[0] - self.pt_set.E.numpy()[0]
 
         if self.ground is not None:
+            self.g_set.cnt.zero_()
+            self.g_set.E.zero_()
             wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
             # sphere-ground energy (d - r) ^ 2 is positive
-            ret += self.ground.E.numpy()[0]
+            ret += self.g_set.E.numpy()[0] * ground_rel_stiffness
 
         # testing 2 ring neighbors
         # ncc = self.ee_set.cnt.numpy()[0]
@@ -466,14 +469,16 @@ class MedialCollisionDetector:
 
         if self.ground is not None:
             hh = np.zeros((3, 3))
-            hh[1, 1] = 2
+            hh[1, 1] = 2.0 * ground_rel_stiffness
             
             for id, di in zip(self.sg_id, self.sg_dist):
-                gg = np.array([0.0, di, 0.0])
-                b[id * 3: id * 3 + 3] += gg
+                gg = np.array([0.0, 2.0 * di, 0.0])
+                b[id * 3: id * 3 + 3] += gg * ground_rel_stiffness
                 rows.append(id)
                 cols.append(id)
                 blocks.append(hh)
+                
+            self.indices_set.update(self.sg_id)
 
         if not self.dense:
             hh = bsr_zeros(self.n_vertices, self.n_vertices, wp.mat33, device = "cpu")

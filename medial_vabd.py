@@ -2,8 +2,8 @@ import warp as wp
 import numpy as np
 import polyscope as ps 
 import polyscope.imgui as gui
-
-from stretch import h, add_dx, compute_rhs
+from geometry.collision_cell import collision_eps
+from stretch import h, add_dx, compute_rhs, gravity, gravity_np
 from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar, inv
@@ -95,6 +95,9 @@ class MedialVABD(MedialRodComplex):
         self.sum_weights()
 
         self.gen_F_idx()
+        g = np.zeros(12)
+        g[9:12] = gravity_np
+        self.gravity = np.concatenate([g for _ in range(self.n_meshes)])
 
     def gen_F_idx(self):
         '''
@@ -444,7 +447,7 @@ class MedialVABD(MedialRodComplex):
     def compute_inertia(self):
         with wp.ScopedTimer("inertia"):
 
-            zh = self.z0 + self.h * self.z_dot
+            zh = self.z0 + self.h * self.z_dot + self.gravity * self.h * self.h
             z0 = self.extract_z0(self.z)
             dz0 = z0 - zh
 
@@ -487,7 +490,9 @@ class MedialVABD(MedialRodComplex):
 
     def z_hat(self, i):
         zh = self.z0 + self.h * self.z_dot
-        return zh[i * 12: (i + 1) * 12]
+        ret = zh[i * 12: (i + 1) * 12]
+        ret[9: 12] += gravity_np * self.h * self.h
+        return ret
 
     def compute_U_prime(self):
         U_prime_dim = self.z_tilde.shape[0]
@@ -646,8 +651,8 @@ def bug_rain():
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 8), (0, 2, 0))
-    ps.set_ground_plane_mode("none")
-    # ps.set_ground_plane_height(-collision_eps)
+    # ps.set_ground_plane_mode("none")
+    ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
     staggered_bug()

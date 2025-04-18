@@ -1,4 +1,5 @@
 import warp as wp
+import numpy as np 
 L, W = 1, 0.2
 # mu, rho, lam = 2e6, 1., 125.0
 mu, rho, lam = 2e7, 1., 0.0
@@ -16,8 +17,9 @@ delta = 0.08
 volume = dx ** 3
 area = dx ** 3
 n_unknowns = n_nodes * 3
-gravity = wp.vec3(0, -0.0, 0)
-
+# change the two accordingly 
+gravity = wp.vec3(0, -10.0, 0)
+gravity_np = np.array([0, -10., 0])
 # damping
 alpha = 6
 beta = 1e-7

@@ -235,7 +235,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F)
+            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F, ground = 0.0)
 
         self.n_medial = self.V_medial.shape[0]
 

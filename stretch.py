@@ -6,7 +6,7 @@ from fem.interface import Rod, default_tobj, RodComplex
 from fem.params import model
 import igl
 from warp.sparse import *
-from fem.params import FEMMesh, mu, lam, gravity
+from fem.params import FEMMesh, mu, lam, gravity, gravity_np
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 
