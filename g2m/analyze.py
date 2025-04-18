@@ -127,7 +127,9 @@ def compute_distance_cone_cone(c0: wp.vec3, c1: wp.vec3, c2: wp.vec3, c3: wp.vec
 @wp.func
 def compute_distance_slab_sphere(c0: wp.vec3, c1: wp.vec3, c2: wp.vec3, c3: wp.vec3, 
                      r0: float, r1: float, r2: float, r3: float):
-    
+    '''
+    c0, c1, c2 is the slab and c3 is the sphere
+    '''
     sC1 = c0 - c2
     sC2 = c1 - c2
     sC3 = c2 - c3
