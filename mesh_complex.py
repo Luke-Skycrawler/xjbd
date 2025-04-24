@@ -113,6 +113,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
         return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 

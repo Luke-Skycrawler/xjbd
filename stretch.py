@@ -6,7 +6,7 @@ from fem.interface import Rod, default_tobj, RodComplex
 from fem.params import model
 import igl
 from warp.sparse import *
-from fem.params import FEMMesh, mu, lam, gravity
+from fem.params import FEMMesh, mu, lam, gravity, gravity_np
 from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 
@@ -43,13 +43,13 @@ def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.
 
 @wp.func
 def should_fix(x: wp.vec3): 
-    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
+    return x[0] < -0.5 + eps# or x[0] > 0.5 - eps
 
     # v0 = wp.vec3(-56.273449910216, 94.689259419722, -19.03583034376)
     # return wp.length_sq(x - v0) < eps
 @wp.func
 def moving_boundary(x: wp.vec3):
-    return x[0] < -0.5 + eps or x[0] > 0.5 - eps
+    return x[0] < -0.5 + eps# or x[0] > 0.5 - eps
     
 
 @wp.kernel
@@ -205,7 +205,7 @@ class RodBCBase:
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 20
+        max_iter = 2
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()
@@ -308,7 +308,7 @@ class RodBCBase:
     def compute_inertia(self):
         inert = wp.zeros((1,), dtype = float)
         wp.launch(compute_inertia, (self.n_nodes, ), inputs = [self.states, self.M, inert, self.h])
-        return inert.numpy()[0] * 0.5        
+        return inert.numpy()[0]
 
 class RodBC(RodBCBase, Rod):
     def __init__(self, h, filename = default_tobj):

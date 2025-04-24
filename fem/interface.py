@@ -9,6 +9,7 @@ class Rod(SifakisFEM, TOBJLoader):
     NOTE: need to have self.filename predefined before calling super().__init__()
     '''
     def __init__(self):
+        self.filename = "assets/bar2.tobj"
         super().__init__()
         self.V = self.xcs.numpy()
         self.F = self.indices.numpy()
