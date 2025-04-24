@@ -187,6 +187,7 @@ class TOBJComplex:
         self.n_tets = 0
         V = np.zeros((0, 3), dtype = float)
         T = np.zeros((0, 4), dtype = int)
+        F_from_file = np.zeros((0, 3), dtype = int)
         F = np.zeros((0, 3), dtype = int)
         while len(transforms) < len(meshes_filename):
             transforms.append(np.identity(4, dtype = float))
@@ -195,15 +196,24 @@ class TOBJComplex:
         for f, trans in zip(meshes_filename, transforms):
             if f.endswith(".tobj"):
                 v, t = import_tobj(f)
+                ff = np.zeros((0, 3), int)
             elif f.endswith(".mesh"):
                 v, t, _ = igl.read_mesh(f)
+                ff = np.zeros((0, 3), int)
+            elif f.endswith(".obj"):
+                v, _, _, ff, _, _ = igl.read_obj(f)
+                t = np.zeros((0, 4), int)
             
             v4 = np.ones((v.shape[0], 4), dtype = float)
             v4[:, :3] = v
             v = (v4 @ trans.T)[:, :3] 
             # V = np.vstack((V, v), dtype = float)
             V = np.vstack((V, v))
-            T = np.vstack((T, t + self.n_nodes))
+            if t.shape[0]:
+                T = np.vstack((T, t + self.n_nodes))
+            if ff.shape[0]:
+                F_from_file = np.vstack([F_from_file, ff + self.n_nodes])
+
             self.n_nodes += v.shape[0]
             self.n_tets += t.shape[0]
 
@@ -214,17 +224,22 @@ class TOBJComplex:
         self.xcs.assign(V)
         self.T.assign(T)
 
-        FF = igl.boundary_facets(T)  
-        FF, _ = igl.bfs_orient(FF)
-        c, _ = igl.orientable_patches(FF)
-        F, _ = igl.orient_outward(V, FF, c)
+        if T.shape[0]:
+            FF = igl.boundary_facets(T)  
+            FF, _ = igl.bfs_orient(FF)
+            c, _ = igl.orientable_patches(FF)
+            F, _ = igl.orient_outward(V, FF, c)
+            
+            assert(FF.shape[0] == F.shape[0])
+
+        F = np.vstack([F, F_from_file])
+        self.indices = wp.array(F.reshape(-1), dtype = int)
         
-        assert(FF.shape[0] == F.shape[0])
         n0 = np.ones(3, dtype = float)
         N = igl.per_face_normals(V, F, n0)
-        self.indices = wp.array(F.reshape(-1), dtype = int)
         normals = wp.array(N, dtype = wp.vec3)
-        wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
+        
+        # wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
         # wp.launch(verify_normals, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
         # print(f"after flipping: normals = {normals.numpy()}")
         print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")

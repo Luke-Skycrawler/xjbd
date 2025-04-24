@@ -2,7 +2,7 @@ import polyscope as ps
 import polyscope.imgui as gui 
 import numpy as np
 import warp as wp 
-from fem.interface import Rod, default_tobj, RodComplex
+from fem.interface import Rod, default_tobj, RodComplex, TOBJComplex
 from fem.params import model
 import igl
 from warp.sparse import *
@@ -132,7 +132,7 @@ def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x:
         comp_x[i] = wp.vec3(0.0)
 
 class PSViewer:
-    def __init__(self, rod):
+    def __init__(self, rod, static_mesh: TOBJComplex = None):
         self.V = rod.xcs.numpy()
         self.F = rod.F
 
@@ -141,6 +141,11 @@ class PSViewer:
         self.rod = rod
         self.ui_pause = True
         self.animate = False
+        if static_mesh is not None:
+            Vs = static_mesh.xcs.numpy()
+            Fs = static_mesh.indices.numpy().reshape((-1, 3))
+            self.static_mesh = ps.register_surface_mesh("static", Vs, Fs)
+
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
         self.animate = gui.Button("Step") or not self.ui_pause

@@ -15,6 +15,7 @@ from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
 from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
+from fem.geometry import TOBJComplex
 COLLISION_DEBUG = False
 collision_eps = 2e-2
 PT_SET_SIZE = 4096
@@ -286,6 +287,44 @@ def point_triangle_collision(inverted: wp.array(dtype = int), triangles_soup: Tr
                     if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                         append(collision_list, element)
 
+@wp.kernel
+def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dtype =wp.vec3), triangles_soup: TriangleSoup, collision_list: CollisionList):
+    '''
+    point collision with static triangle soup
+    '''
+    i = wp.tid()
+    
+    if inverted[i]:
+        pass
+    else: 
+        xi = points[i]
+        low = xi - wp.vec3(collision_eps)
+        high = xi + wp.vec3(collision_eps)
+
+        query = wp.mesh_query_aabb(triangles_soup.mesh_id, low, high)
+        # iterates all triangles intersecting the dialated point volume
+        y = int(0)
+        # n_triangles = triangles_soup.indices.shape[0] // 3
+        # for y in range(n_triangles):
+        while wp.mesh_query_aabb_next(query, y):
+            t0 = triangles_soup.indices[y * 3]
+            t1 = triangles_soup.indices[y * 3 + 1]
+            t2 = triangles_soup.indices[y * 3 + 2]
+            
+            if (inverted[t0] and inverted[t1] and inverted[t2]) or (t0 == i or t1 == i or t2 == i):
+                # filter out inverted triangles and the 1-ring neighbor 
+                pass
+            else:
+                xt0 = triangles_soup.vertices[t0]
+                xt1 = triangles_soup.vertices[t1]
+                xt2 = triangles_soup.vertices[t2]
+
+                distance, _ = point_triangle_distance_wp(xt0, xt1, xt2, xi)
+                element = wp.vec2i(i, y)
+                if distance < collision_eps:
+                    if point_projects_inside_triangle(xt0, xt1, xt2, xi): #or inside_collision_cell(triangles_soup, neighbors, y, xi):
+                        append(collision_list, element)
+
 
 @wp.func
 def within_2_ring(i: int, j: int, edges: wp.array(dtype = int)) -> bool:
@@ -448,6 +487,94 @@ def fill_collision_triplets(pt_set: CollisionList, triangle_soup: TriangleSoup, 
                     d2Psidx2[ii * 3 + 1, jj * 3], d2Psidx2[ii * 3 + 1, jj * 3 + 1], d2Psidx2[ii * 3 + 1, jj * 3 + 2],
                     d2Psidx2[ii * 3 + 2, jj * 3], d2Psidx2[ii * 3 + 2, jj * 3 + 1], d2Psidx2[ii * 3 + 2, jj * 3 + 2]
                 ) * stiffness
+@wp.kernel
+def fill_collision_triplets_static(pt_set: CollisionList, offset: int, points: wp.array(dtype = wp.vec3), triangle_soup: TriangleSoup, triplets: Triplets, rhs: wp.array(dtype = wp.vec3), stiffness: float):
+    tid = wp.tid()
+    pt = pt_set.a[tid]
+    x = pt[0]
+    t = pt[1]
+
+    it0 = triangle_soup.indices[t * 3]
+    it1 = triangle_soup.indices[t * 3 + 1]
+    it2 = triangle_soup.indices[t * 3 + 2]
+
+
+    idx = wp.vec4i(x, it0, it1, it2)
+
+    x0 = points[x]
+    x1 = triangle_soup.vertices[it0]
+    x2 = triangle_soup.vertices[it1]
+    x3 = triangle_soup.vertices[it2]
+
+
+    e0p, e1p, e2p = C_vf(x0, x1, x2, x3)
+    # dcdx_delta_vf(x0, x1, x2, x3, dcdx_delta)
+    ds = dcvfdx_s(x0, x1, x2, x3)
+    l = signed_distance(e0p, e1p, e2p)
+
+    if l < 0.0:
+        pass
+    else: 
+        gl0, gl1, gl2 = gl(l, e2p)
+        lam0, lam1, lam2, lam3, q0, q1, q2, q3 = eig_Hl(e0p, e1p, e2p)
+        lam4 = 2.0
+        q4 = wp.mat33(0.0)
+        q4[2] = gl2
+        lam_diag = lam_tilde_diag(q0, q1, q2, q3, q4, lam0, lam1, lam2, lam3, lam4)
+
+        # set forces
+        id = idx[0]
+        gi = 2.0 * e2p * ds[2, 0] * stiffness
+        # gi = gl2 * ds[2, i] * stiffness
+        # as gl0 = gl1 = 0
+        wp.atomic_add(rhs, id, -gi)
+
+
+        
+        Lam = wp.diag(lam_diag)
+        dcdx_simple_mat = wp.matrix(
+            ds[0, 0], 0., 0.,     ds[0, 1], 0., 0.,     ds[0, 2], 0., 0.,     ds[0, 3], 0., 0.,
+            0., ds[0, 0], 0.,     0., ds[0, 1], 0.,     0., ds[0, 2], 0.,     0., ds[0, 3], 0.,
+            0., 0., ds[0, 0],     0., 0., ds[0, 1],     0., 0., ds[0, 2],     0., 0., ds[0, 3],
+
+            ds[1, 0], 0., 0.,     ds[1, 1], 0., 0.,     ds[1, 2], 0., 0.,     ds[1, 3], 0., 0.,
+            0., ds[1, 0], 0.,     0., ds[1, 1], 0.,     0., ds[1, 2], 0.,     0., ds[1, 3], 0.,
+            0., 0., ds[1, 0],     0., 0., ds[1, 1],     0., 0., ds[1, 2],     0., 0., ds[1, 3],
+
+            ds[2, 0], 0., 0.,     ds[2, 1], 0., 0.,     ds[2, 2], 0., 0.,     ds[2, 3], 0., 0.,
+            0., ds[2, 0], 0.,     0., ds[2, 1], 0.,     0., ds[2, 2], 0.,     0., ds[2, 3], 0.,
+            0., 0., ds[2, 0],     0., 0., ds[2, 1],     0., 0., ds[2, 2],     0., 0., ds[2, 3],
+
+            shape = (9, 12)
+        )
+        q_mat = wp.matrix(
+            q0[0, 0], q1[0, 0], q2[0, 0], q3[0, 0], q4[0, 0],
+            q0[0, 1], q1[0, 1], q2[0, 1], q3[0, 1], q4[0, 1],
+            q0[0, 2], q1[0, 2], q2[0, 2], q3[0, 2], q4[0, 2],
+            q0[1, 0], q1[1, 0], q2[1, 0], q3[1, 0], q4[1, 0],
+            q0[1, 1], q1[1, 1], q2[1, 1], q3[1, 1], q4[1, 1],
+            q0[1, 2], q1[1, 2], q2[1, 2], q3[1, 2], q4[1, 2],
+            q0[2, 0], q1[2, 0], q2[2, 0], q3[2, 0], q4[2, 0],
+            q0[2, 1], q1[2, 1], q2[2, 1], q3[2, 1], q4[2, 1],
+            q0[2, 2], q1[2, 2], q2[2, 2], q3[2, 2], q4[2, 2],
+            shape = (9, 5)
+        )
+
+        K = wp.transpose(dcdx_simple_mat) @ q_mat @ Lam
+        d2Psidx2 = K @ wp.transpose(K)
+
+        ii = 0
+        jj = 0
+        i = idx[ii]
+        j = idx[jj]
+        triplet_id = tid + offset
+        triplets.rows[triplet_id] = i
+        triplets.cols[triplet_id] = j
+        triplets.vals[triplet_id] = wp.mat33(
+            d2Psidx2[ii * 3, jj * 3], d2Psidx2[ii * 3, jj * 3 + 1], d2Psidx2[ii * 3, jj * 3 + 2],
+            d2Psidx2[ii * 3 + 1, jj * 3], d2Psidx2[ii * 3 + 1, jj * 3 + 1], d2Psidx2[ii * 3 + 1, jj * 3 + 2],
+            d2Psidx2[ii * 3 + 2, jj * 3], d2Psidx2[ii * 3 + 2, jj * 3 + 1], d2Psidx2[ii * 3 + 2, jj * 3 + 2]
+        ) * stiffness
 
 @wp.func
 def triangle_edge_intersection(t0: wp.vec3, t1: wp.vec3, t2: wp.vec3, e0: wp.vec3, e1: wp.vec3):
@@ -651,7 +778,39 @@ def collision_energy_pt(pt_set: CollisionList, triangle_soup: TriangleSoup, inve
     # ds = dcvfdx_s(x0, x1, x2, x3)
     l = signed_distance(e0p, e1p, e2p)
 
-    if l < 0.0: 
+    if l < 0.0 or inverted[tid]: 
+        pass
+    else:
+        dpsi = l * l * stiffness
+        wp.atomic_add(e_col, 0, dpsi)
+
+@wp.kernel
+def collision_energy_static(pt_set: CollisionList, points: wp.array(dtype = wp.vec3), triangle_soup: TriangleSoup, inverted: wp.array(dtype = int), stiffness: float, e_col: wp.array(dtype = float)):
+    tid = wp.tid()
+    pt = pt_set.a[tid]
+    x = pt[0]
+    t = pt[1]
+
+    it0 = triangle_soup.indices[t * 3]
+    it1 = triangle_soup.indices[t * 3 + 1]
+    it2 = triangle_soup.indices[t * 3 + 2]
+
+
+    idx = wp.vec4i(x, it0, it1, it2)
+
+    # x0 = triangle_soup.vertices[x]
+    x0 = points[x]
+    x1 = triangle_soup.vertices[it0]
+    x2 = triangle_soup.vertices[it1]
+    x3 = triangle_soup.vertices[it2]
+
+
+    e0p, e1p, e2p = C_vf(x0, x1, x2, x3)
+    # dcdx_delta_vf(x0, x1, x2, x3, dcdx_delta)
+    # ds = dcvfdx_s(x0, x1, x2, x3)
+    l = signed_distance(e0p, e1p, e2p)
+
+    if l < 0.0 or inverted[tid]: 
         pass
     else:
         dpsi = l * l * stiffness
@@ -699,7 +858,7 @@ def disable_interior_vertices(triangle_soup: TriangleSoup, inverted: wp.array(dt
     inverted[idx] = 0
 
 class MeshCollisionDetector:
-    def __init__(self, xcs, T, indices, Bm, ground = None):
+    def __init__(self, xcs, T, indices, Bm, ground = None, static_objects: TOBJComplex = None):
         '''
         heavy-lifting class for collision detection provided the reference to warp array of points and indices
         '''
@@ -728,7 +887,20 @@ class MeshCollisionDetector:
         self.mesh_triangle_soup = wp.Mesh(triangle_soup.vertices, triangle_soup.indices)
         triangle_soup.mesh_id = self.mesh_triangle_soup.id
         self.triangle_soup = triangle_soup
-
+        
+        if static_objects is not None:
+            self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
+            static_soup = TriangleSoup()
+            static_soup.indices = static_objects.indices
+            static_soup.vertices = static_objects.xcs
+            static_soup.mesh_id = self.staic_triangles.id
+            self.static_soup = static_soup
+            
+            p_static_set = CollisionList()
+            p_static_set.cnt = wp.zeros((1, ), dtype =int)
+            p_static_set.a = wp.zeros((PT_SET_SIZE, ), dtype = wp.vec2i)
+            self.p_static_set = p_static_set
+            self.n_static = 0
         self.F = indices.numpy().reshape((-1, 3))
         
         self.E = igl.edges(self.F).reshape(-1)
@@ -826,7 +998,12 @@ class MeshCollisionDetector:
                 wp.launch(point_triangle_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.triangle_soup, self.neighbors, self.pt_set])
                 # npt = self.pt_set.cnt.numpy()[0]
 
+        if hasattr(self, "static_soup"):
+            self.p_static_set.cnt.zero_()
+            wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set])
+            self.n_static = self.p_static_set.cnt.numpy()[0]    
         npt, nee, n_ground = self.pt_set.cnt.numpy()[0], self.ee_set.cnt.numpy()[0], self.ground_set.cnt.numpy()[0]
+        
         return npt, nee, n_ground
 
     def collision_energy(self, npt = 0, nee = 0, n_ground = 0):
@@ -836,6 +1013,9 @@ class MeshCollisionDetector:
         wp.launch(collision_energy_ee, (nee, ), inputs = [self.ee_set, self.triangle_soup, self.inverted, self.stiffness, self.edges, self.neighbor_faces, self.e_col])
 
         wp.launch(collision_energy_ground, (n_ground,), inputs = [self.ground, self.ground_set, self.triangle_soup, self.stiffness, self.e_col])
+
+        if hasattr(self, "n_static") and self.n_static:
+            wp.launch(collision_energy_static, (self.n_static, ), inputs = [self.p_static_set, self.xcs, self.static_soup, self.inverted, self.stiffness, self.e_col])
 
         ret = self.e_col.numpy()[0]
         if COLLISION_DEBUG:
@@ -848,9 +1028,12 @@ class MeshCollisionDetector:
         returns the force and force derivatives
         '''
         triplets = Triplets()
-        triplets.rows = wp.zeros(((npt + nee) * 16 + n_ground, ), dtype = int)
+        trip_size = (npt + nee) * 16 + n_ground
+        if hasattr(self, "n_static"):
+            trip_size += self.n_static
+        triplets.rows = wp.zeros((trip_size, ), dtype = int)
         triplets.cols = wp.zeros_like(triplets.rows)
-        triplets.vals = wp.zeros(((npt + nee) * 16 + n_ground, ), dtype = wp.mat33)
+        triplets.vals = wp.zeros((trip_size, ), dtype = wp.mat33)
         wp.launch(fill_collision_triplets, (npt, ), inputs = [self.pt_set, self.triangle_soup, triplets, rhs, self.stiffness])
         
 
@@ -865,6 +1048,10 @@ class MeshCollisionDetector:
         # wp.copy(triplets.vals, triplets_ee.vals, npt * 16, 0, nee * 16)
 
         wp.launch(fill_collision_triplets_ground, (n_ground, ), inputs = [npt + nee, self.ground, self.ground_set, self.triangle_soup, triplets, rhs, self.stiffness])
+
+        if hasattr(self, "n_static") and self.n_static != 0:
+            static_offset = (npt + nee) * 16 + n_ground
+            wp.launch(fill_collision_triplets_static, (self.n_static, ), inputs = [self.p_static_set, static_offset, self.xcs, self.static_soup, triplets, rhs, self.stiffness])
         return triplets
 
 class TestViewer:

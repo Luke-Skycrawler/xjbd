@@ -7,6 +7,7 @@ import numpy as np
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
+from fem.geometry import TOBJComplex
 
 omega = 3.0
 
@@ -19,17 +20,19 @@ def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n
     states.xdot[i] = v * 0.5
 
 class RodComplexBC(RodBCBase, RodComplex):
-    def __init__(self, h, meshes = [], transforms = []):
+    def __init__(self, h, meshes = [], transforms = [], static_meshes:TOBJComplex = None):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
+        if static_meshes is not None: 
+            self.static_meshes = static_meshes
         self.define_collider()
         self.n_pt = 0
         self.n_ee = 0
         self.n_ground = 0
 
     def define_collider(self):
-        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0)
+        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0, static_objects = self.static_meshes)
 
     def reset(self):
         n_verts = 4
@@ -256,6 +259,13 @@ def bar_rain():
     ps.set_user_callback(viewer.callback)
     ps.show()
     
+    
+class StaticScene(TOBJComplex):
+    def __init__(self, meshes = [], transforms = []):
+        self.meshes_filename = meshes
+        self.transforms = transforms
+        super().__init__()
+
 def staggered_bug():
     
     n_meshes = 2 
@@ -273,8 +283,14 @@ def staggered_bug():
         transforms[i][2, 3] = i * 1.0
     
     # rods = MedialRodComplex(h, meshes, transforms)
-    rods = RodComplexBC(h, meshes, transforms)
-    viewer = PSViewer(rods)
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    rods = RodComplexBC(h, meshes, transforms, static_bars)
+    
+    
+    viewer = PSViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
