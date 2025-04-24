@@ -9,7 +9,8 @@ class Rod(SifakisFEM, TOBJLoader):
     NOTE: need to have self.filename predefined before calling super().__init__()
     '''
     def __init__(self):
-        self.filename = "assets/bar2.tobj"
+        if not hasattr(self, "filename"):
+            self.filename = "assets/bar2.tobj"
         super().__init__()
         self.V = self.xcs.numpy()
         self.F = self.indices.numpy()
@@ -26,3 +27,10 @@ class RodComplex(SifakisFEM, TOBJComplex):
         self.F = self.indices.numpy().reshape(-1, 3)
         self.mid = np.mean(self.V, axis = 0)
         self.V0 = self.V - self.mid
+
+        
+class StaticScene(TOBJComplex):
+    def __init__(self, meshes = [], transforms = []):
+        self.meshes_filename = meshes
+        self.transforms = transforms
+        super().__init__()

@@ -8,6 +8,7 @@ from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.geometry import TOBJComplex
+from fem.interface import StaticScene
 
 omega = 3.0
 
@@ -78,7 +79,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0
-            max_iter = 5
+            max_iter = 2
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{n_iter}"):
@@ -260,12 +261,6 @@ def bar_rain():
     ps.set_user_callback(viewer.callback)
     ps.show()
     
-    
-class StaticScene(TOBJComplex):
-    def __init__(self, meshes = [], transforms = []):
-        self.meshes_filename = meshes
-        self.transforms = transforms
-        super().__init__()
 
 def staggered_bug():
     

@@ -3,9 +3,10 @@ import numpy as np
 import polyscope as ps
 import polyscope.imgui as gui
 
-from stretch import h, add_dx
+from stretch import h, add_dx, PSViewer
 from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
 from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
+from fem.interface import StaticScene
 
 import os
 from scipy.linalg import solve
@@ -51,7 +52,8 @@ class MedialRodComplexDebug(RodComplexBC):
         self.U[-12:, -12:] = np.identity(12)
         
     def load_Q(self):
-        Q = np.load("data/W_bug.npy")
+        # Q = np.load("data/W_bug.npy")
+        Q = np.load("data/W_squishy_ball_lowlow.npy")
         self.Q = Q[:, :]
         self.Q[:, 0] = 1.0
         
@@ -67,7 +69,8 @@ class MedialRodComplexDebug(RodComplexBC):
 
     def define_collider(self):
         super().define_collider()
-        self.slabmesh = SlabMesh("data/bug_v30.ma")
+        # self.slabmesh = SlabMesh("data/bug_v30.ma")
+        self.slabmesh = SlabMesh("assets/squishyball/ball_lowlow.ma")
         V = np.copy(self.slabmesh.V)
         v4 = np.ones((V.shape[0], 4))
         v4[:, :3] = V
@@ -153,7 +156,8 @@ class MedialRodComplexDebug(RodComplexBC):
     #     return 1.0
 
     def define_encoder(self):
-        self.intp = TetBaryCentricCompute("bug", 30)
+        # self.intp = TetBaryCentricCompute("bug", 30)
+        self.intp = TetBaryCentricCompute("ball", 250)
         self.W_medial = self.intp.compute_weight(self.Q)
 
     def get_VR(self):
@@ -220,7 +224,8 @@ class MedialRodComplex(MedialRodComplexDebug):
 
     def define_collider(self):
         super().define_collider()
-        self.slabmesh = SlabMesh("data/bug_v30.ma")
+        # self.slabmesh = SlabMesh("data/bug_v30.ma")
+        self.slabmesh = SlabMesh("assets/squishyball/ball_lowlow.ma")
         V0 = np.copy(self.slabmesh.V)
         v4 = np.ones((V0.shape[0], 4))
         v4[:, :3] = V0
@@ -292,9 +297,31 @@ def bug_drop():
     ps.show()
     
 
+# def staggered_bug():
+#     n_meshes = 2 
+#     meshes = ["assets/bug.tobj"] * n_meshes
+#     # meshes = ["assets/bunny_5.tobj"] * n_meshes
+#     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+#     transforms[1][:3, :3] = np.zeros((3, 3))
+#     transforms[1][0, 1] = 1
+#     transforms[1][1, 0] = 1
+#     transforms[1][2, 2] = 1
+
+#     for i in range(n_meshes):
+#         # transforms[i][0, 3] = i * 0.5
+#         transforms[i][1, 3] = 1.2 + i * 0.2
+#         transforms[i][2, 3] = i * 1.0
+    
+#     rods = MedialRodComplex(h, meshes, transforms)
+#     viewer = MedialViewer(rods)
+#     ps.set_user_callback(viewer.callback)
+#     ps.show()
+
 def staggered_bug():
+    
     n_meshes = 2 
-    meshes = ["assets/bug.tobj"] * n_meshes
+    # meshes = ["assets/bug.tobj"] * n_meshes
+    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
@@ -307,11 +334,18 @@ def staggered_bug():
         transforms[i][1, 3] = 1.2 + i * 0.2
         transforms[i][2, 3] = i * 1.0
     
-    rods = MedialRodComplex(h, meshes, transforms)
+    # rods = MedialRodComplex(h, meshes, transforms)
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
+    rods = MedialRodComplex(h, meshes, transforms) #, static_bars)
+    
+    
     viewer = MedialViewer(rods)
     ps.set_user_callback(viewer.callback)
     ps.show()
-
 
 if __name__ == "__main__":
     ps.init()
