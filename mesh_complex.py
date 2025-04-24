@@ -24,8 +24,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
-        if static_meshes is not None: 
-            self.static_meshes = static_meshes
+        self.static_meshes = static_meshes
         self.define_collider()
         self.n_pt = 0
         self.n_ee = 0
@@ -45,11 +44,13 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_verts = 1356
         elif self.meshes_filename[0] == "assets/bug.tobj":
             n_verts = 2471
+        elif self.meshes_filename[0] == "assets/squishyball/squishy_ball_lowlow.tobj":
+            n_verts = 4778
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if self.meshes_filename[0] == "assets/tet.tobj" or self.meshes_filename[1] == "assets/tet.tobj":
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif self.meshes_filename[0] == "assets/bar2.tobj" or self.meshes_filename[0] == "assets/bug.tobj": 
+        elif self.meshes_filename[0] in["assets/bar2.tobj", "assets/bug.tobj", "assets/squishyball/squishy_ball_lowlow.tobj"]: 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
             pos = self.transforms[:, :3, 3]
@@ -269,7 +270,8 @@ class StaticScene(TOBJComplex):
 def staggered_bug():
     
     n_meshes = 2 
-    meshes = ["assets/bug.tobj"] * n_meshes
+    # meshes = ["assets/bug.tobj"] * n_meshes
+    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
@@ -287,6 +289,7 @@ def staggered_bug():
     scale = np.identity(4) * 3
     scale[3, 3] = 1.0
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
     rods = RodComplexBC(h, meshes, transforms, static_bars)
     
     

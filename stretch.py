@@ -11,7 +11,7 @@ from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 
 eps = 3e-4
-h = 1e-2
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
