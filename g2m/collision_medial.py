@@ -107,7 +107,7 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1])# or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
+        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
             append(cc_list, col, dist)
