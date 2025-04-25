@@ -155,6 +155,9 @@ class PSViewer:
             self.ui_pause = True
             self.animate = True
 
+        if gui.Button("Save"):
+            np.save(f"output/x_{self.frame}.npy", self.V)
+            print(f"output/x_{self.frame}.npy saved")
         if self.animate: 
             self.rod.step()
             self.V = self.rod.states.x.numpy()

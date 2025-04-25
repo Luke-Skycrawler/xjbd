@@ -10,6 +10,7 @@ from scipy.linalg import null_space
 from scipy.io import savemat, loadmat
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
+from fem.params import rho
 from igl import lbs_matrix, massmatrix
 import igl
 import os
@@ -196,7 +197,7 @@ class RodLBSWeightBC(RodLBSWeight):
         V = self.xcs.numpy()
         T = self.T.numpy()
         # self.M is a vector composed of diagonal elements 
-        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal() * rho
         M_diag = np.repeat(self.Mnp, 3)
         self.M_sparse = diags(M_diag)
         self.Mw = diags(self.Mnp * 3.0)

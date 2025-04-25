@@ -17,7 +17,13 @@ from fem.fem import Triplets
 from fem.interface import TOBJComplex, StaticScene
 ad_hoc = True
 medial_collision_stiffness = 1e4
-solver_choice = "woodbury"
+# collision_handler = "triangle"
+collision_handler = "medial"
+assert collision_handler in ["triangle", "medial"]
+
+solver_choice = "woodbury"  # default for medial proxy
+if collision_handler == "triangle":
+    solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
 def asym(a):
     return 0.5 * (a - a.T)
@@ -99,6 +105,8 @@ class MedialVABD(MedialRodComplex):
         g = np.zeros(12)
         g[9:12] = gravity_np
         self.gravity = np.concatenate([g for _ in range(self.n_meshes)])
+        self.process_collision = self.process_collision_medial_based if collision_handler == "medial" else self.process_collision_triangle_based
+        self.compute_collision_energy = self.compute_collision_energy_medial_based if collision_handler == "medial" else self.compute_collision_energy_triangle_based
 
     def gen_F_idx(self):
         '''
@@ -479,15 +487,6 @@ class MedialVABD(MedialRodComplex):
     #     ret += (self.z_tilde @ self.K0 @ self.z_tilde + dzt @ self.M_tilde @ dzt) * 0.5
     #     return ret
 
-    def compute_collision_energy(self):
-        # self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
-        # return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
-        with wp.ScopedTimer("get V, R"):
-            V, R = self.get_VR()
-        h = self.h
-        with wp.ScopedTimer("energy"):
-            ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
-        return ret
 
     # def line_search(self):
     #     self.z_tilde -= self.dz_tilde
@@ -573,7 +572,7 @@ class MedialVABD(MedialRodComplex):
             ret = block_diag(diags, "csc")
         return ret
 
-    def process_collision(self):
+    def process_collision_medial_based(self):
         V, R = self.get_VR()
         with wp.ScopedTimer("detect"):
             self.collider_medial.collision_set(V, R)
@@ -613,56 +612,70 @@ class MedialVABD(MedialRodComplex):
         self.U_col = Um_sys
         self.C_col = H
 
-    # def process_collision(self):
-    #     self.b.zero_()
-    #     with wp.ScopedTimer("collision"):
-    #         with wp.ScopedTimer("detection"):
-    #             self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
-    #         with wp.ScopedTimer("hess & grad"):
-    #             triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
-    #             # triplets = self.collider.analyze(self.b)
-    #         with wp.ScopedTimer("build_from_triplets"):
-
-    #             collision_force_derivatives = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
-    #             bsr_set_from_triplets(collision_force_derivatives, triplets.rows, triplets.cols, triplets.vals)
-    #             # bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
-    #             H = self.to_scipy_bsr(collision_force_derivatives)
-    #             g = self.b.numpy().reshape(-1)
 
 
-    #             # self.add_collision_to_sys_matrix(triplets)
+    def process_collision_triangle_based(self):
+        self.b.zero_()
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                # triplets = self.collider.analyze(self.b)
+            with wp.ScopedTimer("build_from_triplets"):
 
-    #             U_prime = self.compute_U_prime()
+                collision_force_derivatives = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+                bsr_set_from_triplets(collision_force_derivatives, triplets.rows, triplets.cols, triplets.vals)
+                # bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
+                H = self.to_scipy_bsr(collision_force_derivatives)
+                g = self.b.numpy().reshape(-1)
+
+
+                # self.add_collision_to_sys_matrix(triplets)
+
+                U_prime = self.compute_U_prime()
         
-    #             U_tildeT = U_prime @ self.U_tilde.T
-    #             U_sys = vstack([self.U0.T, U_tildeT])
-    #             self.A_sys_col = U_sys @ (H * h * h) @ U_sys.T
-    #             self.b_sys_col = U_sys @ -g * h * h
+                U_tildeT = U_prime @ self.U_tilde.T
+                U_sys = vstack([self.U0.T, U_tildeT])
+                self.A_sys_col = U_sys @ (H * h * h) @ U_sys.T
+                self.b_sys_col = U_sys @ -g * h * h
 
 
-    #     with wp.ScopedTimer("Um tildeT"):
-    #         Um_tildeT = self.compute_Um_tildeT()
+        # with wp.ScopedTimer("Um tildeT"):
+        #     Um_tildeT = self.compute_Um_tildeT()
 
-    #     # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
+        # # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
-    #     term = self.h * self.h * medial_collision_stiffness
-    #     with wp.ScopedTimer("collision linalg system"):
-    #         # rhs = Um_tildeT @ g
-    #         # A = Um_tildeT @ H @ Um_tildeT.T 
+        # term = self.h * self.h * medial_collision_stiffness
+        # with wp.ScopedTimer("collision linalg system"):
+        #     # rhs = Um_tildeT @ g
+        #     # A = Um_tildeT @ H @ Um_tildeT.T 
 
-    #         # self.b_col_tilde = rhs * term
-    #         # self.A_col_tilde = A * term
+        #     # self.b_col_tilde = rhs * term
+        #     # self.A_col_tilde = A * term
 
-    #         # self.A0_col = self.Um0.T @ H @ self.Um0 * term
-    #         # self.b0_col = self.Um0.T @ g * term
+        #     # self.A0_col = self.Um0.T @ H @ self.Um0 * term
+        #     # self.b0_col = self.Um0.T @ g * term
 
-    #         Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
-    #         # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
-    #         step1 = Um_sys @ (H * term)
-    #         # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
-    #         self.b_sys_col = Um_sys @ (g * term)
+        #     Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+        #     # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
+        #     step1 = Um_sys @ (H * term)
+        #     # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+        #     self.b_sys_col = Um_sys @ (g * term)
 
-    #         self.A_sys_col = step1 @ Um_sys.T
+        #     self.A_sys_col = step1 @ Um_sys.T
+
+    def compute_collision_energy_triangle_based(self):
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
+        
+    def compute_collision_energy_medial_based(self):
+        with wp.ScopedTimer("get V, R"):
+            V, R = self.get_VR()
+        h = self.h
+        with wp.ScopedTimer("energy"):
+            ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+        return ret
 
     def compute_A(self):
         pass
