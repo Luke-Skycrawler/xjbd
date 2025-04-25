@@ -1,224 +1,224 @@
-import warp as wp
-import numpy as np
-import polyscope as ps
-import polyscope.imgui as gui
+# import warp as wp
+# import numpy as np
+# import polyscope as ps
+# import polyscope.imgui as gui
 
-from stretch import h, add_dx
-from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
-from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
+# from stretch import h, add_dx
+# from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
+# from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
 
-import os
-from scipy.linalg import solve
-from scipy.io import loadmat
-from g2m.viewer import MedialViewer
-from g2m.dxdq import dxdq_jacobian
-from g2m.collision_medial import MedialCollisionDetector
-from g2m.medial import SlabMesh
-from g2m.bary_centric import TetBaryCentricCompute
-from g2m.nn import WarpEncoder
-# from g2m.encoder import Encoder
-# import torch
+# import os
+# from scipy.linalg import solve
+# from scipy.io import loadmat
+# from g2m.viewer import MedialViewer
+# from g2m.dxdq import dxdq_jacobian
+# from g2m.collision_medial import MedialCollisionDetector
+# from g2m.medial import SlabMesh
+# from g2m.bary_centric import TetBaryCentricCompute
+# from g2m.nn import WarpEncoder
+# # from g2m.encoder import Encoder
+# # import torch
 
-ad_hoc = True
+# ad_hoc = True
 
-def vec(t):
-    return (t.T).reshape(-1)
+# def vec(t):
+#     return (t.T).reshape(-1)
 
-class MedialRodComplex(RodComplexBC):
-    def __init__(self, h, meshes=[], transforms=[]):
-        self.load_Q()
-        self.define_z(transforms)
-        super().__init__(h, meshes, transforms)
-        self.define_encoder()
+# class MedialRodComplex(RodComplexBC):
+#     def __init__(self, h, meshes=[], transforms=[]):
+#         self.load_Q()
+#         self.define_z(transforms)
+#         super().__init__(h, meshes, transforms)
+#         self.define_encoder()
 
-        n_reduced = self.n_reduced
-        self.A_reduced = np.zeros((n_reduced, n_reduced))
-        self.b_reduced = np.zeros(n_reduced)
-        self.define_U()
-        self.Um = np.zeros((self.n_medial * 3, n_reduced))
-        self.compute_Um()
+#         n_reduced = self.n_reduced
+#         self.A_reduced = np.zeros((n_reduced, n_reduced))
+#         self.b_reduced = np.zeros(n_reduced)
+#         self.define_U()
+#         self.Um = np.zeros((self.n_medial * 3, n_reduced))
+#         self.compute_Um()
 
-    def define_U(self):
-        self.Q[:, :6] = dxdq_jacobian(
-            self.n_nodes * 3 - 12, self.xcs.numpy()[:-4])
-        self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
-        self.U[: -12, :-12] = self.Q
-        self.U[-12:, -12:] = np.identity(12)
+#     def define_U(self):
+#         self.Q[:, :6] = dxdq_jacobian(
+#             self.n_nodes * 3 - 12, self.xcs.numpy()[:-4])
+#         self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
+#         self.U[: -12, :-12] = self.Q
+#         self.U[-12:, -12:] = np.identity(12)
         
-    def load_Q(self):
-        # number of modes the encoder trained on
-        self.n_modes = 12
-        if os.path.exists("data/Q_bug.mat"):
-            self.Q = loadmat(
-                "data/Q_bug.mat")["V"].astype(np.float64)[:, :self.n_modes + 6]
+#     def load_Q(self):
+#         # number of modes the encoder trained on
+#         self.n_modes = 12
+#         if os.path.exists("data/Q_bug.mat"):
+#             self.Q = loadmat(
+#                 "data/Q_bug.mat")["V"].astype(np.float64)[:, :self.n_modes + 6]
         
-    def define_z(self, transforms):
-        n_reduced = self.Q.shape[1] + 12
-        self.z = np.zeros((n_reduced))
-        self.dz = np.zeros_like(self.z)
-        # FIXME: translation for the bug model only for now
-        t = transforms[0]
-        self.z[:3] = t[:3, 3]
-        self.n_reduced = n_reduced
+#     def define_z(self, transforms):
+#         n_reduced = self.Q.shape[1] + 12
+#         self.z = np.zeros((n_reduced))
+#         self.dz = np.zeros_like(self.z)
+#         # FIXME: translation for the bug model only for now
+#         t = transforms[0]
+#         self.z[:3] = t[:3, 3]
+#         self.n_reduced = n_reduced
 
-    def define_collider(self):
-        super().define_collider()
-        self.slabmesh = SlabMesh("data/bug_v30.ma")
-        V = self.slabmesh.V
-        R = self.slabmesh.R
-        E = self.slabmesh.E
-        self.dVdq = dxdq_jacobian(V.shape[0] * 3, V)
+#     def define_collider(self):
+#         super().define_collider()
+#         self.slabmesh = SlabMesh("data/bug_v30.ma")
+#         V = self.slabmesh.V
+#         R = self.slabmesh.R
+#         E = self.slabmesh.E
+#         self.dVdq = dxdq_jacobian(V.shape[0] * 3, V)
 
-        if ad_hoc:
-            self.cnt = V.shape[0]
-            V = np.vstack((V, self.xcs.numpy()[-2:, :].reshape((-1, 3))))
-            R = np.concatenate((R, np.array([0.1, 0.1])))
-            E = np.vstack((E, np.array([[self.cnt, self.cnt + 1]])))
+#         if ad_hoc:
+#             self.cnt = V.shape[0]
+#             V = np.vstack((V, self.xcs.numpy()[-2:, :].reshape((-1, 3))))
+#             R = np.concatenate((R, np.array([0.1, 0.1])))
+#             E = np.vstack((E, np.array([[self.cnt, self.cnt + 1]])))
 
-        self.E_medial = E
-        self.V_medial_rest = np.copy(V)
-        self.V_medial = np.zeros_like(V)
-        self.R_rest = np.copy(R)
-        self.R = np.zeros_like(self.R_rest)
+#         self.E_medial = E
+#         self.V_medial_rest = np.copy(V)
+#         self.V_medial = np.zeros_like(V)
+#         self.R_rest = np.copy(R)
+#         self.R = np.zeros_like(self.R_rest)
 
-        self.V_medial[:] = self.V_medial_rest
-        self.R[:] = self.R_rest
+#         self.V_medial[:] = self.V_medial_rest
+#         self.R[:] = self.R_rest
 
-        self.collider_medial = MedialCollisionDetector(
-            self.V_medial_rest, self.R_rest, self.E_medial, self.slabmesh.F)
+#         self.collider_medial = MedialCollisionDetector(
+#             self.V_medial_rest, self.R_rest, self.E_medial, self.slabmesh.F)
 
-        self.n_medial = self.V_medial.shape[0]
+#         self.n_medial = self.V_medial.shape[0]
 
-    def reset(self):
-        if hasattr(self, "V_medial"):
-            self.V_medial[:] = self.V_medial_rest
-            self.R[:] = self.R_rest
-        super().reset()
-        self.reset_z()
+#     def reset(self):
+#         if hasattr(self, "V_medial"):
+#             self.V_medial[:] = self.V_medial_rest
+#             self.R[:] = self.R_rest
+#         super().reset()
+#         self.reset_z()
 
-    def reset_z(self):
-        # FIXME: translation for the bug model only for now
-        t = self.transforms[0]
-        self.z[:] = 0.0
-        self.dz[:] = 0.0
-        self.z[:3] = t[:3, 3]
-        self.z[-12:] = self.xcs.numpy()[-4:].reshape(-1)
+#     def reset_z(self):
+#         # FIXME: translation for the bug model only for now
+#         t = self.transforms[0]
+#         self.z[:] = 0.0
+#         self.dz[:] = 0.0
+#         self.z[:3] = t[:3, 3]
+#         self.z[-12:] = self.xcs.numpy()[-4:].reshape(-1)
 
-    def compute_Um(self):
-        # x = torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32))
+#     def compute_Um(self):
+#         # x = torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32))
 
-        # x = torch.zeros(self.n_modes)
-        # jac = F.jacobian(self.encoder, x).numpy()
+#         # x = torch.zeros(self.n_modes)
+#         # jac = F.jacobian(self.encoder, x).numpy()
 
-        x = self.z[6: 6 + self.n_modes]
-        jac = self.encoder.jacobian(x)
+#         x = self.z[6: 6 + self.n_modes]
+#         jac = self.encoder.jacobian(x)
 
-        # jacobian is 120 * 12
-        n = jac.shape[0]
-        select = np.arange(n)
-        mask = (np.arange(n) % 4) != 3
-        select = select[mask]
+#         # jacobian is 120 * 12
+#         n = jac.shape[0]
+#         select = np.arange(n)
+#         mask = (np.arange(n) % 4) != 3
+#         select = select[mask]
 
-        fill = jac[select, :]
-        # self.Um[: fill.shape[0], : fill.shape[1]] = fill
-        q6 = dxdq_jacobian(self.n_medial * 3 - 6, self.V_medial_rest[:-2])
-        self.Um[: -6, :6] = q6
-        self.Um[: fill.shape[0], 6: 6 + fill.shape[1]] = fill
+#         fill = jac[select, :]
+#         # self.Um[: fill.shape[0], : fill.shape[1]] = fill
+#         q6 = dxdq_jacobian(self.n_medial * 3 - 6, self.V_medial_rest[:-2])
+#         self.Um[: -6, :6] = q6
+#         self.Um[: fill.shape[0], 6: 6 + fill.shape[1]] = fill
 
-        self.Um[-6:, -6:] = np.identity(6)
+#         self.Um[-6:, -6:] = np.identity(6)
 
-    def add_collision_to_sys_matrix(self, triplets):
-        super().add_collision_to_sys_matrix(triplets)
-        self.compute_A_reduced()
+#     def add_collision_to_sys_matrix(self, triplets):
+#         super().add_collision_to_sys_matrix(triplets)
+#         self.compute_A_reduced()
 
-    def compute_A_reduced(self):
-        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
+#     def compute_A_reduced(self):
+#         self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
 
-    def compute_rhs(self):
-        super().compute_rhs()
-        b = self.b.numpy().reshape(-1)
-        self.b_reduced = self.U.T @ b
-        if ad_hoc:
-            self.b_reduced += self.col_b
+#     def compute_rhs(self):
+#         super().compute_rhs()
+#         b = self.b.numpy().reshape(-1)
+#         self.b_reduced = self.U.T @ b
+#         if ad_hoc:
+#             self.b_reduced += self.col_b
 
-    def solve(self):
-        dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
-        self.dz[:] = dz
-        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
+#     def solve(self):
+#         dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
+#         self.dz[:] = dz
+#         self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
-    def line_search(self):
-        self.z -= self.dz
-        wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
-        return 1.0
+#     def line_search(self):
+#         self.z -= self.dz
+#         wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
+#         return 1.0
 
-    def define_encoder(self):
-        n_modes, n_nodes = 12, 30
-        checkpoint = 4000
-        # self.encoder = Encoder(n_modes, n_nodes)
-        # self.encoder.load_state_dict(torch.load(f"data/pq{checkpoint}_12d.pth"))
-        # self.encoder.eval()
+#     def define_encoder(self):
+#         n_modes, n_nodes = 12, 30
+#         checkpoint = 4000
+#         # self.encoder = Encoder(n_modes, n_nodes)
+#         # self.encoder.load_state_dict(torch.load(f"data/pq{checkpoint}_12d.pth"))
+#         # self.encoder.eval()
 
-        self.encoder = WarpEncoder(n_modes, n_nodes, )
+#         self.encoder = WarpEncoder(n_modes, n_nodes, )
 
-    def get_VR(self):
-        # p = self.encoder(torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32)))
-        p = self.encoder.forward(self.z[6: 6 + self.n_modes]).reshape(-1, 4)
-        V = p[:, :3]
-        R = p[:, 3]
+#     def get_VR(self):
+#         # p = self.encoder(torch.from_numpy(self.z[6: 6 + self.n_modes].astype(np.float32)))
+#         p = self.encoder.forward(self.z[6: 6 + self.n_modes]).reshape(-1, 4)
+#         V = p[:, :3]
+#         R = p[:, 3]
 
-        dp = self.dVdq @ self.z[0: 6]
-        V += dp.reshape((-1, 3))
+#         dp = self.dVdq @ self.z[0: 6]
+#         V += dp.reshape((-1, 3))
 
-        if ad_hoc:
-            rr = np.array([0.1, 0.1])
-            vv = self.z[-6:].reshape((-1, 3))
-            V = np.vstack((V, vv))
-            R = np.concatenate((R, rr))
-        return V, R
+#         if ad_hoc:
+#             rr = np.array([0.1, 0.1])
+#             vv = self.z[-6:].reshape((-1, 3))
+#             V = np.vstack((V, vv))
+#             R = np.concatenate((R, rr))
+#         return V, R
 
-    def process_collision(self):
-        # super().process_collision()
-        # self.add_collision_to_sys_matrix()
-        self.compute_A_reduced()
+#     def process_collision(self):
+#         # super().process_collision()
+#         # self.add_collision_to_sys_matrix()
+#         self.compute_A_reduced()
 
-        V, R = self.get_VR()
-        self.collider_medial.collision_set(V, R,)
-        b, H = self.collider_medial.analyze()
+#         V, R = self.get_VR()
+#         self.collider_medial.collision_set(V, R,)
+#         b, H = self.collider_medial.analyze()
 
-        self.compute_Um()
-        rhs = self.Um.T @ b
-        A = self.Um.T @ H @ self.Um
+#         self.compute_Um()
+#         rhs = self.Um.T @ b
+#         A = self.Um.T @ H @ self.Um
 
-        term = self.h * self.h * 2e4
-        self.A_reduced += A * term
-        self.col_b = rhs * term
+#         term = self.h * self.h * 2e4
+#         self.A_reduced += A * term
+#         self.col_b = rhs * term
 
-        # self.add_collision_to_sys_matrix()
+#         # self.add_collision_to_sys_matrix()
 
 
-def bug_drop():
-    n_meshes = 2
-    meshes = ["assets/bug.tobj", "assets/tet.tobj"]
-    # meshes = ["assets/bug.tobj"]
+# def bug_drop():
+#     n_meshes = 2
+#     meshes = ["assets/bug.tobj", "assets/tet.tobj"]
+#     # meshes = ["assets/bug.tobj"]
 
-    transforms = [np.identity(4, dtype=float) for _ in range(n_meshes)]
-    transforms[1][0, 3] = -2.0
-    transforms[1][1, 3] = 1.
-    transforms[0][1, 3] = 1.
-    # rods = RodComplexBC(h, meshes, transforms)
-    rods = MedialRodComplex(h, meshes, transforms)
-    # rods = EmbededMedialComplex(h, meshes, transforms)
+#     transforms = [np.identity(4, dtype=float) for _ in range(n_meshes)]
+#     transforms[1][0, 3] = -2.0
+#     transforms[1][1, 3] = 1.
+#     transforms[0][1, 3] = 1.
+#     # rods = RodComplexBC(h, meshes, transforms)
+#     rods = MedialRodComplex(h, meshes, transforms)
+#     # rods = EmbededMedialComplex(h, meshes, transforms)
 
-    # viewer = PSViewer(rods)
-    viewer = MedialViewer(rods)
-    ps.set_user_callback(viewer.callback)
-    ps.show()
+#     # viewer = PSViewer(rods)
+#     viewer = MedialViewer(rods)
+#     ps.set_user_callback(viewer.callback)
+#     ps.show()
     
-if __name__ == "__main__":
-    ps.init()
-    ps.look_at((0, 4, 8), (0, 2, 0))
-    # ps.set_ground_plane_mode("none")
-    ps.set_ground_plane_height(-collision_eps)
-    wp.config.max_unroll = 0
-    wp.init()
-    bug_drop()
+# if __name__ == "__main__":
+#     ps.init()
+#     ps.look_at((0, 4, 8), (0, 2, 0))
+#     # ps.set_ground_plane_mode("none")
+#     ps.set_ground_plane_height(-collision_eps)
+#     wp.config.max_unroll = 0
+#     wp.init()
+#     bug_drop()
