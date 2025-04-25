@@ -230,9 +230,9 @@ def inside_collision_cell(triangle_soup: TriangleSoup, neighbors: wp.array(dtype
     for x in range(3):
         tn = neighbors[tid * 3 + x]
         if tn != -1:
-            vn0 = triangle_soup.vertices[tn * 3]
-            vn1 = triangle_soup.vertices[tn * 3 + 1]
-            vn2 = triangle_soup.vertices[tn * 3 + 2]
+            vn0 = triangle_soup.vertices[triangle_soup.indices[tn * 3]]
+            vn1 = triangle_soup.vertices[triangle_soup.indices[tn * 3 + 1]]
+            vn2 = triangle_soup.vertices[triangle_soup.indices[tn * 3 + 2]]
 
             nn[x] = plane_normal(vn0, vn1, vn2)
         else:

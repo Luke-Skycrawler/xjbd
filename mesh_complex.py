@@ -79,7 +79,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0
-            max_iter = 2
+            max_iter = 4
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{n_iter}"):
@@ -98,9 +98,10 @@ class RodComplexBC(RodBCBase, RodComplex):
                     with wp.ScopedTimer("line search"):
                         alpha = self.line_search()
                     if alpha == 0.0:
+                        print("\nline search failed")
                         break
 
-                    print(f"iter = {n_iter}")
+                    print(f"iter = {n_iter}, alpha = {alpha}")
                     n_iter += 1
             self.update_x0_xdot()
 
@@ -276,8 +277,8 @@ def staggered_bug():
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.2
-        transforms[i][2, 3] = i * 1.0
+        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.4
     
     # rods = MedialRodComplex(h, meshes, transforms)
     static_meshes_file = ["assets/teapotContainer.obj"]
