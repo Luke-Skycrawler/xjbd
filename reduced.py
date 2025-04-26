@@ -18,6 +18,7 @@ from igl import lbs_matrix
 from fast_cd import CSRTriplets, compute_Hw
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh
+from fast_cd import model
 
 def dxdq_jacobian(n_nodesx3, V):
     n_nodes = n_nodesx3 // 3
@@ -42,113 +43,47 @@ class ReducedRodComplex(RodComplexBC):
     def __init__(self, h, meshes = [], transforms = []) :
         super().__init__(h, meshes, transforms)
 
-        self.define_Hw()
         self.define_U()
         n_reduced = self.n_reduced
         self.A_reduced = np.zeros((n_reduced, n_reduced))
         self.b_reduced = np.zeros(n_reduced)
 
-    def eigs(self):
-        K = self.to_scipy_csr()
-        # print("start weight space eigs")
-        with wp.ScopedTimer("weight space eigs"):
-            lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
-            # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-            # Q /= Q_norm
-        return lam, Q
-        
-    def to_scipy_csr(self):
-        ii = self.Hw.offsets.numpy()
-        jj = self.Hw.columns.numpy()
-        values = self.Hw.values.numpy()
-
-        csr = csr_matrix((values, jj, ii), shape = (self.n_nodes, self.n_nodes))
-        return csr
-        
-    def define_Hw(self):
-        self.triplets_Hw = CSRTriplets()
-        self.triplets_Hw.rows = wp.zeros((self.n_tets * 4 * 4,), dtype = int)
-        self.triplets_Hw.cols = wp.zeros_like(self.triplets_Hw.rows)
-        self.triplets_Hw.vals = wp.zeros((self.n_tets * 4 *4), dtype = float)
-        
-        self.Hw = bsr_zeros(self.n_nodes, self.n_nodes, float)
-        wp.launch(compute_Hw, (self.n_tets * 4 * 4,), inputs = [self.triplets, self.triplets_Hw])
-        bsr_set_from_triplets(self.Hw, self.triplets_Hw.rows, self.triplets_Hw.cols, self.triplets_Hw.vals)
-
-
     def define_U(self):
-        # self.n_modes = 1
-        # self.U = np.kron(np.hstack((self.xcs.numpy(), np.ones((self.n_nodes, 1)))), np.identity(3, dtype = float))
 
-        # self.U = dxdq_jacobian(self.n_nodes * 3, self.xcs.numpy())
-
-        model = "bug"
-        Q = None
-        if not os.path.exists(f"data/W_{model}.npy"):
-        # if True:
-            _, Q = self.eigs()
-            np.save(f"data/W_{model}.npy", Q)
-        else:
-            Q = np.load(f"data/W_{model}.npy")
+        Q = np.load(f"data/W_{model}.npy")
 
         print(f"Q = {Q.shape}, Q.variance = {np.var(Q)}, Q.mean = {np.mean(Q)}")
-        self.weights = wp.array(Q, dtype = float)
         
-        n_objects = len(self.transforms)
-        self.n_modes = Q.shape[1] # fixme: ad-hoc
+        self.Q = Q
+        self.n_meshes = len(self.meshes_filename)
+        self.n_modes = Q.shape[1] * 12
+
+        self.n_reduced = self.n_modes * self.n_meshes
+        self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
+        nodes_per_mesh = self.n_nodes // self.n_meshes
+        x0 = self.xcs.numpy()
         
-        self.J_triplets = Triplets()
-        self.J_triplets.rows = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = int)
-        self.J_triplets.cols = wp.zeros_like(self.J_triplets.rows)  
-        self.J_triplets.vals = wp.zeros((self.n_modes * self.n_nodes * 4,), dtype = wp.mat33)
+        for i in range(self.n_meshes):
+            xi = x0[i * nodes_per_mesh: (i + 1) * nodes_per_mesh]
+            Ui = self.lbs_matrix(xi, self.Q)
+            self.U[i * nodes_per_mesh * 3: (i + 1) * nodes_per_mesh * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
 
-        wp.launch(fill_J_triplets, (self.weights.shape[0], self.weights.shape[1], 4), inputs = [self.xcs, self.weights, self.J_triplets])
-
-        # asssemble [0, C^T; C, 0]
-        self.uu = bsr_zeros(self.n_nodes // n_objects, self.n_modes * 4, wp.mat33)        
+    def lbs_matrix(self, V, W):
+        nvm = V.shape[0]
+        v1 = np.ones((nvm, 4))
+        v1[:, :3] = V
+        lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
+        return np.kron(lhs, np.identity(3))
         
-        bsr_set_from_triplets(self.uu, self.J_triplets.rows, self.J_triplets.cols, self.J_triplets.vals)
-
-        U = self.to_scipy_bsr(self.uu).toarray()
-        if n_objects == 1:
-            self.U = U
-        else:
-            n, m = U.shape
-            self.U = np.zeros((self.n_nodes * 3, self.n_modes * 12 * n_objects))
-            for i in range(n_objects):
-                self.U[i * n: (i + 1) * n, i * m: (i + 1) * m] = np.copy(U)
-        self.n_reduced = n_objects * self.n_modes * 12
-
-    def add_collision_to_sys_matrix(self, triplets):
-        super().add_collision_to_sys_matrix(triplets)
+    def solve(self):
         self.A_reduced = (self.U.T @ self.to_scipy_bsr() @ self.U)
-        
-    def compute_rhs(self):
-        super().compute_rhs()
         b = self.b.numpy().reshape(-1)
         self.b_reduced = self.U.T @ b
-    
-    def solve(self):
         dz = solve(self.A_reduced, self.b_reduced, assume_a = "sym")
         dx = (self.U @ dz).reshape(-1, 3) + self.comp_x.numpy()
         print(f"dx[1] = {np.max(np.abs(dx[:, 1]))}")
         self.states.dx.assign(dx)
         
-    
-    def line_search(self):
-        wp.launch(add_dx, self.n_nodes, inputs = [self.states, 1.0])
-        return 1.0
-
-    # def reset(self):
-    #     n_verts = 525
-    #     wp.copy(self.states.x, self.xcs)
-    #     wp.copy(self.states.x0, self.xcs)
-
-    #     # pos = self.transforms[:, :3, 3]
-    #     # positions = wp.array(pos, dtype = wp.vec3)
-    #     print("init spin")
-    #     wp.launch(init_spin, (self.n_nodes,), inputs = [self.states])
-    #     print("xdot = ", self.states.xdot.numpy())
         
 @wp.kernel
 def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
@@ -164,10 +99,6 @@ def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float)
         c = xcs[i][k]
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
 
-@wp.kernel
-def inertia_term(z: wp.array(dtype = wp.vec3), zdot: wp.array(dtype = wp.vec3), z0: wp.array(dtype = wp.vec3), dz: wp.array(dtype = wp.vec3), h: float):
-    i = wp.tid()
-    dz[i] = z[i] - (z0[i] + h * zdot[i])
 
 @wp.kernel
 def update_z0_zdot(z: wp.array(dtype = wp.vec3), zdot: wp.array(dtype = wp.vec3), z0: wp.array(dtype = wp.vec3), dz: wp.array(dtype = wp.vec3), h: float):
@@ -225,6 +156,36 @@ def staggered_bars():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def staggered_bug():
+    
+    n_meshes = 1
+    # meshes = ["assets/bug.tobj"] * n_meshes
+    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
+    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
+
+    for i in range(n_meshes):
+        # transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 0.7 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.4
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
+    rods = ReducedRodComplex(h, meshes, transforms)
+    
+    
+    viewer = PSViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 def twist():
     n_meshes = 1
     meshes = ["assets/bar2.tobj"]
@@ -238,13 +199,14 @@ def twist():
 
 if __name__ == "__main__":  
     ps.init() 
-    # ps.set_ground_plane_height(-collision_eps)
-    ps.set_ground_plane_mode("none")
+    ps.set_ground_plane_height(-collision_eps)
+    # ps.set_ground_plane_mode("none")
     wp.config.max_unroll = 0
     wp.init()
     
     # reduced_bunny_rain()
     # spin()
-    staggered_bars()
+    # staggered_bars()
+    staggered_bug()
     # twist()
     
