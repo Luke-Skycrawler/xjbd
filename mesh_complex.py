@@ -49,7 +49,7 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_verts = 4778
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
-        if self.meshes_filename[0] == "assets/tet.tobj" or self.meshes_filename[1] == "assets/tet.tobj":
+        if "assets/tet.tobj" in self.meshes_filename:
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         elif self.meshes_filename[0] in["assets/bar2.tobj", "assets/bug.tobj", "assets/squishyball/squishy_ball_lowlow.tobj"]: 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
@@ -68,7 +68,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("ground") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -79,7 +79,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0
-            max_iter = 4
+            max_iter = 1
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{n_iter}"):
@@ -119,7 +119,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
-        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("ground")
         return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 
@@ -139,9 +139,9 @@ def multiple_drape():
 @wp.kernel
 def set_velocity_kernel(states: NewtonState, thres: int):
     i = wp.tid()
-    states.xdot[i] = wp.vec3(0.0)
+    states.xdot[i] = wp.vec3(0.0, -4.0, 0.0)
     if i >= thres:
-        states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
+        states.xdot[i] = wp.vec3(0.0, -4.0, -3.0)
 
 @wp.kernel
 def set_vx_kernel(states: NewtonState, thres: int):
@@ -265,19 +265,19 @@ def bar_rain():
 
 def staggered_bug():
     
-    n_meshes = 2 
+    n_meshes = 1
     # meshes = ["assets/bug.tobj"] * n_meshes
     meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][1, 3] = 0.7 + i * 0.25
         transforms[i][2, 3] = i * 1.2 - 0.4
     
     # rods = MedialRodComplex(h, meshes, transforms)
@@ -285,7 +285,7 @@ def staggered_bug():
     scale = np.identity(4) * 3
     scale[3, 3] = 1.0
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
+    static_bars = None
     rods = RodComplexBC(h, meshes, transforms, static_bars)
     
     

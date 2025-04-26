@@ -3,12 +3,14 @@ import numpy as np
 import polyscope as ps
 import polyscope.imgui as gui
 
-from stretch import h, add_dx, PSViewer
+from stretch import h, add_dx, PSViewer, Triplets
 from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
 from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
 from fem.interface import StaticScene
 
 import os
+from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
+from warp.optim.linear import cg
 from scipy.linalg import solve
 from scipy.sparse import block_diag
 from scipy.io import loadmat
@@ -25,6 +27,22 @@ ad_hoc = True
 
 def vec(t):
     return (t.T).reshape(-1)
+@wp.kernel
+def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
+    i, j, k = wp.tid()
+    xx = W.shape[0]
+    yy = W.shape[1]
+    block_nnz = 4 * xx * yy
+
+    idx = (i * yy + j) * 4 + k + block_nnz * mesh_id
+    xid = i + mesh_id * xx
+    triplets.rows[idx] = xid
+    triplets.cols[idx] = j * 4 + k + mesh_id * yy * 4
+    c = float(1.0)
+    if k < 3:
+        c = xcs[xid][k]
+    triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
+
 
 class MedialRodComplexDebug(RodComplexBC):
     def __init__(self, h, meshes=[], transforms=[]):
@@ -204,7 +222,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.n_modes = self.Q.shape[1] * 12 
         self.n_meshes = len(transforms)
 
-        self.n_reduced = self.n_modes * 2
+        self.n_reduced = self.n_modes * self.n_meshes
         self.z = np.zeros(self.n_reduced)
         self.z[:9] = vec(np.identity(3))
         self.z[self.n_modes: self.n_modes + 9] = vec(np.identity(3))
@@ -221,6 +239,23 @@ class MedialRodComplex(MedialRodComplexDebug):
             Ui = self.lbs_matrix(xi, self.Q)
             self.U[i * nodes_per_mesh * 3: (i + 1) * nodes_per_mesh * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
             
+        self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
+        q = wp.array(self.Q, dtype = float)
+        triplets = Triplets()
+        nnz = q.shape[0] * q.shape[1] * 4 * self.n_meshes
+        triplets.cols = wp.zeros((nnz, ), int)
+        triplets.rows = wp.zeros((nnz, ), int)
+        triplets.vals = wp.zeros((nnz,), wp.mat33)
+
+        for i in range(self.n_meshes):
+            wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, self.geo.xcs, q, triplets])
+        bsr_set_from_triplets(self.Uwp, triplets.rows, triplets.cols, triplets.vals, )
+        self.UwpT = bsr_transposed(self.Uwp)
+
+
+        # with wp.ScopedTimer("bsr mms"):
+        #     tmp = bsr_mm(self.K_sparse, self.Uwp)
+        #     self.A_reduced = bsr_mm(self.UwpT, tmp)
 
     def define_collider(self):
         super().define_collider()
@@ -277,6 +312,25 @@ class MedialRodComplex(MedialRodComplexDebug):
             # self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
         self.Um = block_diag(diags, "csr")
 
+    def solve(self):
+
+        # self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
+        # self.b_reduced = self.U.T @ self.b.numpy().reshape(-1)
+
+        with wp.ScopedTimer("bsr mms"):
+            tmp = bsr_mm(self.K_sparse, self.Uwp)
+            self.A_reduced = bsr_mm(self.UwpT, tmp)
+
+        with wp.ScopedTimer("bsr mv"):
+            self.b_reduced = bsr_mv(self.UwpT, self.b)
+        z_dim = self.dz.shape[0] // 3
+        dz = wp.zeros((z_dim, ), dtype = wp.vec3)
+        with wp.ScopedTimer("solve"):
+            cg(self.A_reduced, self.b_reduced, dz, use_cuda_graph = True)
+        dz = dz.numpy().reshape(-1)
+        # dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
+        self.dz[:] = dz
+        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
 def bug_drop():
     n_meshes = 2
@@ -319,7 +373,7 @@ def bug_drop():
 
 def staggered_bug():
     
-    n_meshes = 2 
+    n_meshes = 2
     # meshes = ["assets/bug.tobj"] * n_meshes
     meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
@@ -331,7 +385,8 @@ def staggered_bug():
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.2
+        # transforms[i][1, 3] = 1.2 + i * 0.2
+        transforms[i][1, 3] = 0.8 + i * 0.2
         transforms[i][2, 3] = i * 1.0
     
     # rods = MedialRodComplex(h, meshes, transforms)

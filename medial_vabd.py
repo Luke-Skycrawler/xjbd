@@ -17,8 +17,8 @@ from fem.fem import Triplets
 from fem.interface import TOBJComplex, StaticScene
 ad_hoc = True
 medial_collision_stiffness = 1e4
-# collision_handler = "triangle"
-collision_handler = "medial"
+collision_handler = "triangle"
+# collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
 solver_choice = "woodbury"  # default for medial proxy
@@ -409,7 +409,8 @@ class MedialVABD(MedialRodComplex):
             dz[start + 12: end] = dz_from_zt[i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)]
 
         self.dz[:] = dz
-        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
+        if collision_handler == "triangle":
+            self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
@@ -421,8 +422,9 @@ class MedialVABD(MedialRodComplex):
 
         alpha = 1.0
 
-        zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
-        bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
+        if collision_handler == "triangle":
+            zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
+            bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
         
         e00 = self.compute_psi() + self.compute_inertia()
         E0 = e00 + self.compute_collision_energy()
@@ -434,8 +436,9 @@ class MedialVABD(MedialRodComplex):
             self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
             self.z[:] = z_tmp - alpha * self.dz
 
-            zwp.assign(self.z.reshape((-1, 3)))
-            bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
+            if collision_handler == "triangle":
+                zwp.assign(self.z.reshape((-1, 3)))
+                bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
 
             e10 = self.compute_psi() + self.compute_inertia()
             # e11 = self.compute_inertia2()
@@ -709,15 +712,15 @@ class MedialVABD(MedialRodComplex):
 
 def staggered_bug():
     
-    n_meshes = 2 
+    n_meshes = 1
     # meshes = ["assets/bug.tobj"] * n_meshes
     meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
