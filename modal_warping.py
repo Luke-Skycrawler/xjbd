@@ -194,7 +194,8 @@ def displace_u(modal_w: ModalWarpingData, Phi: wp.array(dtype = wp.vec3)):
 
 class ModalWarpingRod(Rod):
     def __init__(self, filename = default_tobj):
-        super().__init__(filename)
+        self.filename = filename
+        super().__init__()
 
         W = wp.zeros((self.n_nodes), dtype = wp.vec3)
         cnt = wp.zeros((self.n_nodes), dtype = int)
@@ -214,8 +215,7 @@ class ModalWarpingRod(Rod):
 
 
         self.compute_W()
-
-        self.lam, self.Q = self.eigs()
+        self.compute_Q()
 
         self.W = warp.sparse.bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         self.triplets = Triplet()
@@ -225,6 +225,9 @@ class ModalWarpingRod(Rod):
         self.triplets.row = rows
         self.triplets.col = cols
         self.triplets.values = vals
+
+    def compute_Q(self):
+        self.lam, self.Q = self.eigs_sparse()
 
     def compute_sparse_W(self):
         wp.launch(compute_sparse_W, dim = (self.n_tets * 4,), inputs = [self.geo, self.modal_w, self.triplets])
@@ -255,7 +258,7 @@ class ModalWarpingRod(Rod):
         uprime = self.modal_w.u.numpy()
         return uprime
 
-class PSViewer:
+class MWViewer:
     def __init__(self, rod: ModalWarpingRod):
         self.Q = rod.Q
         self.V0 = rod.V0
@@ -292,7 +295,7 @@ if __name__ == "__main__":
 
     rod = ModalWarpingRod()
 
-    viewer = PSViewer(rod)
+    viewer = MWViewer(rod)
     ps.set_user_callback(viewer.callback)
 
     ps.show()

@@ -6,6 +6,7 @@ import igl
 import polyscope as ps
 from scipy.spatial.transform import Rotation as R
 import polyscope.imgui as gui
+from modal_warping import ModalWarpingRod, MWViewer
 model = "squishy_ball_lowlow"
 
 
@@ -16,6 +17,16 @@ def lbs_matrix(V, W):
     lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
     return np.kron(lhs, np.identity(3))
 
+class WarpedRod(ModalWarpingRod):
+    def __init__(self, filename = f"assets/squishyball/{model}.tobj"):
+        super().__init__(filename)
+
+    def compute_Q(self):
+
+        Q = np.load(f"data/W_{model}.npy")
+        V = self.V0
+        self.Q = lbs_matrix(V, Q)
+        
 
 class PSViewer:
     def __init__(self, x, v, F, x_target, U, z):
@@ -65,7 +76,19 @@ def compute_ortho_loss():
     translated = v + t
 
     viewer = PSViewer(x, v, F, x_target, U, z)
-if __name__ == "__main__":
+    
+def view_mw():
+    wp.init()
     ps.init()
-    compute_ortho_loss()
+    ps.set_ground_plane_mode("none")
+    rod = WarpedRod()
+    viewer = MWViewer(rod)
+
+    ps.set_user_callback(viewer.callback)
     ps.show()
+
+if __name__ == "__main__":
+    view_mw()
+    # ps.init()
+    # compute_ortho_loss()
+    # ps.show()

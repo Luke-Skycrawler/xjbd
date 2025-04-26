@@ -39,8 +39,8 @@ def vis_eigs():
     lam, Q = None, None
     # if not os.path.exists(f"Q_{model}.npy"):
     if True:
-        lam, Q = rod.eigs()
-        # lam, Q = rod.eigs_sparse()
+        # lam, Q = rod.eigs()
+        lam, Q = rod.eigs_sparse()
     # if True:
     #     K = rod.K
     #     savemat(f"K_{model}.mat", {"K": K})
