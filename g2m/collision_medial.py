@@ -9,7 +9,7 @@ CC_SET_SIZE = 256
 SS_SET_SIZE = 256
 G_SET_SIZE = 256
 
-ground_rel_stiffness = 1.0
+ground_rel_stiffness = 10.0
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
@@ -43,7 +43,7 @@ class SphereGroundCollisionList:
     a: wp.array(dtype = int)
     cnt: wp.array(dtype = int)
     E: wp.array(dtype = float)
-    dist: wp.array(dtype = float)
+    hr: wp.array(dtype = wp.vec2)
 
 @wp.func
 def append(cc_list: ConeConeCollisionList, element: wp.vec4i, dist: float):
@@ -60,10 +60,16 @@ def append(ss_list: SlabSphereCollisionList, element: wp.vec4i, dist: float):
     # ss_list.dist[id] = dist
 
 @wp.func
-def append(g_list: SphereGroundCollisionList, element: int, dist: float):
+def append(g_list: SphereGroundCollisionList, element: int, hr: wp.vec2):
     id = wp.atomic_add(g_list.cnt, 0, 1)
     g_list.a[id] = element
-    g_list.dist[id] = dist
+    g_list.hr[id] = hr
+
+    # e = k(h^2 - r^2) ^2
+    h = hr[0]
+    r = hr[1]
+    # dist = h * h - r * r
+    dist = (h - r) * (h - r)
     wp.atomic_add(g_list.E, 0, dist * dist)
 
 @wp.func
@@ -142,7 +148,8 @@ def sphere_ground_set(geo: MedialGeometry, g_list: SphereGroundCollisionList, gr
     d = (b[1] - ground_plane)
     dist = d - r
     if dist < 0.0:
-        append(g_list, i, dist)
+        hr = wp.vec2(d, r)
+        append(g_list, i, hr)
 
 @wp.kernel
 def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
@@ -209,7 +216,7 @@ class MedialCollisionDetector:
         self.g_set.a = wp.zeros(G_SET_SIZE, dtype = int)
         self.g_set.cnt = wp.zeros(1, dtype = int)
         self.g_set.E = wp.zeros(1, dtype = float)
-        self.g_set.dist = wp.zeros(G_SET_SIZE, dtype = float)
+        self.g_set.hr = wp.zeros(G_SET_SIZE, dtype = wp.vec2)
         
         vv = lambda e: (max(e[0], e[1]), min(e[0], e[1])) 
         self.vv_adjacency = set([vv(e) for e in E])
@@ -290,7 +297,7 @@ class MedialCollisionDetector:
             wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
             n_ground = self.g_set.cnt.numpy()[0]
             self.sg_id = self.g_set.a.numpy()[:n_ground]
-            self.sg_dist = self.g_set.dist.numpy()[:n_ground]
+            self.sg_hr = self.g_set.hr.numpy()[:n_ground]
 
         self.cc_set = []
         self.cc_id = []
@@ -472,15 +479,23 @@ class MedialCollisionDetector:
                         blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
 
         if self.ground is not None:
-            hh = np.zeros((3, 3))
-            hh[1, 1] = 2.0 * ground_rel_stiffness
             
-            for id, di in zip(self.sg_id, self.sg_dist):
-                gg = np.array([0.0, 2.0 * di, 0.0])
+            for id, di in zip(self.sg_id, self.sg_hr):
+                h = di[0]
+                r = di[1]
+                hh = np.zeros((3, 3))
+                # h11 = 4 * (3 * h * h - r * r)
+                h11 = 12 * (h - r) ** 2
+                hh[1, 1] = h11
+
+                # gg1 = 4 * h * (h * h - r * r)
+                gg1 = 4 * (h - r) ** 3
+                gg = np.array([0.0, gg1, 0.0])
+
                 b[id * 3: id * 3 + 3] += gg * ground_rel_stiffness
                 rows.append(id)
                 cols.append(id)
-                blocks.append(hh)
+                blocks.append(hh * ground_rel_stiffness)
                 
             self.indices_set.update(self.sg_id)
 

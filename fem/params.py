@@ -17,8 +17,8 @@ delta = 0.08
 volume = dx ** 3
 area = dx ** 3
 n_unknowns = n_nodes * 3
-gravity = wp.vec3(0, -10.0, 0)
-gravity_np = np.array([0.0, -10.0, 0])
+gravity = wp.vec3(0, -g, 0)
+gravity_np = np.array([0.0, -g, 0])
 
 # damping
 alpha = 6
