@@ -92,8 +92,8 @@ class WoodburySolver:
         return term1 - term2 
 
 class MedialVABD(MedialRodComplex):
-    def __init__(self, h, meshes=[], transforms=[]):
-        super().__init__(h, meshes, transforms)
+    def __init__(self, h, meshes=[], transforms=[], static_meshes:TOBJComplex = None):
+        super().__init__(h, meshes, transforms, static_meshes)
         self.split_U0_U_tilide()
         self.define_mm()
         self.prefactor_once()
@@ -746,10 +746,10 @@ def staggered_bug():
     scale[3, 3] = 1.0
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
     # static_bars = None
-    rods = MedialVABD(h, meshes, transforms)
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    # viewer = PSViewer(rods, static_bars)
     
-    
-    viewer = MedialViewer(rods)
+    viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
 

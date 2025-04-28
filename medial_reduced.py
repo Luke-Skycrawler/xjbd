@@ -45,10 +45,10 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
 
 
 class MedialRodComplexDebug(RodComplexBC):
-    def __init__(self, h, meshes=[], transforms=[]):
+    def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
         self.load_Q()
         self.define_z(transforms)
-        super().__init__(h, meshes, transforms)
+        super().__init__(h, meshes, transforms, static_meshes)
         self.define_encoder()
 
         n_reduced = self.n_reduced
@@ -215,8 +215,8 @@ class MedialRodComplexDebug(RodComplexBC):
 
 
 class MedialRodComplex(MedialRodComplexDebug):
-    def __init__(self, h, meshes=[], transforms=[]):
-        super().__init__(h, meshes, transforms)
+    def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
+        super().__init__(h, meshes, transforms, static_meshes)
     
     def define_z(self, transforms):
         self.n_modes = self.Q.shape[1] * 12 
@@ -289,7 +289,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F, ground = 0.0)
+            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F, ground = 0.0, static_objects = self.static_meshes)
 
         self.n_medial = self.V_medial.shape[0]
 
@@ -386,8 +386,8 @@ def staggered_bug():
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
         # transforms[i][1, 3] = 1.2 + i * 0.2
-        transforms[i][1, 3] = 0.8 + i * 0.2
-        transforms[i][2, 3] = i * 1.0
+        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.4
     
     # rods = MedialRodComplex(h, meshes, transforms)
     static_meshes_file = ["assets/teapotContainer.obj"]

@@ -26,8 +26,8 @@ class MedialViewerInterface:
         self.ps_spheres.set_point_radius_quantity("radius", autoscale=False)
 
 class MedialViewerSocket(PSViewer):
-    def __init__(self, rod):
-        super().__init__(rod)
+    def __init__(self, rod, static_mesh):
+        super().__init__(rod, static_mesh)
         n_modes, n_nodes = 12, 30
         
 
@@ -40,8 +40,8 @@ class MedialViewerSocket(PSViewer):
         self.E = rod.E_medial
     
 class MedialViewer(MedialViewerInterface, MedialViewerSocket):
-    def __init(self, rod):
-        super().__init__(rod)
+    def __init__(self, rod, static_mesh = None):
+        super().__init__(rod, static_mesh)
 
     def update_medial(self):
         # V, R = self.get_VR()
