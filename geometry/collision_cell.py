@@ -311,7 +311,7 @@ def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dty
             t1 = triangles_soup.indices[y * 3 + 1]
             t2 = triangles_soup.indices[y * 3 + 2]
             
-            if (inverted[t0] and inverted[t1] and inverted[t2]) or (t0 == i or t1 == i or t2 == i):
+            if (inverted[t0] and inverted[t1] and inverted[t2]):
                 # filter out inverted triangles and the 1-ring neighbor 
                 pass
             else:
