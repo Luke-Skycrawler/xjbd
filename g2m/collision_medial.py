@@ -412,7 +412,7 @@ class MedialCollisionDetector:
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3
 
-            g, h = cc.get_dist_gh()
+            g, h = ss.get_dist_gh()
             b[e0 * 3: (e0 + 1) * 3] += g[:3]
             b[e1 * 3: (e1 + 1) * 3] += g[3:6]
             b[e2 * 3: (e2 + 1) * 3] += g[6:9]

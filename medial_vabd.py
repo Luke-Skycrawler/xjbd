@@ -17,11 +17,12 @@ from fem.fem import Triplets
 from fem.interface import TOBJComplex, StaticScene
 ad_hoc = True
 medial_collision_stiffness = 1e4
-collision_handler = "triangle"
-# collision_handler = "medial"
+# collision_handler = "triangle"
+collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
 solver_choice = "woodbury"  # default for medial proxy
+# solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
@@ -389,14 +390,19 @@ class MedialVABD(MedialRodComplex):
                 self.solver.update(self.A0, self.U_col, self.C_col, self.U_col.T)
                 dz_sys_wb = self.solver.solve(b_sys + self.b_sys_col)
         
-        if solver_choice == "compare":
-            print(f"diff from solvers = {np.linalg.norm(dz_sys - dz_sys_wb)}")
-        elif solver_choice == "woodbury":
-            dz_sys = dz_sys_wb
+            if solver_choice == "compare":
+                print(f"diff from solvers = {np.linalg.norm(dz_sys - dz_sys_wb)}")
+            elif solver_choice == "woodbury":
+                dz_sys = dz_sys_wb
 
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
-        
+        cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
+        print(f"dz dot gradient cos = {cos_dz_b}")
+        if cos_dz_b < 0.0:
+            print("warning: dz is in the opposite direction of gradient")
+        # if cos_dz_b < 0.2:
+        #     dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(dz_sys)
         dz0 = dz_sys[:self.n_meshes * 12]
         self.dz_tilde[:] = dz_sys[self.n_meshes * 12:]
 
@@ -414,20 +420,25 @@ class MedialVABD(MedialRodComplex):
 
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
-        return norm_dz < 1e-3
+        print(f"dz norm = {norm_dz}")
+        return norm_dz < 1e-5
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
         z_tmp = np.copy(self.z)
 
         alpha = 1.0
+        # self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
+        # self.z[:] = z_tmp - alpha * self.dz
+        # return alpha
 
         if collision_handler == "triangle":
             zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
             bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
         
         e00 = self.compute_psi() + self.compute_inertia()
-        E0 = e00 + self.compute_collision_energy()
+        e0c = self.compute_collision_energy()
+        E0 = e00 + e0c 
 
         # e01 = self.compute_inertia2()
         # print(f"diff energy = {e01 - e00}, e = {e01}")
@@ -444,10 +455,12 @@ class MedialVABD(MedialRodComplex):
             # e11 = self.compute_inertia2()
             # print(f"diff energy = {e11 - e10}, e = {e11}")
 
-            E1 = e10 + self.compute_collision_energy()
+            e1c = self.compute_collision_energy()
+            E1 = e10 + e1c
+            print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
-            if alpha < 1e-3:
+            if alpha < 1e-8:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0
@@ -712,20 +725,20 @@ class MedialVABD(MedialRodComplex):
 
 def staggered_bug():
     
-    n_meshes = 1
+    n_meshes = 2
     # meshes = ["assets/bug.tobj"] * n_meshes
     meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    # transforms[1][:3, :3] = np.zeros((3, 3))
-    # transforms[1][0, 1] = 1
-    # transforms[1][1, 0] = 1
-    # transforms[1][2, 2] = 1
+    transforms[1][:3, :3] = np.zeros((3, 3))
+    transforms[1][0, 1] = 1
+    transforms[1][1, 0] = 1
+    transforms[1][2, 2] = 1
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.2
-        transforms[i][2, 3] = i * 1.0
+        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.4
     
     # rods = MedialRodComplex(h, meshes, transforms)
     static_meshes_file = ["assets/teapotContainer.obj"]

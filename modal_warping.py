@@ -241,8 +241,8 @@ class ModalWarpingRod(Rod):
         # print("cnt min = ", cnt)
         # assert cnt > 0
 
-    def compute_Psi(self, mode, q_k):
-        Qi = self.Q[:, mode]
+    def compute_Psi(self, Qi, q_k):
+        # Qi = self.Q[:, mode]
 
         disp = Qi.reshape((-1, 3)) * q_k
 

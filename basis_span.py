@@ -24,6 +24,7 @@ class WarpedRod(ModalWarpingRod):
     def compute_Q(self):
 
         Q = np.load(f"data/W_{model}.npy")
+        Q[:, 0] = 1.0
         V = self.V0
         self.Q = lbs_matrix(V, Q)
         
@@ -44,22 +45,46 @@ class PSViewer:
         self.U0 = self.U[: , : 12]
         self.U_tilde = self.U[:, 12:]
         
-        self.x0 = (self.U0 @ self.z[:12]).reshape((-1, 3)) + self.v
+        # self.x0 = (self.U0 @ self.z[:12]).reshape((-1, 3)) + self.v
+        self.x0 = self.v
+        self.rod = WarpedRod()
+        self.x_target = x_target
+        self.ui_use_modal_warping = True
     def callback(self):
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 10.0)
+        changed, self.ui_use_modal_warping = gui.Checkbox("Use Modal Warping", self.ui_use_modal_warping)
         # x = self.ui_magnitude * (self.U @ self.z).reshape((-1, 3)) + self.v
-        x = self.ui_magnitude * (self.U_tilde @ self.z[12:]).reshape((-1, 3)) + self.x0
+
+        r = R.from_rotvec([0, 0, np.pi/18])  # 45° around Z
+        rot_matrix = r.as_matrix()
+
+        # x_disp = self.x0 @ rot_matrix.T
+        # Qi= (x_disp - self.x0).reshape(-1)
+
+        # Qi = self.x_target - (self.x0 + np.array([[0., 0.7, -0.4]]))
+
+        # Qi = self.U0 @ self.z[:12]
+        Qi = (self.U_tilde @ self.z[12:])
+
+
+        if self.ui_use_modal_warping:
+            disp = self.rod.compute_Psi(Qi, self.ui_magnitude)
+            x = self.x0 + disp.reshape((-1, 3))
+        else: 
+            x = self.ui_magnitude * Qi.reshape((-1, 3)) + self.x0
+
         self.fit.update_vertex_positions(x)
 
 def compute_ortho_loss():
     Q = np.load(f"data/W_{model}.npy")
+    Q[:, 0] = 1.0
 
     x_target = np.load(f"data/x_target.npy")
     
-    r = R.from_rotvec([0, 0, np.pi/4])  # 45° around Z
-    rot_matrix = r.as_matrix()
+    # r = R.from_rotvec([0, 0, np.pi/4])  # 45° around Z
+    # rot_matrix = r.as_matrix()
 
-    x_target = x_target @ rot_matrix.T
+    # x_target = x_target @ rot_matrix.T
     t = np.mean(x_target, axis = 0, keepdims= True)
 
     v, T = import_tobj(f"assets/squishyball/{model}.tobj")
@@ -88,7 +113,8 @@ def view_mw():
     ps.show()
 
 if __name__ == "__main__":
-    view_mw()
-    # ps.init()
-    # compute_ortho_loss()
-    # ps.show()
+    # view_mw()
+    ps.init()
+    ps.set_ground_plane_mode("none")
+    compute_ortho_loss()
+    ps.show()

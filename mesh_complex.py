@@ -94,6 +94,8 @@ class RodComplexBC(RodBCBase, RodComplex):
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
                     
                     newton_iter = not (self.converged() or n_iter >= max_iter)
+                    if not newton_iter:
+                        break
                     # line search stuff, not converged yet
                     with wp.ScopedTimer("line search"):
                         alpha = self.line_search()
