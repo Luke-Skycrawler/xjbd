@@ -16,7 +16,7 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from fem.interface import TOBJComplex, StaticScene
 ad_hoc = True
-medial_collision_stiffness = 1e4
+medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]

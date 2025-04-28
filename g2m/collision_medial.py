@@ -9,7 +9,7 @@ CC_SET_SIZE = 256
 SS_SET_SIZE = 256
 G_SET_SIZE = 256
 
-ground_rel_stiffness = 10.0
+ground_rel_stiffness = 1.0
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
@@ -56,7 +56,7 @@ def append(cc_list: ConeConeCollisionList, element: wp.vec4i, dist: float):
 def append(ss_list: SlabSphereCollisionList, element: wp.vec4i, dist: float):
     id = wp.atomic_add(ss_list.cnt, 0, 1)
     ss_list.a[id] = element
-    wp.atomic_add(ss_list.E, 0, dist)
+    wp.atomic_add(ss_list.E, 0, dist * dist)
     # ss_list.dist[id] = dist
 
 @wp.func
@@ -154,7 +154,8 @@ def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
         e2 = a[2]
         e3 = a[3]
         if not is_2_ring(geo, e0, e1, e2, e3):
-            wp.atomic_add(cc_list.E, 0, cc_list.dist[i])
+            dist = cc_list.dist[i]
+            wp.atomic_add(cc_list.E, 0, dist * dist)
         
 class MedialCollisionDetector:
     def __init__(self, V_medial, R, E, F, ground = None, dense = True): 
@@ -246,7 +247,7 @@ class MedialCollisionDetector:
 
         # the energy for medial cone-cone or slab-slab r^2 - d^2 is negative, 
         # so flip the sign for gound here
-        ret = -self.ee_set.E.numpy()[0] - self.pt_set.E.numpy()[0]
+        ret = self.ee_set.E.numpy()[0] + self.pt_set.E.numpy()[0]
 
         if self.ground is not None:
             self.g_set.cnt.zero_()
@@ -446,11 +447,14 @@ class MedialCollisionDetector:
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3
 
+            dist = np.abs(cc.get_distance())
             g, h = cc.get_dist_gh()
-            b[e0 * 3: (e0 + 1) * 3] += g[:3]
-            b[e1 * 3: (e1 + 1) * 3] += g[3:6]
-            b[e2 * 3: (e2 + 1) * 3] += g[6:9]
-            b[e3 * 3: (e3 + 1) * 3] += g[9:12]
+            b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3]
+            b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6]
+            b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
+            b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
+            
+            h = 2 * dist * h + 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
