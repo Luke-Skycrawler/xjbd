@@ -45,13 +45,13 @@ class RodComplexBC(RodBCBase, RodComplex):
             n_verts = 1356
         elif self.meshes_filename[0] == "assets/bug.tobj":
             n_verts = 2471
-        elif self.meshes_filename[0] == "assets/squishyball/squishy_ball_lowlow.tobj":
+        elif self.meshes_filename[0] == "assets/squishy/squishy.tobj":
             n_verts = 4778
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if "assets/tet.tobj" in self.meshes_filename:
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif self.meshes_filename[0] in["assets/bar2.tobj", "assets/bug.tobj", "assets/squishyball/squishy_ball_lowlow.tobj"]: 
+        elif self.meshes_filename[0] in["assets/bar2.tobj", "assets/bug.tobj", "assets/squishy/squishy.tobj"]: 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
             pos = self.transforms[:, :3, 3]
@@ -269,7 +269,7 @@ def staggered_bug():
     
     n_meshes = 2
     # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
+    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))

@@ -160,7 +160,7 @@ def staggered_bug():
     
     n_meshes = 1
     # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
+    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     # transforms[1][:3, :3] = np.zeros((3, 3))

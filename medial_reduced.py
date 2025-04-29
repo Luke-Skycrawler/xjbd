@@ -88,7 +88,10 @@ class MedialRodComplexDebug(RodComplexBC):
     def define_collider(self):
         super().define_collider()
         # self.slabmesh = SlabMesh("data/bug_v30.ma")
-        self.slabmesh = SlabMesh("assets/squishyball/ball_lowlow.ma")
+        
+        model = self.meshes_filename[0].split("/")[1].split(".")[0]
+        assert model in ["bug", "squishy", "bunny"]
+        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
         V = np.copy(self.slabmesh.V)
         v4 = np.ones((V.shape[0], 4))
         v4[:, :3] = V
@@ -175,7 +178,8 @@ class MedialRodComplexDebug(RodComplexBC):
 
     def define_encoder(self):
         # self.intp = TetBaryCentricCompute("bug", 30)
-        self.intp = TetBaryCentricCompute("ball", 250)
+        model = self.meshes_filename[0].split("/")[1].split(".")[0]
+        self.intp = TetBaryCentricCompute(model)
         self.W_medial = self.intp.compute_weight(self.Q)
 
     def get_VR(self):
@@ -260,7 +264,9 @@ class MedialRodComplex(MedialRodComplexDebug):
     def define_collider(self):
         super().define_collider()
         # self.slabmesh = SlabMesh("data/bug_v30.ma")
-        self.slabmesh = SlabMesh("assets/squishyball/ball_lowlow.ma")
+        model = self.meshes_filename[0].split("/")[1].split(".")[0]
+        assert model in ["bug", "squishy", "bunny"]
+        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
         V0 = np.copy(self.slabmesh.V)
         v4 = np.ones((V0.shape[0], 4))
         v4[:, :3] = V0
@@ -375,7 +381,7 @@ def staggered_bug():
     
     n_meshes = 2
     # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishyball/squishy_ball_lowlow.tobj"] * n_meshes
+    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))

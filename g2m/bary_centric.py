@@ -2,16 +2,17 @@ from utils.tobj import import_tobj, export_tobj
 from g2m.medial import SlabMesh, slabmesh_default
 import numpy as np 
 import igl
-class TetBaryCentricCompute:
-    def __init__(self, model, nv = None):
-        
-        self.V, self.T = import_tobj(f"assets/{model}.tobj")
-        
-        if nv is None:
 
-            self.slabmesh = slabmesh_default()
-        else :
-            self.slabmesh = SlabMesh(f"data/{model}_v{nv}.ma")
+default_medial_to_nv = {
+    "bug": 30,
+    "bunny": 40,
+    "squishy": 250
+}
+class TetBaryCentricCompute:
+    def __init__(self, model):
+        
+        self.V, self.T = import_tobj(f"assets/{model}/{model}.tobj")
+        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
 
         self.bc, self.tids = None, None
         if self.V is not None:

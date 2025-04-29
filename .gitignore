@@ -4,3 +4,8 @@ output/
 data/eigs/
 *.mp4
 /*.npy
+*.jpg
+*.png
+assets/squishyball/
+*_v*.ma
+*.ply
