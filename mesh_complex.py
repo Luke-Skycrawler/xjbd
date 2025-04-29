@@ -37,21 +37,21 @@ class RodComplexBC(RodBCBase, RodComplex):
     def reset(self):
         n_verts = 4
         self.theta = 0.0
-        if self.meshes_filename[0] == "assets/bar2.tobj":
-            n_verts = 525
-        elif self.meshes_filename[0] == "assets/tet.tobj":
-            n_verts = 4
-        elif self.meshes_filename[0] == "assets/bunny_5.tobj":
-            n_verts = 1356
-        elif self.meshes_filename[0] == "assets/bug.tobj":
-            n_verts = 2471
-        elif self.meshes_filename[0] == "assets/squishy/squishy.tobj":
-            n_verts = 4778
+        model = self.meshes_filename[0].split("/")[1].split(".")[0]
+        model_ntets = {
+            "bar2": 525,
+            "tet": 4,
+            "bunny_5": 1356,
+            "bug": 2471,
+            "squishy": 4778,
+            "bunny": 3679
+        }
+        n_verts = model_ntets[model]
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if "assets/tet.tobj" in self.meshes_filename:
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif self.meshes_filename[0] in["assets/bar2.tobj", "assets/bug.tobj", "assets/squishy/squishy.tobj"]: 
+        elif model in["bar2", "bug", "squishy", "bunny"]: 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
             pos = self.transforms[:, :3, 3]
@@ -266,11 +266,9 @@ def bar_rain():
     
 
 def staggered_bug():
-    
+    model = "bunny"
     n_meshes = 2
-    # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
-    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
     transforms[1][0, 1] = 1
@@ -280,7 +278,7 @@ def staggered_bug():
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
         transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.4
+        transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
     static_meshes_file = ["assets/teapotContainer.obj"]

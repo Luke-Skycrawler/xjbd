@@ -722,13 +722,10 @@ class MedialVABD(MedialRodComplex):
 #     viewer = MedialViewer(rods)
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
-
 def staggered_bug():
-    
+    model = "bunny"
     n_meshes = 2
-    # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
-    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
     transforms[1][0, 1] = 1
@@ -738,7 +735,7 @@ def staggered_bug():
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
         transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.4
+        transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
     static_meshes_file = ["assets/teapotContainer.obj"]

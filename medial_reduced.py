@@ -46,7 +46,8 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
 
 class MedialRodComplexDebug(RodComplexBC):
     def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
-        self.load_Q()
+        model = meshes[0].split("/")[1].split(".")[0]
+        self.load_Q(model)
         self.define_z(transforms)
         super().__init__(h, meshes, transforms, static_meshes)
         self.define_encoder()
@@ -69,9 +70,9 @@ class MedialRodComplexDebug(RodComplexBC):
         self.U[:-12, : -12] = self.lbs_matrix(self.xcs.numpy()[:-4], self.Q)
         self.U[-12:, -12:] = np.identity(12)
         
-    def load_Q(self):
+    def load_Q(self, model):
         # Q = np.load("data/W_bug.npy")
-        Q = np.load("data/W_squishy_ball_lowlow.npy")
+        Q = np.load(f"data/W_{model}.npy")
         self.Q = Q[:, :]
         self.Q[:, 0] = 1.0
         
