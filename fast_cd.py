@@ -15,7 +15,7 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-model = "squishy_ball_lowlow"
+model = "bunny"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -75,7 +75,7 @@ def compute_Hw(triplets: Triplets, triplets_Hw: CSRTriplets):
     
 class RodLBSWeight(Rod):
     def __init__(self):
-        self.filename = f"assets/squishyball/{model}.tobj"
+        self.filename = f"assets/{model}/{model}.tobj"
         super().__init__()
         self.define_Hw()
         self.define_M()
