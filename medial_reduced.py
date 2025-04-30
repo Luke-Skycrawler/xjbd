@@ -89,7 +89,9 @@ class MedialRodComplexDebug(RodComplexBC):
     def define_collider(self):
         super().define_collider()
         # self.slabmesh = SlabMesh("data/bug_v30.ma")
-        
+        self.define_medials()
+
+    def define_medials(self):
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
         assert model in ["bug", "squishy", "bunny"]
         self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
@@ -262,9 +264,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         #     tmp = bsr_mm(self.K_sparse, self.Uwp)
         #     self.A_reduced = bsr_mm(self.UwpT, tmp)
 
-    def define_collider(self):
-        super().define_collider()
-        # self.slabmesh = SlabMesh("data/bug_v30.ma")
+    def define_medials(self):
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
         assert model in ["bug", "squishy", "bunny"]
         self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")

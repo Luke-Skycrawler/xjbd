@@ -109,6 +109,11 @@ class MedialVABD(MedialRodComplex):
         self.process_collision = self.process_collision_medial_based if collision_handler == "medial" else self.process_collision_triangle_based
         self.compute_collision_energy = self.compute_collision_energy_medial_based if collision_handler == "medial" else self.compute_collision_energy_triangle_based
 
+        V, R = self.get_VR()
+        self.collider_medial.V = V
+        self.collider_medial.R = R
+        # self.collider_medial.get_rest_collision_set()
+
     def gen_F_idx(self):
         '''
         optioal, only used in optimizing fetching the deformation gradient 
@@ -421,7 +426,7 @@ class MedialVABD(MedialRodComplex):
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-5
+        return norm_dz < 1e-4
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -460,7 +465,7 @@ class MedialVABD(MedialRodComplex):
             print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
-            if alpha < 1e-8:
+            if alpha < 1e-3:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0

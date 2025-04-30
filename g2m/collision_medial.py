@@ -6,11 +6,15 @@ from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
-CC_SET_SIZE = 256
-SS_SET_SIZE = 256
-G_SET_SIZE = 256
+from typing import Tuple, Set
+CC_SET_SIZE = 1024
+SS_SET_SIZE = 1024
+G_SET_SIZE = 1024
 
-ground_rel_stiffness = 10.0
+ground_rel_stiffness = 10
+
+
+COLLISION_DEBUG = False
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
@@ -127,7 +131,8 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1])
+        hack = ex[0] // 40 == ey[0] // 40
+        refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1]) or hack
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
             append(cc_list, col, dist)
@@ -149,7 +154,8 @@ def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionL
     rb = geo.radius[j]
 
     dist, _, foo, bar = compute_distance_slab_sphere(c0, c1, c2, b, r0, r1, r2, rb)
-    refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j
+    hack = j // 40 == slab[0] // 40
+    refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j or hack
     if dist < 0.0 and not refuse_cond:
         col = wp.vec4i(slab[0], slab[1], slab[2], j)
         append(ss_list, col, dist)
@@ -275,6 +281,9 @@ class MedialCollisionDetector:
         self.vv_adjacency = set([vv(e) for e in E])
         self.dense = dense
         
+        self.rest_cc: Set[Tuple[int, int, int, int]] = set()
+        self.rest_pt: Set[Tuple[int, int, int, int]] = set()
+        # self.get_rest_collision_set()
         if static_objects is not None:
             self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
             static_soup = TriangleSoup()
@@ -294,6 +303,13 @@ class MedialCollisionDetector:
 
             self.static_indices = static_objects.indices.numpy()
             self.static_V = static_objects.xcs.numpy()
+            
+    def get_rest_collision_set(self):
+        self.collision_set(self.V)
+        rest_pt = [(i[0], i[1], i[2], i[3]) for i in self.ss_id]
+        rest_cc = [(i[0], i[1], i[2], i[3]) for i in self.cc_id]
+        self.rest_pt.update(rest_pt)
+        self.rest_cc.update(rest_cc)
 
     def refit(self, V, R = None):
         if R is not None:
@@ -386,7 +402,12 @@ class MedialCollisionDetector:
         self.ss_set = []
         self.ss_id = []
         
+        n_repeated_cc = 0
+        n_repeated_ss = 0
         for id in ss_id:
+            if tuple(id) in self.rest_pt:
+                n_repeated_ss += 1
+                continue
             e0, e1, e2, e3 = id
             s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.sphere(e2), self.sphere(e3)
             
@@ -398,6 +419,9 @@ class MedialCollisionDetector:
 
             
         for id in cc_id:
+            if tuple(id) in self.rest_cc:
+                n_repeated_cc += 1
+                continue
             e0, e1, e2, e3 = id
 
             if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
@@ -411,8 +435,10 @@ class MedialCollisionDetector:
             self.cc_set.append(cons)
             self.cc_id.append(id)
 
-        if len(self.cc_set):
-            print(f"{len(self.cc_set)} collision detected")
+        if COLLISION_DEBUG:
+            print(f"filtered cc = {n_repeated_cc}, ss = {n_repeated_ss}")
+            if len(self.cc_set):
+                print(f"{len(self.cc_set)} collision detected")
 
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
