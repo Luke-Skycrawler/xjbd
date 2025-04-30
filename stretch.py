@@ -11,7 +11,7 @@ from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 
 eps = 3e-4
-h = 1e-2
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -145,7 +145,7 @@ class PSViewer:
             Vs = static_mesh.xcs.numpy()
             Fs = static_mesh.indices.numpy().reshape((-1, 3))
             self.static_mesh = ps.register_surface_mesh("static", Vs, Fs)
-
+            # self.static_mesh.add_vector_quantity("normal", static_mesh.N, defined_on="faces")
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
         self.animate = gui.Button("Step") or not self.ui_pause
@@ -166,7 +166,7 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
-            # ps.screenshot(f"output/{self.frame:04d}.jpg")
+            ps.screenshot(f"output/{self.frame:04d}.jpg")
 
         
 class RodBCBase:

@@ -16,14 +16,14 @@ from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
 from fem.geometry import TOBJComplex
-COLLISION_DEBUG = False
+COLLISION_DEBUG = True
 collision_eps = 5e-3
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e6
+stiffness = 1e5
 
 @wp.struct
 class TriangleSoup:
@@ -53,18 +53,21 @@ class GroundCollisionList:
 @wp.func
 def append(cl: GroundCollisionList, element: int):
     id = wp.atomic_add(cl.cnt, 0, 1)
-    cl.a[id] = element
+    if id < GROUND_SET_SIZE:
+        cl.a[id] = element
 
 @wp.func
 def append(cl: CollisionList, element: wp.vec2i):
     id = wp.atomic_add(cl.cnt, 0, 1)
-    cl.a[id] = element
+    if id < PT_SET_SIZE:
+        cl.a[id] = element
 
 @wp.func
 def append(cl: EdgeEdgeCollisionList, element: wp.vec2i, bary: wp.vec3):
     id = wp.atomic_add(cl.cnt, 0, 1)
-    cl.a[id] = element
-    cl.bary[id] = bary
+    if id <  EE_SET_SIZE:
+        cl.a[id] = element
+        cl.bary[id] = bary
 
 @wp.kernel
 def compute_inverted_vertex_single_mesh(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), inverted: wp.array(dtype = int)):
@@ -990,7 +993,7 @@ class MeshCollisionDetector:
                 if self.Bm is not None:
                     self.inverted.fill_(1)
                     wp.launch(disable_interior_vertices, dim = (self.n_triangles * 3,), inputs = [self.triangle_soup, self.inverted])
-                    wp.launch(compute_inverted_vertex, dim = (self.n_tets,), inputs = [self.triangle_soup.vertices, self.T, self.Bm, self.inverted])
+                    # wp.launch(compute_inverted_vertex, dim = (self.n_tets,), inputs = [self.triangle_soup.vertices, self.T, self.Bm, self.inverted])
                     if COLLISION_DEBUG:
                         print(f"inverted sum = {np.sum(self.inverted.numpy())}")
                 # self.inverted.zero_()
@@ -1008,6 +1011,10 @@ class MeshCollisionDetector:
 
     def collision_energy(self, npt = 0, nee = 0, n_ground = 0):
         self.e_col.zero_()
+        npt = min(npt, PT_SET_SIZE)
+        nee = min(nee, EE_SET_SIZE)
+        n_ground = min(n_ground, GROUND_SET_SIZE)
+
         wp.launch(collision_energy_pt, (npt, ), inputs = [self.pt_set, self.triangle_soup, self.inverted, self.stiffness, self.e_col])
 
         wp.launch(collision_energy_ee, (nee, ), inputs = [self.ee_set, self.triangle_soup, self.inverted, self.stiffness, self.edges, self.neighbor_faces, self.e_col])
@@ -1015,6 +1022,7 @@ class MeshCollisionDetector:
         wp.launch(collision_energy_ground, (n_ground,), inputs = [self.ground, self.ground_set, self.triangle_soup, self.stiffness, self.e_col])
 
         if hasattr(self, "n_static") and self.n_static:
+            self.n_static = min(self.n_static, PT_SET_SIZE)
             wp.launch(collision_energy_static, (self.n_static, ), inputs = [self.p_static_set, self.xcs, self.static_soup, self.inverted, self.stiffness, self.e_col])
 
         ret = self.e_col.numpy()[0]
@@ -1027,6 +1035,9 @@ class MeshCollisionDetector:
         '''
         returns the force and force derivatives
         '''
+        npt = min(npt, PT_SET_SIZE)
+        nee = min(nee, EE_SET_SIZE)
+        n_ground = min(n_ground, GROUND_SET_SIZE)
         triplets = Triplets()
         trip_size = (npt + nee) * 16 + n_ground
         if hasattr(self, "n_static"):
@@ -1051,6 +1062,7 @@ class MeshCollisionDetector:
 
         if hasattr(self, "n_static") and self.n_static != 0:
             static_offset = (npt + nee) * 16 + n_ground
+            self.n_static = min(self.n_static, PT_SET_SIZE)
             wp.launch(fill_collision_triplets_static, (self.n_static, ), inputs = [self.p_static_set, static_offset, self.xcs, self.static_soup, triplets, rhs, self.stiffness])
         return triplets
 

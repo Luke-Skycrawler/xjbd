@@ -236,7 +236,7 @@ class TOBJComplex:
         self.indices = wp.array(F.reshape(-1), dtype = int)
         
         n0 = np.ones(3, dtype = float)
-        N = igl.per_face_normals(V, F, n0)
+        self.N = N = igl.per_face_normals(V, F, n0)
         normals = wp.array(N, dtype = wp.vec3)
         
         # wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
