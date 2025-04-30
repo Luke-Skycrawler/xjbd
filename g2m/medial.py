@@ -1,5 +1,5 @@
 import numpy as np
-
+import igl
 class SlabMesh:
     def __init__(self, filename = ""): 
         self.V = None
@@ -40,8 +40,16 @@ class SlabMesh:
         vertices = np.array(vertices)
         self.V = vertices[:, : 3]
         self.R = vertices[:, 3]
-        self.E = np.array(edges)
+        
+        self.E0 = np.array(edges)
+        # extracts edges from faces and append to the edge set
         self.F = np.array(faces)
+        E = igl.edges(self.F)
+        E = np.concatenate((self.E0, E))
+        sorted_edges = np.sort(E, axis=1)
+        unique_edges = np.unique(sorted_edges, axis=0)
+        self.E = unique_edges
+        
 
     def export_ma(self, filename):
         assert(filename.endswith(".ma"))
@@ -52,10 +60,10 @@ class SlabMesh:
         to_strf = lambda f: f"f {f[0]} {f[1]} {f[2]}\n"
 
         linesv = [to_strv(*vr) for vr in zip(self.V, self.R)] 
-        linese = [to_stre(t) for t in self.E]
+        linese = [to_stre(t) for t in self.E0]
         linesf = [to_strf(t) for t in self.F]
         with open(filename, 'w') as f:
-            tot = f"{self.V.shape[0]} {self.E.shape[0]} {self.F.shape[0]}\n"
+            tot = f"{self.V.shape[0]} {self.E0.shape[0]} {self.F.shape[0]}\n"
             f.writelines([tot] + linesv + linese + linesf)
 
     def export_ply(self, filename):
