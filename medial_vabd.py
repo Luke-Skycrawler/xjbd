@@ -565,8 +565,9 @@ class MedialVABD(MedialRodComplex):
         self.z0[:] = self.extract_z0(self.z)
         self.z_dot[:] = 0.0
         
-        if self.n_meshes == 2: 
-            self.z_dot[12 + 9: 12 + 12] = np.array([0.0, 0.0, -3.0])
+        if self.n_meshes <= 2: 
+            off = (self.n_meshes - 1) * 12
+            self.z_dot[off + 9: off + 12] = np.array([0.0, 0.0, -3.0])
             
             # self.z_dot[2] = -1.0
             # self.z_dot[6] = 1.0
@@ -732,10 +733,11 @@ def staggered_bug():
     n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+
+    transforms[-1][:3, :3] = np.zeros((3, 3))
+    transforms[-1][0, 1] = 1
+    transforms[-1][1, 0] = 1
+    transforms[-1][2, 2] = 1
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5

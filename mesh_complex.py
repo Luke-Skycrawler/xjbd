@@ -141,9 +141,9 @@ def multiple_drape():
 @wp.kernel
 def set_velocity_kernel(states: NewtonState, thres: int):
     i = wp.tid()
-    states.xdot[i] = wp.vec3(0.0, -4.0, 0.0)
+    states.xdot[i] = wp.vec3(0.0, 0.0, 0.0)
     if i >= thres:
-        states.xdot[i] = wp.vec3(0.0, -4.0, -3.0)
+        states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 
 @wp.kernel
 def set_vx_kernel(states: NewtonState, thres: int):

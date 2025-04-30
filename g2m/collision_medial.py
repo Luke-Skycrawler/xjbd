@@ -201,6 +201,9 @@ def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, c
         distance, _ = point_triangle_distance_wp(xt0, xt1, xt2, xi)
         element = wp.vec2i(i, y)
         if distance < ri:
+            n = plane_normal_wp(xt0, xt1, xt2)
+            if wp.dot(n, xi - xt0) < 0.0:
+                distance = -distance
             dmr = distance - ri
             if point_projects_inside_triangle(xt0, xt1, xt2, xi): #or inside_collision_cell(triangles_soup, neighbors, y, xi):
                 append(collision_list, element, dmr * dmr)
@@ -218,6 +221,9 @@ def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
             dist = cc_list.dist[i]
             wp.atomic_add(cc_list.E, 0, dist * dist)
         
+@wp.func
+def plane_normal_wp(v0: wp.vec3, v1: wp.vec3, v2: wp.vec3) -> wp.vec3:
+    return wp.normalize(wp.cross(v1 - v0, v2 - v0))
 
 def plane_normal(v0, v1, v2):
     n = np.cross(v1 - v0, v2 - v0)
