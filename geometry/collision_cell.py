@@ -15,7 +15,8 @@ from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
 from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
-from fem.geometry import TOBJComplex
+from geometry.static_scene import StaticScene
+
 COLLISION_DEBUG = True
 collision_eps = 5e-3
 PT_SET_SIZE = 2048
@@ -861,7 +862,7 @@ def disable_interior_vertices(triangle_soup: TriangleSoup, inverted: wp.array(dt
     inverted[idx] = 0
 
 class MeshCollisionDetector:
-    def __init__(self, xcs, T, indices, Bm, ground = None, static_objects: TOBJComplex = None):
+    def __init__(self, xcs, T, indices, Bm, ground = None, static_objects: StaticScene = None):
         '''
         heavy-lifting class for collision detection provided the reference to warp array of points and indices
         '''

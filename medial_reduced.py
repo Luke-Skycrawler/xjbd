@@ -6,7 +6,7 @@ import polyscope.imgui as gui
 from stretch import h, add_dx, PSViewer, Triplets
 from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
 from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
-from fem.interface import StaticScene
+from geometry.static_scene import StaticScene
 
 import os
 from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv

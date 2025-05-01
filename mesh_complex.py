@@ -7,8 +7,7 @@ import numpy as np
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
-from fem.geometry import TOBJComplex
-from fem.interface import StaticScene
+from geometry.static_scene import StaticScene
 
 omega = 3.0
 
@@ -21,7 +20,7 @@ def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n
     states.xdot[i] = v * 0.5
 
 class RodComplexBC(RodBCBase, RodComplex):
-    def __init__(self, h, meshes = [], transforms = [], static_meshes:TOBJComplex = None):
+    def __init__(self, h, meshes = [], transforms = [], static_meshes:StaticScene = None):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)

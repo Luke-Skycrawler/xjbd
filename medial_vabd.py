@@ -14,7 +14,7 @@ from g2m.viewer import MedialViewer
 from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
-from fem.interface import TOBJComplex, StaticScene
+from geometry.static_scene import StaticScene
 ad_hoc = True
 medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
@@ -92,7 +92,7 @@ class WoodburySolver:
         return term1 - term2 
 
 class MedialVABD(MedialRodComplex):
-    def __init__(self, h, meshes=[], transforms=[], static_meshes:TOBJComplex = None):
+    def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
         super().__init__(h, meshes, transforms, static_meshes)
         self.split_U0_U_tilide()
         self.define_mm()

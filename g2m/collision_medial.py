@@ -1,7 +1,7 @@
 import warp as wp
 import numpy as np
 from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
-from fem.interface import StaticScene
+from geometry.static_scene import StaticScene
 from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
@@ -69,6 +69,7 @@ def append(cc_list: ConeConeCollisionList, element: wp.vec4i, dist: float):
     id = wp.atomic_add(cc_list.cnt, 0, 1)
     cc_list.a[id] = element
     cc_list.dist[id] = dist
+    wp.atomic_add(cc_list.E, 0, dist * dist)
     # wp.atomic_add(cc_list.E, 0, dist)
 
 @wp.func
@@ -79,16 +80,11 @@ def append(ss_list: SlabSphereCollisionList, element: wp.vec4i, dist: float):
     # ss_list.dist[id] = dist
 
 @wp.func
-def append(g_list: SphereGroundCollisionList, element: int, hr: wp.vec2):
+def append(g_list: SphereGroundCollisionList, element: int, hr: wp.vec2, dist: float):
     id = wp.atomic_add(g_list.cnt, 0, 1)
     g_list.a[id] = element
     g_list.hr[id] = hr
 
-    # e = k(h^2 - r^2) ^2
-    h = hr[0]
-    r = hr[1]
-    # dist = h * h - r * r
-    dist = (h - r) * (h - r)
     wp.atomic_add(g_list.E, 0, dist * dist)
 
 @wp.func
@@ -159,6 +155,7 @@ def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionL
     refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j or hack
     if dist < 0.0 and not refuse_cond:
         col = wp.vec4i(slab[0], slab[1], slab[2], j)
+        # append(ss_list, col, dist * dist)
         append(ss_list, col, dist)
 
 @wp.kernel
@@ -170,7 +167,7 @@ def sphere_ground_set(geo: MedialGeometry, g_list: SphereGroundCollisionList, gr
     dist = d - r
     if dist < 0.0:
         hr = wp.vec2(d, r)
-        append(g_list, i, hr)
+        append(g_list, i, hr, dist * dist)
 
 @wp.kernel
 def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, collision_list: StaticCollisionList, neighbors: wp.array(dtype = int)):
@@ -292,28 +289,39 @@ class MedialCollisionDetector:
         self.rest_pt: Set[Tuple[int, int, int, int]] = set()
         # self.get_rest_collision_set()
         if static_objects is not None:
-            self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
-            static_soup = TriangleSoup()
-            static_soup.indices = static_objects.indices
-            static_soup.vertices = static_objects.xcs
-            static_soup.mesh_id = self.staic_triangles.id
-            self.static_soup = static_soup
-            
-            p_static_set = StaticCollisionList()
-            p_static_set.cnt = wp.zeros((1, ), dtype =int)
-            p_static_set.a = wp.zeros((CC_SET_SIZE, ), dtype = wp.vec2i)
-            p_static_set.E = wp.zeros((1, ), dtype = float)
+            self.define_static_mesh(static_objects)
 
-            self.p_static_set = p_static_set
-            self.n_static = 0
+    def define_static_mesh(self, static_objects: StaticScene):
+        self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
+        static_soup = TriangleSoup()
+        static_soup.indices = static_objects.indices
+        static_soup.vertices = static_objects.xcs
+        static_soup.mesh_id = self.staic_triangles.id
+        self.static_soup = static_soup
+        
+        p_static_set = StaticCollisionList()
+        p_static_set.cnt = wp.zeros((1, ), dtype =int)
+        p_static_set.a = wp.zeros((CC_SET_SIZE, ), dtype = wp.vec2i)
+        p_static_set.E = wp.zeros((1, ), dtype = float)
+
+        self.p_static_set = p_static_set
+        self.n_static = 0
 
 
-            self.static_indices = static_objects.indices.numpy()
-            self.static_V = static_objects.xcs.numpy()
-            
-            TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
-            self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
-            
+        self.static_indices = static_objects.indices.numpy()
+        self.static_V = static_objects.xcs.numpy()
+        
+        TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
+        self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
+
+        if hasattr(static_objects, "V_medial"):
+            self.ee_static_set = ConeConeCollisionList()
+            self.ee_static_set.a = wp.zeros(CC_SET_SIZE, dtype = wp.vec4i)
+            self.ee_static_set.cnt = wp.zeros(1, dtype = int)
+            self.ee_static_set.E = wp.zeros(1, dtype = float)
+            self.ee_static_set.dist = wp.zeros(CC_SET_SIZE, dtype = float)
+        
+
     def get_rest_collision_set(self):
         self.collision_set(self.V)
         rest_pt = [(i[0], i[1], i[2], i[3]) for i in self.ss_id]
@@ -339,69 +347,50 @@ class MedialCollisionDetector:
     def is_2_ring(self, e0, e1, e2, e3):
         return self.is_connected(e0, e2) or self.is_connected(e0, e3) or self.is_connected(e1, e2) or self.is_connected(e1, e3)
 
-    def collision_set_naked(self, V, R = None):
-        self.refit(V, )
+    def collision_set(self, V, R = None, energy_only = False):
+        self.refit(V, R)
 
-        self.pt_set.E.zero_()
         self.pt_set.cnt.zero_()
+        self.pt_set.E.zero_()
         wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set])
-        self.ee_set.E.zero_()
+
         self.ee_set.cnt.zero_()
+        self.ee_set.E.zero_()
         wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
 
-        wp.launch(refuse_2_ring, CC_SET_SIZE, [self.medial_geo, self.ee_set])
-
-        # the energy for medial cone-cone or slab-slab r^2 - d^2 is negative, 
-        # so flip the sign for gound here
-        ret = self.ee_set.E.numpy()[0] + self.pt_set.E.numpy()[0]
+        ret = self.pt_set.E.numpy()[0] + self.ee_set.E.numpy()[0]
 
         if self.ground is not None:
             self.g_set.cnt.zero_()
             self.g_set.E.zero_()
             wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
-            # sphere-ground energy (d - r) ^ 2 is positive
             ret += self.g_set.E.numpy()[0] * ground_rel_stiffness
-
-        # testing 2 ring neighbors
-        # ncc = self.ee_set.cnt.numpy()[0]
-        # cc_id = self.ee_set.a.numpy()[:ncc]
-        # energy = np.sum(self.ee_set.dist.numpy()[:ncc])
-
-        # for id in cc_id:
-        #     e0, e1, e2, e3 = id
-        #     if self.is_2_ring(e0, e1, e2, e3):
-        #         print(f"modified version included 2 ring neighbor: {e0}, {e1}, {e2}, {e3}")
-        #         quit()
-        # print(f"dist sum = {energy}, kernel output = {ret}, diff = {energy - ret}")
 
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
             self.p_static_set.E.zero_()
             wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
-            static_energy = self.p_static_set.E.numpy()[0]
-            ret += static_energy * ground_rel_stiffness
-
+            ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
+        
         return ret
 
-    def collision_set(self, V, R = None):
-        self.refit(V, R)
-        nss, ncc = 0, 0
 
-        n_ground = 0
-        self.pt_set.cnt.zero_()
-        wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set])
+    def sphere(self, e0):
+        ve0 = self.V[e0]
+
+        r0 = self.R[e0]
+        v_rst_0 = self.V_rest[e0]   
+
+        s0 = MedialSphere(ve0, v_rst_0, r0, e0)
+        return s0
+
+    def analyze(self):
         nss = self.pt_set.cnt.numpy()[0]
         ss_id = self.pt_set.a.numpy()[:nss]
-
-        self.ee_set.cnt.zero_()
-        wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
         ncc = self.ee_set.cnt.numpy()[0]
         cc_id = self.ee_set.a.numpy()[:ncc]
 
-        
         if self.ground is not None:
-            self.g_set.cnt.zero_()
-            wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
             n_ground = self.g_set.cnt.numpy()[0]
             self.sg_id = self.g_set.a.numpy()[:n_ground]
             self.sg_hr = self.g_set.hr.numpy()[:n_ground]
@@ -450,80 +439,6 @@ class MedialCollisionDetector:
             if len(self.cc_set):
                 print(f"{len(self.cc_set)} collision detected")
 
-        if hasattr(self, "static_soup"):
-            self.p_static_set.cnt.zero_()
-            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
-                
-    def sphere(self, e0):
-        ve0 = self.V[e0]
-
-        r0 = self.R[e0]
-        v_rst_0 = self.V_rest[e0]   
-
-        s0 = MedialSphere(ve0, v_rst_0, r0, e0)
-        return s0
-
-    def collision_set_slow(self, V, R = None):
-        self.refit(V, R)
-        # point-slab, cone-cone
-        nps, ncc = 0, 0
-
-        n_ground = 0
-
-        # with wp.ScopedTimer("ground"):
-        #     pass
-
-        n_vertices = self.n_vertices
-        n_edges = self.n_edges
-
-        self.cc_set = []
-        self.ss_set = []
-
-        self.cc_id = []
-        self.ss_id = []
-
-        with wp.ScopedTimer("cone-cone"):
-
-            # wp.launch(collision_medial, (n_edges, n_edges), inputs = [self.edges, self.vertices, self.radius, self.ee_set])
-            for i in range(n_edges):
-                # FIXME: ad-hoc for now, only detect collision with the last edge
-                for j in range(i):
-                    # brute force edge-edge collision detection
-                    e0, e1 = self.E[i]
-                    e2, e3 = self.E[j] 
-
-                    if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                        continue
-
-                    ve0 = self.V[e0]
-                    ve1 = self.V[e1]
-                    ve2 = self.V[e2]
-                    ve3 = self.V[e3]
-
-                    r0 = self.R[e0]
-                    r1 = self.R[e1]
-                    r2 = self.R[e2]
-                    r3 = self.R[e3]
-
-                    v_rst_0 = self.V_rest[e0]   
-                    v_rst_1 = self.V_rest[e1]
-                    v_rst_2 = self.V_rest[e2]
-                    v_rst_3 = self.V_rest[e3]
-
-                    s0 = MedialSphere(ve0, v_rst_0, r0, e0)
-                    s1 = MedialSphere(ve1, v_rst_1, r1, e1)
-                    s2 = MedialSphere(ve2, v_rst_2, r2, e2)
-                    s3 = MedialSphere(ve3, v_rst_3, r3, e3)
-
-                    cons = ConeConeConstraint(s0, s1, s2, s3)
-                    dist = cons.compute_distance()
-                    if dist < 0:
-                        self.cc_set.append(cons)
-                        self.cc_id.append((i, j))
-                        ncc += 1
-                        print(f"collision detected")
-
-    def analyze(self):
         b = np.zeros(self.n_vertices * 3)
         # if self.dense:
         #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
@@ -541,11 +456,14 @@ class MedialCollisionDetector:
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3
 
+            dist = np.abs(ss.get_distance())
             g, h = ss.get_dist_gh()
-            b[e0 * 3: (e0 + 1) * 3] += g[:3]
-            b[e1 * 3: (e1 + 1) * 3] += g[3:6]
-            b[e2 * 3: (e2 + 1) * 3] += g[6:9]
-            b[e3 * 3: (e3 + 1) * 3] += g[9:12]
+            b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3]
+            b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6]
+            b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
+            b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
+            
+            h = 2 * dist * h + 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
@@ -679,21 +597,7 @@ class MedialCollisionDetector:
         return b[ret_idx], H, ret_idx
 
     def energy(self, V, R = None):
-        ee = self.collision_set_naked(V, R)
-        return ee
-        self.collision_set(V, R)
-        energy = 0.0
-        for cc, ccid in zip(self.cc_set, self.cc_id):
-            e0, e1, e2, e3 = ccid
-
-            if self.is_2_ring(e0, e1, e2, e3):
-                continue
-            dist = cc.compute_distance()
-            energy += -dist
-        
-        print(f"energy = {energy}, diff = {energy - ee}")
-        return energy
-        
+        return self.collision_set(V, R, energy_only = True)
 
         
     
