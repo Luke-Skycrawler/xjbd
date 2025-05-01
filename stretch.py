@@ -11,7 +11,7 @@ from fem.fem import tet_kernel, tet_kernel_sparse, Triplets, psi
 from warp.optim.linear import bicgstab, cg
 
 eps = 3e-4
-h = 2e-3
+h = 5e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -166,7 +166,7 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
-            ps.screenshot(f"output/{self.frame:04d}.jpg")
+            # ps.screenshot(f"output/{self.frame:04d}.jpg")
 
         
 class RodBCBase:
@@ -213,7 +213,7 @@ class RodBCBase:
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 2
+        max_iter = 20
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()

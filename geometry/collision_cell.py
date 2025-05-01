@@ -17,7 +17,7 @@ from collision.dcdx_delta import *
 
 from fem.geometry import TOBJComplex
 COLLISION_DEBUG = True
-collision_eps = 5e-3
+collision_eps = 1e-2
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048

@@ -138,7 +138,7 @@ def spin():
 
 def staggered_bars():
     n_meshes = 2 
-    meshes = ["assets/bug.tobj"] * n_meshes
+    meshes = ["assets/bar2.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
@@ -206,7 +206,6 @@ if __name__ == "__main__":
     
     # reduced_bunny_rain()
     # spin()
-    # staggered_bars()
-    staggered_bug()
+    staggered_bars()
+    # staggered_bug()
     # twist()
-    

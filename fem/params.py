@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np 
 L, W = 1, 0.2
 # mu, rho, lam = 2e6, 1., 125.0
-mu, rho, lam = 2e6, 1.0e3, 125.0
+mu, rho, lam = 2e6, 1.0e3, 0.0
 g = 10.
 n_x = 20
 n_yz = 4
