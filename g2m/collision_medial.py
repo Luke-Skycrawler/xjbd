@@ -292,11 +292,17 @@ class MedialCollisionDetector:
         self.rest_pt: Set[Tuple[int, int, int, int]] = set()
         # self.get_rest_collision_set()
         if static_objects is not None:
+            self.static_indices = static_objects.indices.numpy()
+            self.static_V = static_objects.xcs.numpy()
+            
             self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
             static_soup = TriangleSoup()
             static_soup.indices = static_objects.indices
             static_soup.vertices = static_objects.xcs
             static_soup.mesh_id = self.staic_triangles.id
+            E_static = igl.edges(self.static_indices).reshape(-1)
+            static_edges = wp.array(E_static, dtype = int)
+            static_soup.edges = static_edges
             self.static_soup = static_soup
             
             p_static_set = StaticCollisionList()
@@ -306,10 +312,6 @@ class MedialCollisionDetector:
 
             self.p_static_set = p_static_set
             self.n_static = 0
-
-
-            self.static_indices = static_objects.indices.numpy()
-            self.static_V = static_objects.xcs.numpy()
             
             TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
             self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
