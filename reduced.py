@@ -18,8 +18,8 @@ from igl import lbs_matrix
 from fast_cd import CSRTriplets, compute_Hw
 from scipy.sparse import csr_matrix, diags, block_diag
 from scipy.sparse.linalg import eigsh
-from fast_cd import model
 
+model = "bunny"
 def dxdq_jacobian(n_nodesx3, V):
     n_nodes = n_nodesx3 // 3
     q6 = np.zeros((n_nodesx3, 6))
@@ -51,6 +51,7 @@ class ReducedRodComplex(RodComplexBC):
     def define_U(self):
 
         Q = np.load(f"data/W_{model}.npy")
+        Q = Q[:, : 5]
 
         print(f"Q = {Q.shape}, Q.variance = {np.var(Q)}, Q.mean = {np.mean(Q)}")
         
@@ -90,8 +91,8 @@ class MDRodComplex(ReducedRodComplex):
         super().__init__(h, meshes, transforms)
             
     def define_U(self):
-        Q = np.load(f"data/md/Q_{model}.npy")
-        lam = np.load(f"data/md/lambda_{model}.npy")
+        Q = np.load(f"data/md/{model}/Q.npy")
+        lam = np.load(f"data/md/{model}/lambda.npy")
         Phi = np.zeros((4, 4, Q.shape[0]))
 
         for i in range(6, 10):
@@ -99,7 +100,7 @@ class MDRodComplex(ReducedRodComplex):
                 Phi[i - 6, j - 6] =  np.load(f"data/md/{model}/Phi_{i}{j}.npy")
         
         self.Phi = Phi
-        self.Q = Q
+        self.Q = Q[:, :10]
         self.lam = lam
         self.n_meshes = len(self.meshes_filename)
 
@@ -176,7 +177,8 @@ def spin():
 
 def staggered_bars():
     n_meshes = 2 
-    meshes = ["assets/bar2.tobj"] * n_meshes
+    # meshes = ["assets/bar2.tobj"] * n_meshes
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
@@ -189,8 +191,8 @@ def staggered_bars():
         transforms[i][1, 3] = 1.2 + i * 0.2
         transforms[i][2, 3] = i * 1.0
     
-    # rods = ReducedRodComplex(h, meshes, transforms)
-    rods = MDRodComplex(h, meshes, transforms)
+    rods = ReducedRodComplex(h, meshes, transforms)
+    # rods = MDRodComplex(h, meshes, transforms)
     viewer = PSViewer(rods)
     ps.set_user_callback(viewer.callback)
     ps.show()
