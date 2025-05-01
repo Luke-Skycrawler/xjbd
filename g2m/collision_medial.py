@@ -1,19 +1,20 @@
 import warp as wp
 import numpy as np
-from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle
+from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
 from fem.interface import StaticScene
 from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
 from typing import Tuple, Set
+import igl
 CC_SET_SIZE = 1024
 SS_SET_SIZE = 1024
 G_SET_SIZE = 1024
 
 ground_rel_stiffness = 10
 
-
+per_mesh_verts = 30
 COLLISION_DEBUG = False
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
@@ -131,7 +132,7 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        hack = ex[0] // 40 == ey[0] // 40
+        hack = ex[0] // per_mesh_verts == ey[0] // per_mesh_verts
         refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1]) or hack
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
@@ -154,7 +155,7 @@ def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionL
     rb = geo.radius[j]
 
     dist, _, foo, bar = compute_distance_slab_sphere(c0, c1, c2, b, r0, r1, r2, rb)
-    hack = j // 40 == slab[0] // 40
+    hack = j // per_mesh_verts == slab[0] // per_mesh_verts
     refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j or hack
     if dist < 0.0 and not refuse_cond:
         col = wp.vec4i(slab[0], slab[1], slab[2], j)
@@ -172,7 +173,7 @@ def sphere_ground_set(geo: MedialGeometry, g_list: SphereGroundCollisionList, gr
         append(g_list, i, hr)
 
 @wp.kernel
-def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, collision_list: StaticCollisionList):
+def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, collision_list: StaticCollisionList, neighbors: wp.array(dtype = int)):
     '''
     sphere collision with static triangle soup
     '''
@@ -205,7 +206,7 @@ def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, c
             if wp.dot(n, xi - xt0) < 0.0:
                 distance = -distance
             dmr = distance - ri
-            if point_projects_inside_triangle(xt0, xt1, xt2, xi): #or inside_collision_cell(triangles_soup, neighbors, y, xi):
+            if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                 append(collision_list, element, dmr * dmr)
 
 @wp.kernel
@@ -310,6 +311,9 @@ class MedialCollisionDetector:
             self.static_indices = static_objects.indices.numpy()
             self.static_V = static_objects.xcs.numpy()
             
+            TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
+            self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
+            
     def get_rest_collision_set(self):
         self.collision_set(self.V)
         rest_pt = [(i[0], i[1], i[2], i[3]) for i in self.ss_id]
@@ -373,7 +377,7 @@ class MedialCollisionDetector:
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
             self.p_static_set.E.zero_()
-            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set])
+            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
             static_energy = self.p_static_set.E.numpy()[0]
             ret += static_energy * ground_rel_stiffness
 
@@ -448,7 +452,7 @@ class MedialCollisionDetector:
 
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
-            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set])
+            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
                 
     def sphere(self, e0):
         ve0 = self.V[e0]

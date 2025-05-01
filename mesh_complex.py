@@ -266,7 +266,8 @@ def bar_rain():
     
 
 def staggered_bug():
-    model = "bunny"
+    # model = "bunny"
+    model = "bug"
     n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -281,9 +282,22 @@ def staggered_bug():
         transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
     static_meshes_file = ["assets/teapotContainer.obj"]
     scale = np.identity(4) * 3
     scale[3, 3] = 1.0
+
+    # bouncy box
+    static_meshes_file = ["assets/bouncybox.obj"]
+    box_size = 4
+    scale = np.identity(4) * box_size
+    scale[3, 3] = 1.0
+    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    for i in range(n_meshes):
+        transforms[i][1, 3] += box_size * 1.5
+        
+    
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
     # static_bars = None
     rods = RodComplexBC(h, meshes, transforms, static_bars)

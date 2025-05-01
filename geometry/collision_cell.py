@@ -291,7 +291,7 @@ def point_triangle_collision(inverted: wp.array(dtype = int), triangles_soup: Tr
                         append(collision_list, element)
 
 @wp.kernel
-def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dtype =wp.vec3), triangles_soup: TriangleSoup, collision_list: CollisionList):
+def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dtype =wp.vec3), triangles_soup: TriangleSoup, collision_list: CollisionList, neighbors: wp.array(dtype = int)):
     '''
     point collision with static triangle soup
     '''
@@ -325,7 +325,7 @@ def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dty
                 distance, _ = point_triangle_distance_wp(xt0, xt1, xt2, xi)
                 element = wp.vec2i(i, y)
                 if distance < collision_eps:
-                    if point_projects_inside_triangle(xt0, xt1, xt2, xi): #or inside_collision_cell(triangles_soup, neighbors, y, xi):
+                    if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                         append(collision_list, element)
 
 
@@ -904,6 +904,11 @@ class MeshCollisionDetector:
             p_static_set.a = wp.zeros((PT_SET_SIZE, ), dtype = wp.vec2i)
             self.p_static_set = p_static_set
             self.n_static = 0
+
+            self.static_indices = static_objects.indices.numpy()
+            TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
+            self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
+
         self.F = indices.numpy().reshape((-1, 3))
         
         self.E = igl.edges(self.F).reshape(-1)
@@ -1003,7 +1008,7 @@ class MeshCollisionDetector:
 
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
-            wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set])
+            wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set, self.static_neighbors])
             self.n_static = self.p_static_set.cnt.numpy()[0]    
         npt, nee, n_ground = self.pt_set.cnt.numpy()[0], self.ee_set.cnt.numpy()[0], self.ground_set.cnt.numpy()[0]
         
