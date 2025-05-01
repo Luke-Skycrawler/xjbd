@@ -16,7 +16,7 @@ from scipy.linalg import solve
 from scipy.io import loadmat
 from igl import lbs_matrix
 from fast_cd import CSRTriplets, compute_Hw
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, diags, block_diag
 from scipy.sparse.linalg import eigsh
 from fast_cd import model
 
@@ -84,7 +84,45 @@ class ReducedRodComplex(RodComplexBC):
         print(f"dx[1] = {np.max(np.abs(dx[:, 1]))}")
         self.states.dx.assign(dx)
         
+     
+class MDRodComplex(ReducedRodComplex):
+    def __init__(self, h, meshes = [], transforms = []) :
+        super().__init__(h, meshes, transforms)
+            
+    def define_U(self):
+        Q = np.load(f"Q_{model}.npy")
+        lam = np.load(f"lambda_{model}.npy")
+        Phi = np.zeros((4, 4, Q.shape[0]))
+
+        for i in range(6, 10):
+            for j in range(i, 10):
+                Phi[i - 6, j - 6] =  np.load(f"Phi_{i}{j}.npy")
         
+        self.Phi = Phi
+        self.Q = Q
+        self.lam = lam
+        self.n_meshes = len(self.meshes_filename)
+
+        ij_idx = np.array([[i - 6, j - 6] for i in range(6, 10) for j in range(i, 10)])
+        Phis = np.array([Phi[i, j] for i, j in ij_idx]).T
+        
+        nodes_per_mesh = self.n_nodes // self.n_meshes  
+        v4 = np.ones((nodes_per_mesh, 4))
+        xnp = self.xcs.numpy()
+        v4[:, :3] = xnp[: nodes_per_mesh]
+        v4 = np.kron(v4, np.identity(3))
+        uu = np.hstack([v4, self.Q, Phis])
+
+        self.n_modes = uu.shape[1]
+
+        self.n_reduced = self.n_modes * self.n_meshes
+        # self.U = block_diag([uu for _ in range(self.n_meshes)])
+        self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
+        for i in range(self.n_meshes):
+            self.U[i * nodes_per_mesh * 3: (i + 1) * nodes_per_mesh * 3, i * self.n_modes: (i + 1) * self.n_modes] = uu
+
+    
+   
 @wp.kernel
 def fill_J_triplets(xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
     i, j, k = wp.tid()
@@ -151,7 +189,8 @@ def staggered_bars():
         transforms[i][1, 3] = 1.2 + i * 0.2
         transforms[i][2, 3] = i * 1.0
     
-    rods = ReducedRodComplex(h, meshes, transforms)
+    # rods = ReducedRodComplex(h, meshes, transforms)
+    rods = MDRodComplex(h, meshes, transforms)
     viewer = PSViewer(rods)
     ps.set_user_callback(viewer.callback)
     ps.show()
