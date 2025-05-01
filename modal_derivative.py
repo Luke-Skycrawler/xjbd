@@ -176,6 +176,9 @@ class MDRod(Rod):
         H_ddot_Psi = self.compute_H_ddot_Psi(Psi_j)
         # H_ddot_Psi = self.to_scipy_bsr(H_ddot_Psi)
         b = H_ddot_Psi @ Psi_i
+        if not constrained: 
+            term = self.M_sparse @ np.outer(Psi_i, Psi_i) - np.identity(self.n_nodes * 3)
+            b = term @ b
         Phi_ij = spsolve(K, -b,)
 
         phiij = np.zeros((self.n_nodes * 3,))
@@ -322,6 +325,9 @@ def vis_eigs():
 def compute_md():
     rod = MDRod()
     lam, Q = rod.eigs_sparse()
+    # np.save(f"lambda_{model}.npy", lam)
+    # np.save(f"Q_{model}.npy", Q)
+    # quit()
     for i in range(6, 10):
         for j in range(i, 10):
             
