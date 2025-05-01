@@ -5,6 +5,7 @@ from tet_fem import xq_tet, Rod, PSViewer
 from scipy.sparse.linalg import splu, spsolve, eigsh
 from warp.sparse import bsr_set_from_triplets, bsr_zeros, BsrMatrix
 from scipy.sparse import diags
+from scipy.io import savemat, loadmat
 import polyscope as ps
 import polyscope.imgui as gui
 import os
@@ -12,6 +13,8 @@ import igl
 
 
 constrained = False
+model = "bunny"
+# model = "bar2"
 @wp.func
 def normal(geo: FEMMesh, e: int, _i: int) -> wp.vec3:
     v0 = geo.T[e, 0]
@@ -138,6 +141,7 @@ def compute_H(geo: FEMMesh, quadplets: Quadplets, W: wp.array(dtype =float), pre
 
 class MDRod(Rod):
     def __init__(self):
+        self.filename = f"assets/{model}/{model}.tobj"
         super().__init__()
         self.define_M()
         self.md_precompute_once()
@@ -170,7 +174,7 @@ class MDRod(Rod):
             '''
             K_bar = K - lam_i M + Psi_i Psi_i ^ T
             '''
-            K = self.K_bar - lam_i * self.M_sparse + np.outer(Psi_i, Psi_i)
+            K = self.K_bar - lam_i * self.M_sparse# + np.outer(Psi_i, Psi_i)
         
         # K_solve = splu(K, )
         H_ddot_Psi = self.compute_H_ddot_Psi(Psi_j)
@@ -187,7 +191,7 @@ class MDRod(Rod):
         else: 
             phiij = Phi_ij
 
-        print(f"b norm = {np.linalg.norm(b)}, Phi ij @ K - b = {np.linalg.norm(K @ Phi_ij + b)} ")
+        print(f"b norm = {np.linalg.norm(b)}, Phi ij @ K - b = {np.linalg.norm(K @ Phi_ij + b)}, lam_i = {lam_i}")
         return phiij
 
     def sort_quadplets(self):
@@ -283,25 +287,49 @@ class MDRod(Rod):
         # tilde_K = na1.T @ K @ na1
         # tilde_M = na1.T @ M @ na1
 
-        lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
+        dim = tilde_K.shape[0]
+        if dim >= 3000:
+            self.eigs_export(tilde_K, tilde_M.tocsr())
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                import matlab.engine
+                eng = matlab.engine.start_matlab()
+                eng.nullspace()
+                data = loadmat(f"data/eigs/Q_{model}.mat")
+                Ql = data["Vv"].astype(np.float64)
+                lam = data["D"].astype(np.float64).diagonal()
+
+        else:
+            lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
 
         Q = np.zeros((self.n_nodes * 3, 10))
         if constrained:
             Q[75:] = Ql
         else:
-            Q = Ql
+            Q[:] = Ql[:, :10]
         # Ql = na1 @ Ql
         # Q = Ql[: self.n_nodes * 3]
 
         return lam, Q
         
+    def eigs_export(self, K, M):
+        f = f"data/eigs/{model}.mat"
+        savemat(f, {"K": K, "M": M}, long_field_names= True)
+        print(f"exported matrices to {f}")
+
 def vis_eigs():
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
     # rod = Rod("assets/elephant.mesh")
     rod = MDRod()
-    lam, Q = rod.eigs_sparse()
+    if not os.path.exists(f"data/eigs/{model}.mat"):
+        lam, Q = rod.eigs_sparse()
+    else: 
+        data = loadmat(f"data/eigs/Q_{model}.mat")
+        lam = data["D"].astype(np.float64).diagonal(-1)
+        Q = data["Vv"].astype(np.float64)[:, :10]
+        
     i, j = 6, 8
     assert i <= j, "i <= j"
     Psi_i = Q[:, i]
@@ -310,7 +338,7 @@ def vis_eigs():
     if True:
         phiij = rod.modal_derivatives(Psi_i, Psi_j, lam[i])
         
-        np.save(f"Phi_{i}{j}.npy", phiij)
+        # np.save(f"Phi_{i}{j}.npy", phiij)
     else: 
         phiij = np.load(f"Phi_{i}{j}.npy")
 
@@ -318,15 +346,20 @@ def vis_eigs():
     mid, V0, F = rod.mid, rod.V0, rod.F
 
     viewer = PSViewer(Q, V0, F)
-    # np.save(f"Q_{model}.npy", Q)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
 def compute_md():
     rod = MDRod()
-    lam, Q = rod.eigs_sparse()
-    # np.save(f"lambda_{model}.npy", lam)
-    # np.save(f"Q_{model}.npy", Q)
+    if not os.path.exists(f"data/eigs/{model}.mat"):
+        lam, Q = rod.eigs_sparse()
+    else: 
+        data = loadmat(f"data/eigs/Q_{model}.mat")
+        lam = data["D"].astype(np.float64).diagonal()
+        Q = data["Vv"].astype(np.float64)[:, :10]
+
+        np.save(f"data/md/{model}/lambda.npy", lam)
+        np.save(f"data/md/{model}/Q.npy", Q)
     # quit()
     for i in range(6, 10):
         for j in range(i, 10):
@@ -335,13 +368,12 @@ def compute_md():
             Psi_j = Q[:, j]
             if True:
                 phiij = rod.modal_derivatives(Psi_i, Psi_j, lam[i])
-                np.save(f"Phi_{i}{j}.npy", phiij)
+                np.save(f"data/md/{model}/Phi_{i}{j}.npy", phiij)
     
 
 
 class MDViewer:
-    def __init__(self, Q, V0, F):
-        self.Q = Q
+    def __init__(self, V0, F):
         # self.Phi = Phi
         self.V0 = V0
         self.F = F
@@ -351,6 +383,9 @@ class MDViewer:
         self.ui_mode_j = 5
 
         self.ui_magnitude = 2
+        
+        self.Q = np.load(f"data/md/{model}/Q.npy")
+        
     def callback(self):
         '''
         if mode j < 6, display linear modes Psi i
@@ -371,7 +406,7 @@ class MDViewer:
         else:
             i = min(self.ui_deformed_mode, self.ui_mode_j)
             j = max(self.ui_deformed_mode, self.ui_mode_j)
-            Phi_ij = np.load(f"Phi_{i}{j}.npy")
+            Phi_ij = np.load(f"data/md/{model}/Phi_{i}{j}.npy")
             disp = Phi_ij
 
         disp = self.ui_magnitude * disp
@@ -387,10 +422,9 @@ def view_md():
     wp.init()
     rod = MDRod()
     mid, V0, F = rod.mid, rod.V0, rod.F
-    lam, Q = rod.eigs_sparse()
+    # lam, Q = rod.eigs_sparse()
 
-    viewer = MDViewer(Q, V0, F)
-    # np.save(f"Q_{model}.npy", Q)
+    viewer = MDViewer(V0, F)
     ps.set_user_callback(viewer.callback)
     ps.show()
 

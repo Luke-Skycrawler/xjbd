@@ -90,13 +90,13 @@ class MDRodComplex(ReducedRodComplex):
         super().__init__(h, meshes, transforms)
             
     def define_U(self):
-        Q = np.load(f"Q_{model}.npy")
-        lam = np.load(f"lambda_{model}.npy")
+        Q = np.load(f"data/md/Q_{model}.npy")
+        lam = np.load(f"data/md/lambda_{model}.npy")
         Phi = np.zeros((4, 4, Q.shape[0]))
 
         for i in range(6, 10):
             for j in range(i, 10):
-                Phi[i - 6, j - 6] =  np.load(f"Phi_{i}{j}.npy")
+                Phi[i - 6, j - 6] =  np.load(f"data/md/{model}/Phi_{i}{j}.npy")
         
         self.Phi = Phi
         self.Q = Q

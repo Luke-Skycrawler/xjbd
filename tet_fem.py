@@ -99,7 +99,8 @@ def tet_kernel_sparse(geo: FEMMesh, triplets: Triplets, W: wp.array(dtype = floa
 
 class TetFEM:
     def __init__(self):
-        self.filename = "assets/bar2.tobj"
+        if not hasattr(self, "filename"):
+            self.filename = "assets/bar2.tobj"
         super().__init__()
         self.W = wp.zeros((self.n_tets), dtype = float)
         self.geo = FEMMesh()
@@ -158,7 +159,7 @@ class PSViewer:
     def callback(self):
         Qi = self.Q[:, self.ui_deformed_mode]
 
-        disp = self.ui_magnitude * Qi * 1e-2
+        disp = self.ui_magnitude * Qi
         disp = disp.reshape((-1, 3))
 
         self.V_deform = self.V0 + disp 
@@ -188,7 +189,6 @@ def vis_eigs():
     # rod = Rod("assets/elephant.mesh")
     rod = Rod()
     lam, Q = None, None
-    # if not os.path.exists(f"Q_{model}.npy"):
     if True:
         lam, Q = rod.eigs_sparse()
         # lam, Q = rod.eigs_sparse()
@@ -202,7 +202,6 @@ def vis_eigs():
     mid, V0, F = rod.mid, rod.V0, rod.F
 
     viewer = PSViewer(Q, V0, F)
-    # np.save(f"Q_{model}.npy", Q)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
