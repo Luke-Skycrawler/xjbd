@@ -142,23 +142,22 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
 @wp.kernel
 def cone_cone_collision_set_static(geo: MedialGeometry, geo_static: MedialGeometry, cc_list: ConeConeCollisionList):
     i, j = wp.tid()
-    if i < j:
-        ex = geo.edges[i]
-        c0 = geo.vertices[ex[0]]
-        c1 = geo.vertices[ex[1]]
-        r0 = geo.radius[ex[0]]
-        r1 = geo.radius[ex[1]]
+    ex = geo.edges[i]
+    c0 = geo.vertices[ex[0]]
+    c1 = geo.vertices[ex[1]]
+    r0 = geo.radius[ex[0]]
+    r1 = geo.radius[ex[1]]
 
-        ey = geo_static.edges[j]
-        c2 = geo_static.vertices[ey[0]]
-        c3 = geo_static.vertices[ey[1]]
-        r2 = geo_static.radius[ey[0]]
-        r3 = geo_static.radius[ey[1]]
-        dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
+    ey = geo_static.edges[j]
+    c2 = geo_static.vertices[ey[0]]
+    c3 = geo_static.vertices[ey[1]]
+    r2 = geo_static.radius[ey[0]]
+    r3 = geo_static.radius[ey[1]]
+    dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
 
-        if dist < 0.0:
-            col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
-            append(cc_list, col, dist)
+    if dist < 0.0:
+        col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
+        append(cc_list, col, dist)
 
 @wp.kernel
 def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionList):
@@ -386,30 +385,34 @@ class MedialCollisionDetector:
 
     def collision_set(self, V, R = None, energy_only = False):
         self.refit(V, R)
+        ret = 0.0
+        if ss_colliison:
+            self.pt_set.cnt.zero_()
+            self.pt_set.E.zero_()
+            wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set])
+            ret += self.pt_set.E.numpy()[0]
 
-        self.pt_set.cnt.zero_()
-        self.pt_set.E.zero_()
-        wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set])
+        if cc_collision:
+            self.ee_set.cnt.zero_()
+            self.ee_set.E.zero_()
+            wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
+            ret += self.ee_set.E.numpy()[0]
 
-        self.ee_set.cnt.zero_()
-        self.ee_set.E.zero_()
-        wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
 
-        ret = self.pt_set.E.numpy()[0] + self.ee_set.E.numpy()[0]
-
-        if self.ground is not None:
+        if self.ground is not None and sg_collision:
             self.g_set.cnt.zero_()
             self.g_set.E.zero_()
             wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
             ret += self.g_set.E.numpy()[0] * ground_rel_stiffness
 
         if hasattr(self, "static_soup"):
-            self.p_static_set.cnt.zero_()
-            self.p_static_set.E.zero_()
-            wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
-            ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
+            if sg_collision:
+                self.p_static_set.cnt.zero_()
+                self.p_static_set.E.zero_()
+                wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
+                ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
 
-            if self.static_objects.has_medials:
+            if self.static_objects.has_medials and cc_static_collision:
                 # only cone-cone collision
                 self.ee_static_set.cnt.zero_()
                 self.ee_static_set.E.zero_()
@@ -428,6 +431,16 @@ class MedialCollisionDetector:
         return s0
 
     def analyze(self):
+
+        b = np.zeros(self.n_vertices * 3)
+        # if self.dense:
+        #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+
+        rows = []
+        cols = []
+        blocks = []
+        self.indices_set.clear()
+
         nss = self.pt_set.cnt.numpy()[0]
         ss_id = self.pt_set.a.numpy()[:nss]
         ncc = self.ee_set.cnt.numpy()[0]
@@ -482,14 +495,6 @@ class MedialCollisionDetector:
             if len(self.cc_set):
                 print(f"{len(self.cc_set)} collision detected")
 
-        b = np.zeros(self.n_vertices * 3)
-        # if self.dense:
-        #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
-
-        rows = []
-        cols = []
-        blocks = []
-        self.indices_set.clear()
         for ss, ssid in zip(self.ss_set, self.ss_id):
             e0, e1, e2, e3 = ssid
 

@@ -73,7 +73,7 @@ class MedialRodComplexDebug(RodComplexBC):
     def load_Q(self, model):
         # Q = np.load("data/W_bug.npy")
         Q = np.load(f"data/W_{model}.npy")
-        self.Q = Q[:, :]
+        self.Q = Q[:, :1]
         self.Q[:, 0] = 1.0
         
         

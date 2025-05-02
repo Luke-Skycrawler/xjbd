@@ -16,12 +16,12 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 ad_hoc = True
-medial_collision_stiffness = 1e7
+medial_collision_stiffness = 1e9
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
@@ -176,14 +176,15 @@ class MedialVABD(MedialRodComplex):
             jac = self.lbs_matrix(V, w)
             
             diags0.append(jac[:, :12])
-            diags_tilde.append(jac[:, 12:])
+            if self.Q.shape[1] > 1:
+                diags_tilde.append(jac[:, 12:])
             # self.U0[start: end, 12 * i: 12 * (i + 1)] = rhs
 
 
             # self.U_tilde[start:end, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.lbs_matrix(V, self.Q[:, 1:])
 
         self.U0 = block_diag(diags0)
-        self.U_tilde = block_diag(diags_tilde)
+        self.U_tilde = block_diag(diags_tilde) if self.Q.shape[1] > 1 else None
 
         # fill Um_tilde 
         
@@ -206,8 +207,9 @@ class MedialVABD(MedialRodComplex):
             diags0.append(j0i)
             diags_tilde.append(jti)
 
-            di = self.lbs_no_kron(Vmi, self.W_medial[:, 1:])
-            self.diags_tilde_lhs.append(di)
+            if self.Q.shape[1] > 1: 
+                di = self.lbs_no_kron(Vmi, self.W_medial[:, 1:])
+                self.diags_tilde_lhs.append(di)
 
         self.Um0 = block_diag(diags0)
         self.Um_tilde = block_diag(diags_tilde)
@@ -240,6 +242,8 @@ class MedialVABD(MedialRodComplex):
         return np.transpose(f, axes = (0, 2, 1))
 
     def prefactor_once(self):
+        if self.Q.shape[1] <= 1:
+            return
         h = self.h
         self.compute_K()
         self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
@@ -335,7 +339,6 @@ class MedialVABD(MedialRodComplex):
     def solve(self):
         self.A0[:] = 0.
         self.b0[:] = 0.
-        self.b_tilde[:] = 0.
 
         h2 = self.h * self.h
         
@@ -354,7 +357,7 @@ class MedialVABD(MedialRodComplex):
                 self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
 
         # set b_tilde
-        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement()
+        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if self.Q.shape[1] > 1 else 0.
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
         # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
@@ -380,7 +383,8 @@ class MedialVABD(MedialRodComplex):
             # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
             # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
             # np.save("A_tilde_K0.npy", self.A_tilde)
-            A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
+            if self.Q.shape[1] > 1:
+                A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
 
         b_sys = np.zeros(self.n_reduced)
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
@@ -480,7 +484,10 @@ class MedialVABD(MedialRodComplex):
             ff = self.get_F_batch()
             e = self.ortho.energy_batch(ff)
             ret = np.sum(e * self.sum_W) * h2
-        return ret + self.z_tilde @ self.K0 @ self.z_tilde * 0.5
+
+        if self.Q.shape[1] > 1:
+            ret += self.z_tilde @ self.K0 @ self.z_tilde * 0.5
+        return ret
 
     def compute_inertia(self):
         with wp.ScopedTimer("inertia"):
@@ -489,8 +496,10 @@ class MedialVABD(MedialRodComplex):
             z0 = self.extract_z0(self.z)
             dz0 = z0 - zh
 
-            dzt = self.z_tilde - self.z_tilde_hat()
-            ret = (dz0 @ self.mm @ dz0 + dzt @ self.M_tilde @ dzt) * 0.5
+            ret = (dz0 @ self.mm @ dz0) * 0.5
+            if self.Q.shape[1] > 1:
+                dzt = self.z_tilde - self.z_tilde_hat()
+                ret += dzt @ self.M_tilde @ dzt * 0.5
         return ret
     
     # def compute_inertia2(self):
@@ -584,6 +593,8 @@ class MedialVABD(MedialRodComplex):
         self.frame = 0
 
     def compute_Um_tildeT(self):
+        if self.Q.shape[1] <= 1:
+            return np.zeros((0, self.n_medial * 3), float)
         diags = []
         for i in range(self.n_meshes):
             fi = self.get_F(i)
@@ -656,9 +667,12 @@ class MedialVABD(MedialRodComplex):
                 # self.add_collision_to_sys_matrix(triplets)
 
                 U_prime = self.compute_U_prime()
-        
-                U_tildeT = U_prime @ self.U_tilde.T
-                U_sys = vstack([self.U0.T, U_tildeT])
+                
+                if self.Q.shape[1] > 1:
+                    U_tildeT = U_prime @ self.U_tilde.T
+                    U_sys = vstack([self.U0.T, U_tildeT])
+                else:
+                    U_sys = self.U0.T
                 self.A_sys_col = U_sys @ (H * h * h) @ U_sys.T
                 self.b_sys_col = U_sys @ -g * h * h
 
