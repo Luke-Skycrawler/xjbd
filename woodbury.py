@@ -21,6 +21,13 @@ class Woodbury:
         self.V = V
         self.A_inv_U = self.apply_inv_A(self.U)
         self.central_term = inv(self.C) + self.V @ self.A_inv_U
+
+    def apply_inv_central(self, rhs):
+        b = self.C @ rhs
+        A = self.C @ self.V @ self.A_inv_U + np.identity(self.U.shape[1])
+        x = solve(A, b)
+        return x
+
     def solve(self, b):
         vi = self.apply_inv_A(b)
         VA_inv = self.V @ vi
@@ -31,7 +38,8 @@ class Woodbury:
         term1 = vi
 
         # print(f"VA_inv shape = {VA_inv.shape}, b shape = {b.shape}, central term shape = {self.central_term.shape}")
-        tmp = solve(self.central_term, VA_inv)
+        tmp = self.apply_inv_central(VA_inv)
+        # tmp = solve(self.central_term, VA_inv)
         # print(f"tmp = {tmp}")
         term2 = self.A_inv_U @ tmp
 
@@ -49,7 +57,7 @@ def test():
     U = np.random.ranf((n, k))
     V = np.random.ranf((k, n))
     C = np.random.ranf((k, k))
-    C = C + C.T
+    # C = C + C.T
 
     wb = Woodbury(A)
     wb.update(U, C, V)
@@ -59,7 +67,7 @@ def test():
             x0 = wb.solve(b)
 
     with wp.ScopedTimer("direct solve"):
-        for _ in range(20):
+        for _ in range(10):
             x1 = solve(A +  U @ C @ V, b)
     print(f"diff = {np.linalg.norm(x0 - x1)}, x0 norm = {np.linalg.norm(x0)}, x1 norm = {np.linalg.norm(x1)}")
 

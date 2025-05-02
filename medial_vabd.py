@@ -21,7 +21,7 @@ medial_collision_stiffness = 1e9
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "direct"  # default for medial proxy
+solver_choice = "woodbury"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
@@ -64,10 +64,10 @@ class WoodburySolver:
         self.lu0, self.piv0 = lu_factor(self.A0)
         
         self.k = self.U.shape[1]
-        self.add_rank = self.k > 0 and np.linalg.det(self.C) > 1e-5
+        self.add_rank = self.k > 0# and np.abs(np.linalg.det(self.C)) > 1e-5
         if self.add_rank:
             self.A_inv_U = self.apply_inv_A(self.U)
-            self.central_term = inv(self.C) + self.V @ self.A_inv_U 
+            # self.central_term = inv(self.C) + self.V @ self.A_inv_U 
 
     def apply_inv_A(self, b):
         # x_tilde = lu_solve((self.lu, self.piv), b[self.A0_dim:])
@@ -77,6 +77,12 @@ class WoodburySolver:
         # x0 = solve(self.A0, b[:self.A0_dim])
         return np.concatenate([x0, x_tilde])
     
+    def apply_inv_central(self, rhs):
+        b = self.C @ rhs
+        A = self.C @ self.V @ self.A_inv_U + np.identity(self.k)
+        x = solve(A, b)
+        return x
+
     def solve(self, b):
         vi = self.apply_inv_A(b) 
         term1 = vi
@@ -84,7 +90,8 @@ class WoodburySolver:
         if self.add_rank:
             VA_inv = self.V @ vi 
             
-            tmp = solve(self.central_term, VA_inv)
+            tmp = self.apply_inv_central(VA_inv)
+            # tmp = solve(self.central_term, VA_inv)
             term2 = self.A_inv_U @ tmp
         else:
             return term1
@@ -400,7 +407,12 @@ class MedialVABD(MedialRodComplex):
                 dz_sys_wb = self.solver.solve(b_sys + self.b_sys_col)
         
             if solver_choice == "compare":
-                print(f"diff from solvers = {np.linalg.norm(dz_sys - dz_sys_wb)}")
+                nd = np.linalg.norm(dz_sys - dz_sys_wb)
+                ndz = np.linalg.norm(dz_sys)
+                print(f"diff from solvers = {nd}, norm = {ndz}")
+                if nd / ndz > 1e-2:
+                    print("error: solvers are not consistent")
+                    quit()
             elif solver_choice == "woodbury":
                 dz_sys = dz_sys_wb
 
@@ -466,7 +478,7 @@ class MedialVABD(MedialRodComplex):
 
             e1c = self.compute_collision_energy()
             E1 = e10 + e1c
-            print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
+            # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
             if alpha < 1e-3:
@@ -643,7 +655,7 @@ class MedialVABD(MedialRodComplex):
             self.A_sys_col = step1 @ Um_sys.T
         
         self.U_col = Um_sys
-        self.C_col = H
+        self.C_col = H * term
 
 
 
