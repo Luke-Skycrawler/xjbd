@@ -15,7 +15,8 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-model = "bunny"
+# model = "bunny"
+model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):

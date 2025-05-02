@@ -16,7 +16,7 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 ad_hoc = True
-medial_collision_stiffness = 1e9
+medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -442,7 +442,7 @@ class MedialVABD(MedialRodComplex):
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-4
+        return norm_dz < 1e-3
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -481,7 +481,7 @@ class MedialVABD(MedialRodComplex):
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
-            if alpha < 1e-3:
+            if alpha < 1e-2:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0
