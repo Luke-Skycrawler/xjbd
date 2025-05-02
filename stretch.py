@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 5e-3
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -173,7 +173,7 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
-            # ps.screenshot(f"output/{self.frame:04d}.jpg")
+            ps.screenshot(f"output/{self.frame:04d}.jpg")
 
         
 class RodBCBase:

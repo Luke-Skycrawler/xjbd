@@ -81,5 +81,21 @@ class TetBaryCentricCompute:
             W[i] = Wp[T[tid]].T @ self.bc[i]
         return W
 
+    def compute_deformation(self, U):
+        '''
+        U: 3n * m
+        return: 3 n_medial * m
+        '''
+        n = U.shape[0] // 3
+        m = U.shape[1]
+        Um = np.zeros((self.slabmesh.V.shape[0] * 3, U.shape[1]), float)
+        T = self.T
+        for i in range(m):
+            ui = U[:, i].reshape(-1, 3)
+            for j, tid in enumerate(self.tids):
+                uj = ui[T[tid]].T @ self.bc[j]
+                Um[j * 3: (j + 1) * 3, i] = uj
+        return Um
+
 if __name__ == "__main__":
     tbtt = TetBaryCentricCompute("bug", 30)

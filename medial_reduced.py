@@ -231,8 +231,8 @@ class MedialRodComplex(MedialRodComplexDebug):
 
         self.n_reduced = self.n_modes * self.n_meshes
         self.z = np.zeros(self.n_reduced)
-        self.z[:9] = vec(np.identity(3))
-        self.z[self.n_modes: self.n_modes + 9] = vec(np.identity(3))
+        for i in range(self.n_meshes):
+            self.z[i * self.n_modes: i * self.n_modes + 9] = vec(np.identity(3))
         
         self.dz = np.zeros_like(self.z)
 
