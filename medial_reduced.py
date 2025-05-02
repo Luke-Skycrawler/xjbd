@@ -273,9 +273,11 @@ class MedialRodComplex(MedialRodComplexDebug):
         v4[:, :3] = V0
         R0 = self.slabmesh.R
         E0 = self.slabmesh.E
+        F0 = self.slabmesh.F
         
         R = np.zeros(0, float)
-        E = np.zeros((0, 2), float)
+        E = np.zeros((0, 2), int)
+        F = np.zeros((0, 3), int)
         V = np.zeros((0, 3))
         self.n_mdeial_per_mesh = V0.shape[0]
 
@@ -283,9 +285,14 @@ class MedialRodComplex(MedialRodComplexDebug):
             Vi = (v4 @ self.transforms[i].T)[:, : 3]
             cnt = i * self.n_mdeial_per_mesh
             V = np.vstack([V, Vi])
+            J3 = np.linalg.det(self.transforms[i][:3, :3])
+            J = np.abs(np.power(J3, 1 / 3))
+            # R = np.concatenate([R, np.copy(R0) * J])
             R = np.concatenate([R, np.copy(R0)])
             E = np.vstack((E, E0 + cnt))
+            F = np.vstack((F, F0 + cnt))
 
+        self.F_medial = F
         self.E_medial = E
         self.V_medial_rest = np.copy(V)
         self.V_medial = np.zeros_like(V)
@@ -296,7 +303,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F, ground = 0.0, static_objects = self.static_meshes)
+            self.V_medial, self.R_rest, self.E_medial, self.F_medial, ground = 0.0, static_objects = self.static_meshes)
 
         self.n_medial = self.V_medial.shape[0]
 

@@ -2,14 +2,23 @@ from fem.interface import TOBJComplex
 from g2m.medial import SlabMesh
 import os
 import numpy as np
+from mipctk import MedialSphere
 class StaticScene(TOBJComplex):
     def __init__(self, meshes = [], transforms = []):
         self.meshes_filename = meshes
         self.transforms = transforms
         super().__init__()
-        self.define_medials()
+        self.has_medials = self.define_medials()
         
-            
+    def sphere(self, i):
+        if not self.has_medials:
+            return None
+        vi = self.V_medial[i]
+        ri = self.R[i]
+        v_rst = self.V_medial_rest[i]
+        s = MedialSphere(vi, v_rst, ri, i)
+        return s
+
     def define_medials(self):
         assert len(self.meshes_filename) == 1
         f = self.meshes_filename[0]
@@ -24,9 +33,11 @@ class StaticScene(TOBJComplex):
             v4[:, :3] = V0
             R0 = slabmesh.R
             E0 = slabmesh.E
+            F0 = slabmesh.F
             
             R = np.zeros(0, float)
-            E = np.zeros((0, 2), float)
+            E = np.zeros((0, 2), int)
+            F = np.zeros((0, 3), int)
             V = np.zeros((0, 3))
             nvpm = V0.shape[0]
 
@@ -38,7 +49,9 @@ class StaticScene(TOBJComplex):
                 J = np.abs(np.power(J3, 1 / 3))
                 R = np.concatenate([R, np.copy(R0) * J])
                 E = np.vstack((E, E0 + cnt))
+                F = np.vstack((F, F0 + cnt))
 
+            self.F_medial = F
             self.E_medial = E
             self.V_medial_rest = np.copy(V)
             self.V_medial = np.zeros_like(V)
@@ -49,3 +62,6 @@ class StaticScene(TOBJComplex):
             self.R[:] = self.R_rest
 
             self.n_medial = self.V_medial.shape[0]
+            return True
+        else: 
+            return False

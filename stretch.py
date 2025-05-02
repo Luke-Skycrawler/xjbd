@@ -147,6 +147,12 @@ class PSViewer:
             Fs = static_mesh.indices.numpy().reshape((-1, 3))
             self.static_mesh = ps.register_surface_mesh("static", Vs, Fs)
             # self.static_mesh.add_vector_quantity("normal", static_mesh.N, defined_on="faces")
+            if static_mesh.has_medials:
+                self.static_medials = ps.register_curve_network("static medial", static_mesh.V_medial, static_mesh.E_medial)
+                self.static_spheres = ps.register_point_cloud("static spheres", static_mesh.V_medial)
+                self.static_spheres.add_scalar_quantity("radius", static_mesh.R)
+                self.static_spheres.set_point_radius_quantity("radius", autoscale=False)
+
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
         self.animate = gui.Button("Step") or not self.ui_pause
