@@ -18,7 +18,7 @@ from collision.dcdx_delta import *
 from geometry.static_scene import StaticScene
 
 COLLISION_DEBUG = True
-collision_eps = 1e-2
+collision_eps = 5e-3
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
@@ -66,10 +66,14 @@ def append(cl: CollisionList, element: wp.vec2i):
 
 @wp.func
 def append(cl: EdgeEdgeCollisionList, element: wp.vec2i, bary: wp.vec3):
-    id = wp.atomic_add(cl.cnt, 0, 1)
+    id = wp.atomic_add(cl.cnt, 0, 2)
     if id <  EE_SET_SIZE:
         cl.a[id] = element
         cl.bary[id] = bary
+        el2 = wp.vec2i(element[1], element[0])
+        bary2 = wp.vec3(bary[1], bary[0], bary[2])
+        cl.a[id + 1] = el2
+        cl.bary[id + 1] = bary2
 
 @wp.kernel
 def compute_inverted_vertex_single_mesh(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), inverted: wp.array(dtype = int)):
@@ -303,8 +307,8 @@ def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dty
         pass
     else: 
         xi = points[i]
-        low = xi - wp.vec3(collision_eps)
-        high = xi + wp.vec3(collision_eps)
+        low = xi - wp.vec3(collision_eps * 10.0)
+        high = xi + wp.vec3(collision_eps * 10.0)
 
         query = wp.mesh_query_aabb(triangles_soup.mesh_id, low, high)
         # iterates all triangles intersecting the dialated point volume
@@ -326,7 +330,7 @@ def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dty
 
                 distance, _ = point_triangle_distance_wp(xt0, xt1, xt2, xi)
                 element = wp.vec2i(i, y)
-                if distance < collision_eps:
+                if distance < collision_eps * 10.0:
                     if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                         append(collision_list, element)
 
@@ -362,6 +366,9 @@ def edge_edge_collison(triangle_soup0: TriangleSoup, triangle_soup1: TriangleSou
     y = int(0)
 
     while wp.bvh_query_next(query, y):
+        # ensure x < y
+        if x >= y:
+            break
         # find closest other edge
         iy0 = triangle_soup1.edges[y * 2 + 0]
         iy1 = triangle_soup1.edges[y * 2 + 1]
@@ -1039,7 +1046,7 @@ class MeshCollisionDetector:
             wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set, self.static_neighbors])
             self.n_static = self.p_static_set.cnt.numpy()[0]    
             self.ee_static_set.cnt.zero_()
-            wp.launch(edge_edge_collison, dim = self.n_edges, inputs = [self.edges, self.static_soup, self.static_edges_bvh.id, self.ee_static_set])
+            # wp.launch(edge_edge_collison, dim = self.n_edges, inputs = [self.edges, self.static_soup, self.static_edges_bvh.id, self.ee_static_set])
             self.n_static_ee = self.ee_static_set.cnt.numpy()[0]
         npt, nee, n_ground = self.pt_set.cnt.numpy()[0], self.ee_set.cnt.numpy()[0], self.ground_set.cnt.numpy()[0]
         
@@ -1061,7 +1068,7 @@ class MeshCollisionDetector:
             self.n_static = min(self.n_static, PT_SET_SIZE)
             wp.launch(collision_energy_static, (self.n_static, ), inputs = [self.p_static_set, self.xcs, self.static_soup, self.inverted, self.stiffness, self.e_col])
             self.n_static_ee = min(self.n_static_ee, EE_SET_SIZE)   
-            wp.launch()
+            # wp.launch()
 
         ret = self.e_col.numpy()[0]
         if COLLISION_DEBUG:

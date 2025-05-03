@@ -78,7 +78,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0
-            max_iter = 2
+            max_iter = 8
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{n_iter}"):
@@ -265,8 +265,8 @@ def bar_rain():
     
 
 def staggered_bug():
-    # model = "bunny"
-    model = "bug"
+    model = "bunny"
+    # model = "bug"
     n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
