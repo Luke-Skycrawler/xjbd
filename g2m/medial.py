@@ -46,8 +46,15 @@ class SlabMesh:
         self.F = np.array(faces).reshape(-1, 3)
         E = igl.edges(self.F) if self.F.shape[0] > 0 else np.zeros((0, 2), dtype = int)
         E = np.concatenate((self.E0, E))
-        sorted_edges = np.sort(E, axis=1)
-        unique_edges = np.unique(sorted_edges, axis=0)
+        E = np.sort(E, axis = 1)
+        sorted_idx = np.lexsort((E[:, 0], E[:, 1]))
+        sorted_edges = E[sorted_idx]
+        select = np.ones(sorted_edges.shape[0], int)
+        for i in range(1, sorted_edges.shape[0]):
+            if sorted_edges[i, 0] == sorted_edges[i - 1, 0] and sorted_edges[i, 1] == sorted_edges[i - 1, 1]:
+                select[i] = 0
+        unique_edges = sorted_edges[select == 1]
+        # unique_edges = np.unique(sorted_edges, axis=0)        
         self.E = unique_edges
         
 
