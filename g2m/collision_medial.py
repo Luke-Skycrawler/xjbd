@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
 from geometry.static_scene import StaticScene
-from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
+from mtk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
@@ -14,7 +14,7 @@ G_SET_SIZE = 1024
 
 ground_rel_stiffness = 10
 
-per_mesh_verts = 40
+per_mesh_verts = 30
 COLLISION_DEBUG = False
 
 cc_collision = True
@@ -479,8 +479,8 @@ class MedialCollisionDetector:
                 continue
             e0, e1, e2, e3 = id
 
-            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                continue
+            # if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
+            #     continue
 
             s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.sphere(e2), self.sphere(e3)
 
@@ -498,8 +498,6 @@ class MedialCollisionDetector:
         for ss, ssid in zip(self.ss_set, self.ss_id):
             e0, e1, e2, e3 = ssid
 
-            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                continue
 
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3

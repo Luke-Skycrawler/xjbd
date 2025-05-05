@@ -2,7 +2,7 @@ from fem.interface import TOBJComplex
 from g2m.medial import SlabMesh
 import os
 import numpy as np
-from mipctk import MedialSphere
+from mtk import MedialSphere
 class StaticScene(TOBJComplex):
     def __init__(self, meshes = [], transforms = []):
         self.meshes_filename = meshes
