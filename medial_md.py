@@ -19,7 +19,7 @@ from g2m.bary_centric import TetBaryCentricCompute
 from g2m.medial import SlabMesh
 from g2m.collision_medial import MedialCollisionDetector
 collider_choice = "medial"
-medial_collision_stiffness = 1e8
+medial_collision_stiffness = 1e7
 def vec(t):
     return (t.T).reshape(-1)
 
@@ -244,14 +244,14 @@ class MedialMD(RodComplexBC):
 def staggered_bug():
     model = "bunny"
     # model = "bug"
-    n_meshes = 2
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
     transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 1] = 1
-    transforms[-1][1, 0] = 1
-    transforms[-1][2, 2] = 1
+    transforms[-1][0, 1] = 1.5
+    transforms[-1][1, 0] = 1.5
+    transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
@@ -284,7 +284,6 @@ def staggered_bug():
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
-
 if __name__ == "__main__":
     ps.init()
     ps.set_ground_plane_height(-collision_eps)

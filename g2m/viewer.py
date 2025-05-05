@@ -1,7 +1,7 @@
 from stretch import PSViewer
 import polyscope as ps
 import polyscope.imgui as gui
-
+import numpy as np
 class MedialViewerInterface:
     '''
     super() should define the following attributes:
@@ -38,6 +38,8 @@ class MedialViewerSocket(PSViewer):
         self.R_rest = self.rod.R_rest
 
         self.E = rod.E_medial
+
+        np.save("output/medial/E.npy", self.E)
     
 class MedialViewer(MedialViewerInterface, MedialViewerSocket):
     def __init__(self, rod, static_mesh = None):
@@ -52,6 +54,10 @@ class MedialViewer(MedialViewerInterface, MedialViewerSocket):
         self.R[:] = R
         super().update_medial()
 
+    def save(self):
+        super().save()
+        np.save(f"output/medial/V{self.frame:04d}.npy", self.V_medial)
+        np.save(f"output/medial/R{self.frame:04d}.npy", self.R)
 
     def callback(self):
         super().callback()

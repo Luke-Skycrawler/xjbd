@@ -143,7 +143,7 @@ class PSViewer:
         self.ui_pause = True
         self.animate = False
         
-        self.end_frame = 3000
+        self.end_frame = 4000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
@@ -155,6 +155,10 @@ class PSViewer:
                 self.static_spheres = ps.register_point_cloud("static spheres", static_mesh.V_medial)
                 self.static_spheres.add_scalar_quantity("radius", static_mesh.R)
                 self.static_spheres.set_point_radius_quantity("radius", autoscale=False)
+
+    def save(self):
+        ps.screenshot(f"output/{self.frame:04d}.jpg")
+        igl.write_obj(f"output/obj/{self.frame:04d}.obj", self.V, self.F)
 
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
@@ -177,7 +181,7 @@ class PSViewer:
             print("frame = ", self.frame)
 
             if self.frame % self.capture_interval == 0:
-                ps.screenshot(f"output/{self.frame:04d}.jpg")
+                self.save()
         if self.frame >= self.end_frame:
             print(f"end frame = {self.frame} reached, exiting")
             quit()

@@ -140,7 +140,7 @@ def multiple_drape():
 @wp.kernel
 def set_velocity_kernel(states: NewtonState, thres: int):
     i = wp.tid()
-    states.xdot[i] = wp.vec3(0.0, 0.0, 0.0)
+    states.xdot[i] = wp.vec3(0.0, -1.0, 0.0)
     if i >= thres:
         states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 
@@ -270,10 +270,11 @@ def staggered_bug():
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
     transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 1] = 1
-    transforms[-1][1, 0] = 1
-    transforms[-1][2, 2] = 1
+    transforms[-1][0, 1] = 1.5
+    transforms[-1][1, 0] = 1.5
+    transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
