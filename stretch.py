@@ -142,6 +142,9 @@ class PSViewer:
         self.rod = rod
         self.ui_pause = True
         self.animate = False
+        
+        self.end_frame = 3000
+        self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
             Fs = static_mesh.indices.numpy().reshape((-1, 3))
@@ -173,7 +176,11 @@ class PSViewer:
             
             print("frame = ", self.frame)
 
-            ps.screenshot(f"output/{self.frame:04d}.jpg")
+            if self.frame % self.capture_interval == 0:
+                ps.screenshot(f"output/{self.frame:04d}.jpg")
+        if self.frame >= self.end_frame:
+            print(f"end frame = {self.frame} reached, exiting")
+            quit()
 
         
 class RodBCBase:

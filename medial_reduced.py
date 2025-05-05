@@ -285,10 +285,10 @@ class MedialRodComplex(MedialRodComplexDebug):
             Vi = (v4 @ self.transforms[i].T)[:, : 3]
             cnt = i * self.n_mdeial_per_mesh
             V = np.vstack([V, Vi])
-            J3 = np.linalg.det(self.transforms[i][:3, :3])
-            J = np.abs(np.power(J3, 1 / 3))
+            J3 = np.abs(np.linalg.det(self.transforms[i][:3, :3]))
+            J = J3 ** (1./3.)
             # R = np.concatenate([R, np.copy(R0) * J])
-            R = np.concatenate([R, np.copy(R0)])
+            R = np.concatenate([R, np.copy(R0) * J])
             E = np.vstack((E, E0 + cnt))
             F = np.vstack((F, F0 + cnt))
 
