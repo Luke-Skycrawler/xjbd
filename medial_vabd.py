@@ -101,6 +101,8 @@ class WoodburySolver:
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
         super().__init__(h, meshes, transforms, static_meshes)
+        
+        self.abd_only = self.n_modes == 12 
         self.split_U0_U_tilide()
         self.define_mm()
         self.prefactor_once()
@@ -130,9 +132,13 @@ class MedialVABD(MedialRodComplex):
 
     def sum_weights(self):
         ww  = self.W.numpy()
-        n_nodes_per_mesh = self.n_nodes // self.n_meshes
-        weights = ww.reshape((self.n_meshes, -1))
-        self.sum_W = np.sum(weights, axis = 1, keepdims = False)
+        self.sum_W = np.zeros((self.n_meshes), float)
+        start = 0
+        for i in range(self.n_meshes):
+            model = self.models[i]
+            nv = self.Q[model].shape[0]
+            self.sum_W[i] = np.sum(ww[start: start + nv])
+            start += nv
 
     def define_A0_b0_btilde(self):
         self.A0 = np.zeros((self.n_meshes * 12, self.n_meshes * 12))
@@ -142,56 +148,53 @@ class MedialVABD(MedialRodComplex):
 
     def define_U(self):
         # self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
-        nodes_per_mesh = self.n_nodes // self.n_meshes
+        # nodes_per_mesh = self.n_nodes // self.n_meshes
         x0 = self.xcs.numpy()
         diags = []
         
+        start = 0 
         for i in range(self.n_meshes): 
-            xi = x0[i * nodes_per_mesh: (i + 1) * nodes_per_mesh]
-            Ui = self.lbs_matrix(xi, self.Q)
+            model = self.models[i]
+            Q = self.Q[model]
+            nv = Q.shape[0]
+            xi = x0[start: start + nv]
+            Ui = self.lbs_matrix(xi, Q)
             diags.append(Ui)
         self.U = block_diag(diags)
 
-        self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
-        q = wp.array(self.Q, dtype = float)
-        triplets = Triplets()
-        nnz = q.shape[0] * q.shape[1] * 4 * self.n_meshes
-        triplets.cols = wp.zeros((nnz, ), int)
-        triplets.rows = wp.zeros((nnz, ), int)
-        triplets.vals = wp.zeros((nnz,), wp.mat33)
-
-        for i in range(self.n_meshes):
-            wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, self.geo.xcs, q, triplets])
-        bsr_set_from_triplets(self.Uwp, triplets.rows, triplets.cols, triplets.vals, )
-        
+        self.wp_define_U()        
         # Uwp = self.to_scipy_bsr(self.Uwp)
         # print(f"U norm = {norm(self.U)}, diff norm = {norm(self.U - Uwp)}")
 
     def split_U0_U_tilide(self):
         # self.U0 = np.zeros((self.n_nodes * 3, self.n_meshes * 12))
         # self.U_tilde = np.zeros((self.n_nodes * 3, (self.n_modes - 12) * self.n_meshes))
-        n_nodes_per_mesh = self.n_nodes // self.n_meshes
+        # n_nodes_per_mesh = self.n_nodes // self.n_meshes
         x0np = self.xcs.numpy()
         diags0 = []
         diags_tilde = []
+        
+        start = 0
         for i in range(self.n_meshes):
-            start = i * n_nodes_per_mesh * 3
-            end = start + n_nodes_per_mesh * 3
+            model = self.models[i]
+            Q = self.Q[model]
+            nv = Q.shape[0]
+
             
-            V = x0np[i * n_nodes_per_mesh: (i + 1) * n_nodes_per_mesh]
-            w = self.Q
-            jac = self.lbs_matrix(V, w)
+            V = x0np[start: start + nv]
+            jac = self.lbs_matrix(V, Q)
             
             diags0.append(jac[:, :12])
-            if self.Q.shape[1] > 1:
+            if not self.abd_only:
                 diags_tilde.append(jac[:, 12:])
+            start += nv
             # self.U0[start: end, 12 * i: 12 * (i + 1)] = rhs
 
 
             # self.U_tilde[start:end, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.lbs_matrix(V, self.Q[:, 1:])
 
         self.U0 = block_diag(diags0)
-        self.U_tilde = block_diag(diags_tilde) if self.Q.shape[1] > 1 else None
+        self.U_tilde = block_diag(diags_tilde) if not self.abd_only else None
 
         # fill Um_tilde 
         
@@ -200,22 +203,27 @@ class MedialVABD(MedialRodComplex):
         diags0 = []
         diags_tilde = []
         self.diags_tilde_lhs = []
+        
+        start = 0
         for i in range(self.n_meshes):
             # start = i * self.n_modes
             # end = (i + 1) * self.n_modes
 
             # self.Um_tilde[:, i * (self.n_modes - 12): (i + 1) * (self.n_modes - 12)] = self.Um[:, start + 12: end]
             # self.Um0[:, i * 12: (i + 1) * 12] = self.Um[:, start: start + 12]
-            Vmi = self.V_medial_rest[i * self.n_mdeial_per_mesh: (i + 1) * self.n_mdeial_per_mesh]
+            model = self.models[i]
+            nv = self.slabmeshes[model].nv
+            Vmi = self.V_medial_rest[start: start + nv]
+            W_medial = self.W_medial[model]
 
-            ji = self.lbs_matrix(Vmi, self.W_medial)
+            ji = self.lbs_matrix(Vmi, W_medial)
             j0i = ji[:,: 12]
             jti = ji[:, 12:]
             diags0.append(j0i)
             diags_tilde.append(jti)
 
-            if self.Q.shape[1] > 1: 
-                di = self.lbs_no_kron(Vmi, self.W_medial[:, 1:])
+            if not self.abd_only: 
+                di = self.lbs_no_kron(Vmi, W_medial[:, 1:])
                 self.diags_tilde_lhs.append(di)
 
         self.Um0 = block_diag(diags0)
@@ -249,7 +257,7 @@ class MedialVABD(MedialRodComplex):
         return np.transpose(f, axes = (0, 2, 1))
 
     def prefactor_once(self):
-        if self.Q.shape[1] <= 1:
+        if self.abd_only:
             return
         h = self.h
         self.compute_K()
@@ -263,7 +271,7 @@ class MedialVABD(MedialRodComplex):
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
 
     def define_z(self, transforms):
-        self.n_modes = self.Q.shape[1] * 12 
+        self.n_modes = self.Q[self.models[0]].shape[1] * 12 
         self.n_meshes = len(transforms)
         self.n_reduced = self.n_modes * self.n_meshes
         
@@ -364,7 +372,7 @@ class MedialVABD(MedialRodComplex):
                 self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
 
         # set b_tilde
-        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if self.Q.shape[1] > 1 else 0.
+        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
         # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
@@ -390,7 +398,7 @@ class MedialVABD(MedialRodComplex):
             # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = 0.0
             # np.save("A_tilde.npy", A_sys[self.n_meshes * 12:, self.n_meshes * 12:])
             # np.save("A_tilde_K0.npy", self.A_tilde)
-            if self.Q.shape[1] > 1:
+            if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
 
         b_sys = np.zeros(self.n_reduced)
@@ -497,7 +505,7 @@ class MedialVABD(MedialRodComplex):
             e = self.ortho.energy_batch(ff)
             ret = np.sum(e * self.sum_W) * h2
 
-        if self.Q.shape[1] > 1:
+        if not self.abd_only:
             ret += self.z_tilde @ self.K0 @ self.z_tilde * 0.5
         return ret
 
@@ -509,7 +517,7 @@ class MedialVABD(MedialRodComplex):
             dz0 = z0 - zh
 
             ret = (dz0 @ self.mm @ dz0) * 0.5
-            if self.Q.shape[1] > 1:
+            if not self.abd_only:
                 dzt = self.z_tilde - self.z_tilde_hat()
                 ret += dzt @ self.M_tilde @ dzt * 0.5
         return ret
@@ -606,7 +614,7 @@ class MedialVABD(MedialRodComplex):
         self.frame = 0
 
     def compute_Um_tildeT(self):
-        if self.Q.shape[1] <= 1:
+        if self.abd_only:
             return np.zeros((0, self.n_medial * 3), float)
         diags = []
         for i in range(self.n_meshes):
@@ -681,7 +689,7 @@ class MedialVABD(MedialRodComplex):
 
                 U_prime = self.compute_U_prime()
                 
-                if self.Q.shape[1] > 1:
+                if not self.abd_only:
                     U_tildeT = U_prime @ self.U_tilde.T
                     U_sys = vstack([self.U0.T, U_tildeT])
                 else:
@@ -755,7 +763,8 @@ class MedialVABD(MedialRodComplex):
 #     viewer = MedialViewer(rods)
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
-def staggered_bug():
+
+def windmill():
     # model = "bunny"
     model = "windmill"
     # model = "bug"
@@ -771,10 +780,10 @@ def staggered_bug():
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    for i in range(n_meshes):
-        # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.8
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 1.2 + i * 0.25
+    #     transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -796,8 +805,52 @@ def staggered_bug():
 
     # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
+    # rods = MedialRodComplex(h, meshes, transforms, static_bars)
     rods = MedialVABD(h, meshes, transforms, static_bars)
-    # viewer = PSViewer(rods, static_bars)
+    
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+def staggered_bug():
+    model = "bunny"
+    # model = "bug"
+    n_meshes = 2
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    transforms[-1][:3, :3] = np.zeros((3, 3))
+    transforms[-1][0, 1] = 1.5
+    transforms[-1][1, 0] = 1.5
+    transforms[-1][2, 2] = 1.5
+
+    for i in range(n_meshes):
+        # transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.8
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+
+    # bouncy box
+    static_meshes_file = ["assets/bouncybox.obj"]
+    box_size = 4
+    scale = np.identity(4) * box_size
+    scale[3, 3] = 1.0
+    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    for i in range(n_meshes):
+        transforms[i][1, 3] += box_size * 1.5
+        
+    
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
     
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)

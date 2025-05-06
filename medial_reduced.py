@@ -89,7 +89,11 @@ class MedialRodComplex(RodComplexBC):
             Ui = self.lbs_matrix(xi, Q)
             self.U[start * 3: start_nxt * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
             start = start_nxt
-            
+        
+        self.wp_define_U()
+        self.UwpT = bsr_transposed(self.Uwp)
+
+    def wp_define_U(self):
         self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
         triplets = Triplets()
         nnz = self.n_nodes * 4 * self.n_modes
@@ -105,8 +109,6 @@ class MedialRodComplex(RodComplexBC):
             wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, start, self.geo.xcs, q, triplets])
             start += mesh_nodes
         bsr_set_from_triplets(self.Uwp, triplets.rows, triplets.cols, triplets.vals, )
-        self.UwpT = bsr_transposed(self.Uwp)
-
 
     def load_Q(self, model):
         Q = np.load(f"data/W_{model}.npy")
