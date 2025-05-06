@@ -44,7 +44,7 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
 
 
-class MedialRodComplexDebug(RodComplexBC):
+class MedialRodComplex(RodComplexBC):
     def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
         model = meshes[0].split("/")[1].split(".")[0]
         self.load_Q(model)
@@ -64,176 +64,6 @@ class MedialRodComplexDebug(RodComplexBC):
         v1[:, :3] = V
         lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
         return np.kron(lhs, np.identity(3))
-        
-    def define_U(self):
-        self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
-        self.U[:-12, : -12] = self.lbs_matrix(self.xcs.numpy()[:-4], self.Q)
-        self.U[-12:, -12:] = np.identity(12)
-        
-    def load_Q(self, model):
-        # Q = np.load("data/W_bug.npy")
-        Q = np.load(f"data/W_{model}.npy")
-        self.Q = Q[:, :5]
-        self.Q[:, 0] = 1.0
-        
-        
-    def define_z(self, transforms):
-        t = np.array(transforms)
-        t = t[0, :3, :4]
-        self.n_reduced = self.Q.shape[1] * 12 + 12
-        self.z = np.zeros(self.n_reduced)
-        self.z[:9] = vec(np.identity(3))
-        
-        self.dz = np.zeros_like(self.z)
-
-    def define_collider(self):
-        super().define_collider()
-        # self.slabmesh = SlabMesh("data/bug_v30.ma")
-        self.define_medials()
-
-    def define_medials(self):
-        model = self.meshes_filename[0].split("/")[1].split(".")[0]
-        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
-        V = np.copy(self.slabmesh.V)
-        v4 = np.ones((V.shape[0], 4))
-        v4[:, :3] = V
-        V = (v4 @ self.transforms[0].T)[:, :3]
-        R = self.slabmesh.R
-        E = self.slabmesh.E
-
-        if ad_hoc:
-            self.cnt = V.shape[0]
-            V = np.vstack((V, self.xcs.numpy()[-2:, :].reshape((-1, 3))))
-            R = np.concatenate((R, np.array([0.1, 0.1])))
-            E = np.vstack((E, np.array([[self.cnt, self.cnt + 1]])))
-
-        self.E_medial = E
-        self.V_medial_rest = np.copy(V)
-        self.V_medial = np.zeros_like(V)
-        self.R_rest = np.copy(R)
-        self.R = np.zeros_like(self.R_rest)
-
-        self.V_medial[:] = self.V_medial_rest
-        self.R[:] = self.R_rest
-
-        self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F)
-
-        self.n_medial = self.V_medial.shape[0]
-
-    def reset(self):
-        if hasattr(self, "V_medial"):
-            self.V_medial[:] = self.V_medial_rest[:]
-            self.R[:] = self.R_rest
-        super().reset()
-        self.reset_z()
-
-    def reset_z(self):
-        t = self.transforms[0]
-        self.z[:] = 0.0
-        self.dz[:] = 0.0
-        self.z[:9] = vec(np.identity(3))
-        self.z[-12:] = self.xcs.numpy()[-4:].reshape(-1)
-
-    def compute_Um(self):
-        self.Um = np.zeros((self.n_medial * 3, self.n_reduced))
-        # jac = self.encoder.jacobian(x)
-        jac = self.lbs_matrix(self.V_medial_rest[:-2], self.W_medial)
-        fill = jac
-        # q6 = dxdq_jacobian(self.n_medial * 3 - 6, self.V_medial_rest[:-2])
-        # self.Um[: -6, :6] = q6
-        self.Um[: fill.shape[0], :fill.shape[1]] = fill
-
-        self.Um[-6:, -6:] = np.identity(6)
-
-
-    # def add_collision_to_sys_matrix(self, triplets):
-    #     super().add_collision_to_sys_matrix(triplets)
-    #     self.compute_A_reduced()
-
-    def compute_A_reduced(self):
-        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
-
-    # def compute_rhs(self):
-    #     super().compute_rhs()
-    #     b = self.b.numpy().reshape(-1)
-    #     self.b_reduced = self.U.T @ b
-    #     if ad_hoc:
-    #         self.b_reduced += self.col_b
-
-    def solve(self):
-
-        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
-        self.b_reduced = self.U.T @ self.b.numpy().reshape(-1)
-        
-        dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
-        self.dz[:] = dz
-        self.states.dx.assign((self.U @ dz).reshape(-1, 3))
-
-    # def line_search(self):
-    #     self.z -= self.dz
-    #     # wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
-    #     x = (self.U @ self.z).reshape((-1, 3))
-    #     self.states.x.assign(x)
-    
-    #     return 1.0
-
-    def define_encoder(self):
-        # self.intp = TetBaryCentricCompute("bug", 30)
-        model = self.meshes_filename[0].split("/")[1].split(".")[0]
-        self.intp = TetBaryCentricCompute(model)
-        self.W_medial = self.intp.compute_weight(self.Q)
-
-    def get_VR(self):
-        V = (self.Um @ self.z).reshape((-1, 3))# + self.V_medial_rest
-        # V = self.V_medial_rest
-        R = self.R_rest
-        return V, R
-
-    # def process_collision(self):
-    #     # super().process_collision()
-    #     # self.add_collision_to_sys_matrix()
-    #     self.compute_A_reduced()
-
-    #     V, R = self.get_VR()
-    #     self.collider_medial.collision_set(V, R,)
-    #     b, H, indices = self.collider_medial.analyze()
-
-    #     # self.compute_Um()
-    #     rhs = self.Um.T[:, indices] @ b
-    #     A = self.Um.T[:, indices] @ H @ self.Um[indices, :]
-
-    #     term = self.h * self.h * 2e4
-    #     self.A_reduced += A * term
-    #     self.col_b = rhs * term
-
-    #     # self.add_collision_to_sys_matrix()
-
-    def process_collision(self):
-        with wp.ScopedTimer("collision"):
-            with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
-            with wp.ScopedTimer("hess & grad"):
-                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
-                # triplets = self.collider.analyze(self.b)
-            with wp.ScopedTimer("build_from_triplets"):
-                self.add_collision_to_sys_matrix(triplets)
-
-
-class MedialRodComplex(MedialRodComplexDebug):
-    def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
-        super().__init__(h, meshes, transforms, static_meshes)
-    
-    def define_z(self, transforms):
-        self.n_modes = self.Q.shape[1] * 12 
-        self.n_meshes = len(transforms)
-
-        self.n_reduced = self.n_modes * self.n_meshes
-        self.z = np.zeros(self.n_reduced)
-        for i in range(self.n_meshes):
-            self.z[i * self.n_modes: i * self.n_modes + 9] = vec(np.identity(3))
-        
-        self.dz = np.zeros_like(self.z)
 
     def define_U(self):
         self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
@@ -262,7 +92,29 @@ class MedialRodComplex(MedialRodComplexDebug):
         # with wp.ScopedTimer("bsr mms"):
         #     tmp = bsr_mm(self.K_sparse, self.Uwp)
         #     self.A_reduced = bsr_mm(self.UwpT, tmp)
+    def load_Q(self, model):
+        # Q = np.load("data/W_bug.npy")
+        Q = np.load(f"data/W_{model}.npy")
+        self.Q = Q[:, :5]
+        self.Q[:, 0] = 1.0
+        
+    def define_z(self, transforms):
+        self.n_modes = self.Q.shape[1] * 12 
+        self.n_meshes = len(transforms)
 
+        self.n_reduced = self.n_modes * self.n_meshes
+        self.z = np.zeros(self.n_reduced)
+        for i in range(self.n_meshes):
+            self.z[i * self.n_modes: i * self.n_modes + 9] = vec(np.identity(3))
+        
+        self.dz = np.zeros_like(self.z)
+
+
+    def define_collider(self):
+        super().define_collider()
+        # self.slabmesh = SlabMesh("data/bug_v30.ma")
+        self.define_medials()
+    
     def define_medials(self):
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
         self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
@@ -305,14 +157,20 @@ class MedialRodComplex(MedialRodComplexDebug):
 
         self.n_medial = self.V_medial.shape[0]
 
+    def reset(self):
+        if hasattr(self, "V_medial"):
+            self.V_medial[:] = self.V_medial_rest[:]
+            self.R[:] = self.R_rest
+        super().reset()
+        self.reset_z()
+
     def reset_z(self):
         t = self.transforms[0]
         self.z[:] = 0.0
         self.dz[:] = 0.0
-        self.z[:9] = vec(np.identity(3))
-        self.z[self.n_modes: self.n_modes + 9] = vec(np.identity(3))
+        for i in range(self.n_meshes):
+            self.z[self.n_modes * i: self.n_modes * i + 9] = vec(np.identity(3))
 
-    
     def compute_Um(self):
 
         # jac = self.encoder.jacobian(x)
@@ -323,6 +181,15 @@ class MedialRodComplex(MedialRodComplexDebug):
             diags.append(jaci)
             # self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
         self.Um = block_diag(diags, "csr")
+
+
+    def line_search(self):
+        alpha = super().line_search()
+        self.z -= alpha * self.dz
+        return alpha
+
+    def compute_A_reduced(self):
+        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
 
     def solve(self):
 
@@ -343,6 +210,55 @@ class MedialRodComplex(MedialRodComplexDebug):
         # dz = solve(self.A_reduced, self.b_reduced, assume_a="sym")
         self.dz[:] = dz
         self.states.dx.assign((self.U @ dz).reshape(-1, 3))
+    # def line_search(self):
+    #     self.z -= self.dz
+    #     # wp.launch(add_dx, self.n_nodes, inputs=[self.states, 1.0])
+    #     x = (self.U @ self.z).reshape((-1, 3))
+    #     self.states.x.assign(x)
+    
+    #     return 1.0
+    
+    def define_encoder(self):
+        # self.intp = TetBaryCentricCompute("bug", 30)
+        model = self.meshes_filename[0].split("/")[1].split(".")[0]
+        self.intp = TetBaryCentricCompute(model)
+        self.W_medial = self.intp.compute_weight(self.Q)
+
+    def get_VR(self):
+        V = (self.Um @ self.z).reshape((-1, 3))# + self.V_medial_rest
+        # V = self.V_medial_rest
+        R = self.R_rest
+        return V, R
+
+    # def process_collision(self):
+    #     # super().process_collision()
+    #     # self.add_collision_to_sys_matrix()
+    #     self.compute_A_reduced()
+
+    #     V, R = self.get_VR()
+    #     self.collider_medial.collision_set(V, R,)
+    #     b, H, indices = self.collider_medial.analyze()
+
+    #     # self.compute_Um()
+    #     rhs = self.Um.T[:, indices] @ b
+    #     A = self.Um.T[:, indices] @ H @ self.Um[indices, :]
+
+    #     term = self.h * self.h * 2e4
+    #     self.A_reduced += A * term
+    #     self.col_b = rhs * term
+
+    #     # self.add_collision_to_sys_matrix()
+
+    def process_collision(self):
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
+                # triplets = self.collider.analyze(self.b)
+            with wp.ScopedTimer("build_from_triplets"):
+                self.add_collision_to_sys_matrix(triplets)
+
 
 def bug_drop():
     n_meshes = 2
@@ -362,55 +278,51 @@ def bug_drop():
     ps.set_user_callback(viewer.callback)
     ps.show()
     
-
-# def staggered_bug():
-#     n_meshes = 2 
-#     meshes = ["assets/bug.tobj"] * n_meshes
-#     # meshes = ["assets/bunny_5.tobj"] * n_meshes
-#     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-#     transforms[1][:3, :3] = np.zeros((3, 3))
-#     transforms[1][0, 1] = 1
-#     transforms[1][1, 0] = 1
-#     transforms[1][2, 2] = 1
-
-#     for i in range(n_meshes):
-#         # transforms[i][0, 3] = i * 0.5
-#         transforms[i][1, 3] = 1.2 + i * 0.2
-#         transforms[i][2, 3] = i * 1.0
-    
-#     rods = MedialRodComplex(h, meshes, transforms)
-#     viewer = MedialViewer(rods)
-#     ps.set_user_callback(viewer.callback)
-#     ps.show()
-
 def staggered_bug():
-    
-    n_meshes = 2
-    # meshes = ["assets/bug.tobj"] * n_meshes
-    meshes = ["assets/squishy/squishy.tobj"] * n_meshes
-    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    # model = "bunny"
+    model = "windmill"
+    # model = "bug"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+
+    transforms[-1][:3, :3] = np.zeros((3, 3))
+    transforms[-1][0, 0] = 0.5
+    transforms[-1][2, 1] = 0.5
+    transforms[-1][1, 2] = 0.5
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
-        # transforms[i][1, 3] = 1.2 + i * 0.2
         transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.4
+        transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
     static_meshes_file = ["assets/teapotContainer.obj"]
     scale = np.identity(4) * 3
     scale[3, 3] = 1.0
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+
+    # bouncy box
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
+        
+    
+
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
-    rods = MedialRodComplex(h, meshes, transforms) #, static_bars)
+    rods = MedialRodComplex(h, meshes, transforms, static_bars)
     
     
-    viewer = MedialViewer(rods)
+    viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
