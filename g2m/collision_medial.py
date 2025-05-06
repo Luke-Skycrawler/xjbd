@@ -120,7 +120,7 @@ def to_hash_np(x, y, n_vertices):
     return i * n_vertices + j
 
 @wp.kernel
-def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList):
+def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList, body: wp.array(dtype = int)):
     i, j = wp.tid()
     if i < j:
         ex = geo.edges[i]
@@ -134,7 +134,8 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList)
         r2 = geo.radius[ey[0]]
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
-        hack = ex[0] // per_mesh_verts == ey[0] // per_mesh_verts
+        # hack = ex[0] // per_mesh_verts == ey[0] // per_mesh_verts
+        hack = body[ex[0]] == body[ey[0]]
         refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1]) or hack
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
@@ -160,7 +161,7 @@ def cone_cone_collision_set_static(geo: MedialGeometry, geo_static: MedialGeomet
         append(cc_list, col, dist)
 
 @wp.kernel
-def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionList):
+def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionList, body: wp.array(dtype = int)):
     i, j = wp.tid()
     slab = geo.faces[i]
     b = geo.vertices[j]
@@ -176,7 +177,8 @@ def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionL
     rb = geo.radius[j]
 
     dist, _, foo, bar = compute_distance_slab_sphere(c0, c1, c2, b, r0, r1, r2, rb)
-    hack = j // per_mesh_verts == slab[0] // per_mesh_verts
+    # hack = j // per_mesh_verts == slab[0] // per_mesh_verts
+    hack = body[j] == body[slab[0]]
     refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j or hack
     if dist < 0.0 and not refuse_cond:
         col = wp.vec4i(slab[0], slab[1], slab[2], j)
@@ -253,7 +255,7 @@ def plane_normal(v0, v1, v2):
     return n / np.sqrt(np.dot(n, n))    
 
 class MedialCollisionDetector:
-    def __init__(self, V_medial, R, E, F, ground = None, dense = True, static_objects: StaticScene = None): 
+    def __init__(self, V_medial, R, E, F, body_medial, ground = None, dense = True, static_objects: StaticScene = None): 
         '''
         medial-medial collision detection & response
         '''
@@ -264,6 +266,8 @@ class MedialCollisionDetector:
         self.R = R
         self.E = E
         self.F = F
+        self.B = body_medial
+        self.body = wp.array(body_medial, dtype = int) 
 
         self.cc_set = []
         self.ss_set = []
@@ -389,13 +393,13 @@ class MedialCollisionDetector:
         if ss_colliison:
             self.pt_set.cnt.zero_()
             self.pt_set.E.zero_()
-            wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set])
+            wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set, self.body])
             ret += self.pt_set.E.numpy()[0]
 
         if cc_collision:
             self.ee_set.cnt.zero_()
             self.ee_set.E.zero_()
-            wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set])
+            wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
             ret += self.ee_set.E.numpy()[0]
 
 

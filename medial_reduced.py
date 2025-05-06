@@ -23,19 +23,23 @@ from g2m.nn import WarpEncoder
 # from g2m.encoder import Encoder
 # import torch
 
-ad_hoc = True
 eps = 3e-3
 def vec(t):
     return (t.T).reshape(-1)
+
 @wp.kernel
-def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
+def fill_U_triplets(mesh_id: int, offset: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(dtype = float), triplets: Triplets):
+    '''
+    offset = mesh_id * xx for repeating meshes
+    '''
     i, j, k = wp.tid()
     xx = W.shape[0]
     yy = W.shape[1]
-    block_nnz = 4 * xx * yy
+    # block_nnz = 4 * xx * yy
+    
 
-    idx = (i * yy + j) * 4 + k + block_nnz * mesh_id
-    xid = i + mesh_id * xx
+    xid = i + offset
+    idx = (xid * yy + j) * 4 + k #block_nnz * mesh_id
     triplets.rows[idx] = xid
     triplets.cols[idx] = j * 4 + k + mesh_id * yy * 4
     c = float(1.0)
@@ -46,8 +50,15 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
 
 class MedialRodComplex(RodComplexBC):
     def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
-        model = meshes[0].split("/")[1].split(".")[0]
-        self.load_Q(model)
+        self.models = [mesh.split("/")[1].split(".")[0] for mesh in meshes]
+        self.model_set = set(self.models)
+        # model = meshes[0].split("/")[1].split(".")[0]
+        d = []
+        for model in self.model_set:
+            Q = self.load_Q(model)
+            d.append((model, Q))
+        self.Q = dict(d)
+            
         self.define_z(transforms)
         super().__init__(h, meshes, transforms, static_meshes)
         self.define_encoder()
@@ -67,39 +78,45 @@ class MedialRodComplex(RodComplexBC):
 
     def define_U(self):
         self.U = np.zeros((self.n_nodes * 3, self.n_reduced))
-        nodes_per_mesh = self.n_nodes // self.n_meshes
         x0 = self.xcs.numpy()
         
+        start = 0
         for i in range(self.n_meshes):
-            xi = x0[i * nodes_per_mesh: (i + 1) * nodes_per_mesh]
-            Ui = self.lbs_matrix(xi, self.Q)
-            self.U[i * nodes_per_mesh * 3: (i + 1) * nodes_per_mesh * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
+            Q = self.Q[self.models[i]]
+            mesh_nodes = Q.shape[0]
+            start_nxt = start + mesh_nodes
+            xi = x0[start: start_nxt]
+            Ui = self.lbs_matrix(xi, Q)
+            self.U[start * 3: start_nxt * 3, i * self.n_modes: (i + 1) * self.n_modes] = Ui
+            start = start_nxt
             
         self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
-        q = wp.array(self.Q, dtype = float)
         triplets = Triplets()
-        nnz = q.shape[0] * q.shape[1] * 4 * self.n_meshes
+        nnz = self.n_nodes * 4 * self.n_modes
         triplets.cols = wp.zeros((nnz, ), int)
         triplets.rows = wp.zeros((nnz, ), int)
         triplets.vals = wp.zeros((nnz,), wp.mat33)
 
+        start = 0
         for i in range(self.n_meshes):
-            wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, self.geo.xcs, q, triplets])
+            Q = self.Q[self.models[i]]
+            mesh_nodes = Q.shape[0]
+            q = wp.array(Q, dtype = float)
+            wp.launch(fill_U_triplets, (q.shape[0], q.shape[1], 4), inputs = [i, start, self.geo.xcs, q, triplets])
+            start += mesh_nodes
         bsr_set_from_triplets(self.Uwp, triplets.rows, triplets.cols, triplets.vals, )
         self.UwpT = bsr_transposed(self.Uwp)
 
 
-        # with wp.ScopedTimer("bsr mms"):
-        #     tmp = bsr_mm(self.K_sparse, self.Uwp)
-        #     self.A_reduced = bsr_mm(self.UwpT, tmp)
     def load_Q(self, model):
-        # Q = np.load("data/W_bug.npy")
         Q = np.load(f"data/W_{model}.npy")
-        self.Q = Q[:, :5]
-        self.Q[:, 0] = 1.0
+        Q = Q[:, :5]
+        Q[:, 0] = 1.0
+        return Q
         
     def define_z(self, transforms):
-        self.n_modes = self.Q.shape[1] * 12 
+        Q = self.Q[self.models[0]]
+        self.n_modes = Q.shape[1] * 12 
         self.n_meshes = len(transforms)
 
         self.n_reduced = self.n_modes * self.n_meshes
@@ -112,28 +129,29 @@ class MedialRodComplex(RodComplexBC):
 
     def define_collider(self):
         super().define_collider()
-        # self.slabmesh = SlabMesh("data/bug_v30.ma")
         self.define_medials()
     
-    def define_medials(self):
-        model = self.meshes_filename[0].split("/")[1].split(".")[0]
-        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
-        V0 = np.copy(self.slabmesh.V)
-        v4 = np.ones((V0.shape[0], 4))
-        v4[:, :3] = V0
-        R0 = self.slabmesh.R
-        E0 = self.slabmesh.E
-        F0 = self.slabmesh.F
+    def define_medials(self):        
+        self.slabmeshes = dict([(model, SlabMesh(f"assets/{model}/ma/{model}.ma")) for model in self.model_set])
+        
         
         R = np.zeros(0, float)
         E = np.zeros((0, 2), int)
         F = np.zeros((0, 3), int)
         V = np.zeros((0, 3))
-        self.n_mdeial_per_mesh = V0.shape[0]
+        body = []
 
+        cnt = 0
         for i in range(self.n_meshes):
+            slabmesh = self.slabmeshes[self.models[i]]
+            V0 = np.copy(slabmesh.V)
+            v4 = np.ones((V0.shape[0], 4))
+            v4[:, :3] = V0
+            R0 = slabmesh.R
+            E0 = slabmesh.E
+            F0 = slabmesh.F
+
             Vi = (v4 @ self.transforms[i].T)[:, : 3]
-            cnt = i * self.n_mdeial_per_mesh
             V = np.vstack([V, Vi])
             J3 = np.abs(np.linalg.det(self.transforms[i][:3, :3]))
             J = J3 ** (1./3.)
@@ -142,18 +160,24 @@ class MedialRodComplex(RodComplexBC):
             E = np.vstack((E, E0 + cnt))
             F = np.vstack((F, F0 + cnt))
 
+            body += [i] * slabmesh.nv
+
+            cnt += slabmesh.nv
+        
+
         self.F_medial = F
         self.E_medial = E
         self.V_medial_rest = np.copy(V)
         self.V_medial = np.zeros_like(V)
         self.R_rest = np.copy(R)
         self.R = np.zeros_like(self.R_rest)
+        self.body_medial = np.array(body, int)
 
         self.V_medial[:] = self.V_medial_rest
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.F_medial, ground = 0.0, static_objects = self.static_meshes)
+            self.V_medial, self.R_rest, self.E_medial, self.F_medial, self.body_medial, ground = 0.0, static_objects = self.static_meshes)
 
         self.n_medial = self.V_medial.shape[0]
 
@@ -175,11 +199,15 @@ class MedialRodComplex(RodComplexBC):
 
         # jac = self.encoder.jacobian(x)
         diags = []
+        start = 0
         for i in range(self.n_meshes):
-            Vmi = self.V_medial_rest[i * self.n_mdeial_per_mesh: (i + 1) * self.n_mdeial_per_mesh]
-            jaci = self.lbs_matrix(Vmi, self.W_medial)
+            model = self.models[i]
+            nv = self.slabmeshes[model].nv
+
+            Vmi = self.V_medial_rest[start: start + nv]
+            jaci = self.lbs_matrix(Vmi, self.W_medial[model])
             diags.append(jaci)
-            # self.Um[i * self.n_mdeial_per_mesh * 3: (i) * self.n_mdeial_per_mesh * 3 + jaci.shape[0], i * self.n_modes: (i + 1) * self.n_modes] = jaci
+            start += nv
         self.Um = block_diag(diags, "csr")
 
 
@@ -216,10 +244,12 @@ class MedialRodComplex(RodComplexBC):
     #     return 1.0
     
     def define_encoder(self):
-        # self.intp = TetBaryCentricCompute("bug", 30)
-        model = self.meshes_filename[0].split("/")[1].split(".")[0]
-        self.intp = TetBaryCentricCompute(model)
-        self.W_medial = self.intp.compute_weight(self.Q)
+        W_medial_list = []
+        for model in self.model_set:
+            intp = TetBaryCentricCompute(model)
+            Q = self.Q[model]
+            W_medial_list.append((model, intp.compute_weight(Q)))
+        self.W_medial = dict(W_medial_list)
 
     def get_VR(self):
         V = (self.Um @ self.z).reshape((-1, 3))# + self.V_medial_rest
@@ -313,8 +343,53 @@ def bug_drop():
     viewer = MedialViewer(rods)
     ps.set_user_callback(viewer.callback)
     ps.show()
-    
+
 def staggered_bug():
+    model = "bunny"
+    # model = "bug"
+    n_meshes = 2
+    # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    transforms[-1][:3, :3] = np.zeros((3, 3))
+    transforms[-1][0, 1] = 1.5
+    transforms[-1][1, 0] = 1.5
+    transforms[-1][2, 2] = 1.5
+
+    for i in range(n_meshes):
+        # transforms[i][0, 3] = i * 0.5
+        transforms[i][1, 3] = 1.2 + i * 0.25
+        transforms[i][2, 3] = i * 1.2 - 0.8
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+
+    # bouncy box
+    static_meshes_file = ["assets/bouncybox.obj"]
+    box_size = 4
+    scale = np.identity(4) * box_size
+    scale[3, 3] = 1.0
+    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    for i in range(n_meshes):
+        transforms[i][1, 3] += box_size * 1.5
+        
+    
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
+    rods = MedialRodComplex(h, meshes, transforms, static_bars)
+    
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+
+def windmill():
     # model = "bunny"
     model = "windmill"
     # model = "bug"
@@ -372,3 +447,4 @@ if __name__ == "__main__":
     wp.init()
     # bug_drop()
     staggered_bug()
+    # windmill()
