@@ -11,7 +11,7 @@ from geometry.static_scene import StaticScene
 import os
 from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
 from warp.optim.linear import cg
-from scipy.linalg import solve
+from scipy.linalg import solve, null_space
 from scipy.sparse import block_diag
 from scipy.io import loadmat
 from g2m.viewer import MedialViewer
@@ -24,7 +24,7 @@ from g2m.nn import WarpEncoder
 # import torch
 
 ad_hoc = True
-
+eps = 3e-3
 def vec(t):
     return (t.T).reshape(-1)
 @wp.kernel
@@ -187,10 +187,7 @@ class MedialRodComplex(RodComplexBC):
         alpha = super().line_search()
         self.z -= alpha * self.dz
         return alpha
-
-    def compute_A_reduced(self):
-        self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
-
+    
     def solve(self):
 
         # self.A_reduced = self.U.T @ self.to_scipy_bsr() @ self.U
@@ -259,7 +256,46 @@ class MedialRodComplex(RodComplexBC):
             with wp.ScopedTimer("build_from_triplets"):
                 self.add_collision_to_sys_matrix(triplets)
 
+class PinnedWindMill(MedialRodComplex):
+    def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
+        super().__init__(h, meshes, transforms, static_meshes)
+        v_rst = self.xcs.numpy()
+        x_rst = v_rst[:, 0]
+        y_rst = v_rst[:, 1]
+        pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
 
+        self.pinned = np.arange(self.n_nodes)[pinned]
+        assert len(self.pinned) == 2
+
+        y = v_rst[self.pinned]
+        # pinned positions
+
+        lhs = np.ones((2, 4), float)
+        lhs[0, : 3] = y[0]
+        lhs[1, : 3] = y[1]
+        C = np.kron(lhs, np.identity(3))
+        ns= null_space(C)
+        self.ns = ns
+        assert ns.shape == (12, 6)
+        self.U_prime = np.zeros((self.n_reduced, self.n_reduced - 6))
+        self.U_prime[:12, :6]= self.ns
+        self.U_prime[12:, 6:] = np.identity(self.n_reduced - 12)
+        self.UU_prime = self.U @ self.U_prime
+
+
+    def solve(self):
+        self.A_reduced = self.UU_prime.T @ self.to_scipy_bsr() @ self.UU_prime 
+        self.b_reduced = self.UU_prime.T @ self.b.numpy().reshape(-1)
+
+        dzprime = solve(self.A_reduced, self.b_reduced, assume_a="sym")
+        self.dz[:] = self.U_prime @ dzprime
+        self.states.dx.assign((self.U @ self.dz).reshape(-1, 3))
+    
+    def process_collision(self):    
+        pass
+
+    def compute_collision_energy(self):
+        return 0.0
 def bug_drop():
     n_meshes = 2
     meshes = ["assets/bug.tobj", "assets/tet.tobj"]
@@ -294,10 +330,10 @@ def staggered_bug():
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    for i in range(n_meshes):
-        # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.8
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 1.2 + i * 0.25
+    #     transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -319,7 +355,8 @@ def staggered_bug():
 
     # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
-    rods = MedialRodComplex(h, meshes, transforms, static_bars)
+    # rods = MedialRodComplex(h, meshes, transforms, static_bars)
+    rods = PinnedWindMill(h, meshes, transforms, static_bars)
     
     
     viewer = MedialViewer(rods, static_bars)

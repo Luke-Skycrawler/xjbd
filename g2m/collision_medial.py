@@ -19,7 +19,7 @@ COLLISION_DEBUG = False
 
 cc_collision = True
 ss_colliison = True
-sg_collision = True
+sg_collision = False
 cc_static_collision = True
 
 # @wp.kernel
@@ -446,7 +446,7 @@ class MedialCollisionDetector:
         ncc = self.ee_set.cnt.numpy()[0]
         cc_id = self.ee_set.a.numpy()[:ncc]
 
-        if self.ground is not None:
+        if self.ground is not None and sg_collision:
             n_ground = self.g_set.cnt.numpy()[0]
             self.sg_id = self.g_set.a.numpy()[:n_ground]
             self.sg_hr = self.g_set.hr.numpy()[:n_ground]
@@ -565,7 +565,7 @@ class MedialCollisionDetector:
                         cols.append(E[jj])
                         blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
 
-        if self.ground is not None:
+        if self.ground is not None and sg_collision:
             
             for id, di in zip(self.sg_id, self.sg_hr):
                 h = di[0]
