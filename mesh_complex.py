@@ -1,5 +1,5 @@
 import warp as wp
-from stretch import RodBCBase, PSViewer, NewtonState, Triplets, add_dx, h
+from stretch import RodBCBase, PSViewer, NewtonState, Triplets, add_dx, h, eps, FEMMesh 
 from fem.interface import Rod, RodComplex
 import polyscope as ps
 import numpy as np
@@ -18,6 +18,34 @@ def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n
     pi = positions[j]
     v = wp.vec3(-pi[0], 0.0, -pi[2])
     states.xdot[i] = v * 0.5
+
+@wp.func
+def should_fix(x: wp.vec3): 
+    return wp.abs(x[0]) < eps * 10. and wp.abs(x[1]) < eps * 10.
+
+@wp.kernel
+def set_b_fixed(geo: FEMMesh,b: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    # set fixed points rhs to 0
+    if should_fix(geo.xcs[i]): 
+        b[i] = wp.vec3(0.0, 0.0, 0.0)
+
+@wp.kernel
+def set_K_fixed(geo: FEMMesh, triplets: Triplets):
+    eij = wp.tid()
+    e = eij // 16
+    ii = (eij // 4) % 4
+    jj = eij % 4
+
+    i = geo.T[e, ii]
+    j = geo.T[e, jj]
+    
+    if should_fix(geo.xcs[i]) or should_fix(geo.xcs[j]):        
+        if ii == jj:
+            triplets.vals[eij] = wp.identity(3, dtype = float)
+        else:
+            triplets.vals[eij] = wp.mat33(0.0)
+
 
 class RodComplexBC(RodBCBase, RodComplex):
     def __init__(self, h, meshes = [], transforms = [], static_meshes:StaticScene = None):
@@ -60,15 +88,15 @@ class RodComplexBC(RodBCBase, RodComplex):
         
 
     def set_bc_fixed_hessian(self):
-        pass
+        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
 
     def set_bc_fixed_grad(self):
-        pass
+        wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("pt") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -121,7 +149,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
-        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("pt")
         return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 
@@ -308,6 +336,54 @@ def staggered_bug():
     viewer = PSViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
+def windmill():
+    # model = "bunny"
+    model = "windmill"
+    # model = "bug"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    transforms[-1][:3, :3] = np.zeros((3, 3))
+    transforms[-1][0, 0] = 0.5
+    transforms[-1][2, 1] = 0.5
+    transforms[-1][1, 2] = 0.5
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
+
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 1.2 + i * 0.25
+    #     transforms[i][2, 3] = i * 1.2 - 0.8
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+
+    # bouncy box
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
+        
+    
+
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
+    # rods = MedialRodComplex(h, meshes, transforms, static_bars)
+    rods = RodComplexBC(h, meshes, transforms, static_bars)
+    
+    
+    viewer = PSViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
 
 if __name__ == "__main__":
     ps.init()
@@ -320,7 +396,8 @@ if __name__ == "__main__":
     # multiple_drape()
     # drape()
     # staggered_bars()
-    staggered_bug()
+    # staggered_bug()
+    windmill()
     # tets()
     # bunny_rain()
     # bar_rain()
