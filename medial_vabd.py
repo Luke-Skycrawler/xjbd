@@ -756,16 +756,20 @@ class MedialVABD(MedialRodComplex):
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
 def staggered_bug():
-    model = "bunny"
+    # model = "bunny"
+    model = "windmill"
     # model = "bug"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
     transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 1] = 1.5
-    transforms[-1][1, 0] = 1.5
-    transforms[-1][2, 2] = 1.5
+    transforms[-1][0, 0] = 0.5
+    transforms[-1][2, 1] = 0.5
+    transforms[-1][1, 2] = 0.5
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
@@ -780,18 +784,18 @@ def staggered_bug():
     scale[3, 3] = 1.0
 
     # bouncy box
-    static_meshes_file = ["assets/bouncybox.obj"]
-    box_size = 4
-    scale = np.identity(4) * box_size
-    scale[3, 3] = 1.0
-    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    for i in range(n_meshes):
-        transforms[i][1, 3] += box_size * 1.5
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
         
     
 
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     # viewer = PSViewer(rods, static_bars)
     

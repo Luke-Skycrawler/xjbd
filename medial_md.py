@@ -116,7 +116,6 @@ class MedialMD(RodComplexBC):
 
     def define_medials(self):
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
-        assert model in ["bug", "squishy", "bunny"]
         self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
         V0 = np.copy(self.slabmesh.V)
         v4 = np.ones((V0.shape[0], 4))
