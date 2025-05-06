@@ -96,7 +96,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("pt") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -149,7 +149,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
-        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("pt")
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
         return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 
@@ -169,8 +169,8 @@ def multiple_drape():
 @wp.kernel
 def set_velocity_kernel(states: NewtonState, thres: int):
     i = wp.tid()
-    # states.xdot[i] = wp.vec3(0.0, -1.0, 0.0)
-    states.xdot[i] = wp.cross(wp.vec3(0.0, 0.0, 1.0) , states.x[i])
+    states.xdot[i] = wp.vec3(0.0, -1.0, 3.0)
+    # states.xdot[i] = wp.cross(wp.vec3(0.0, 0.0, 1.0) , states.x[i])
     if i >= thres:
         states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 
