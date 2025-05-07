@@ -162,7 +162,7 @@ class MedialVABD(MedialRodComplex):
             super().define_collider()
         else: 
             self.define_medials()
-            
+
     def gen_F_idx(self):
         '''
         optioal, only used in optimizing fetching the deformation gradient 
@@ -642,9 +642,11 @@ class MedialVABD(MedialRodComplex):
             # self.z_dot[2] = -1.0
             # self.z_dot[6] = 1.0
         else:
-            for i in range(self.n_meshes):
+            self.z_dot[:9] = vec(np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]))
+            for i in range(1, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
-                self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
+                # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
+                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -5.0, 0.0])
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -851,7 +853,7 @@ def windmill():
     model = "windmill"
     drop = "bunny"
     # model = "bug"
-    n_meshes = 8
+    n_meshes = 9
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -865,9 +867,13 @@ def windmill():
     # transforms[-1][2, 2] = 1.5
 
     for i in range(1, n_meshes):
-        transforms[i][0, 3] = 0.5 + i * 0.05
-        transforms[i][1, 3] = i * 1.2
-        transforms[i][2, 3] = i * 0.0
+        # if i % 2 == 0:
+        if True:
+            transforms[i][0, 3] = 1.0 + i * 0.2 * np.random.rand()
+        else:
+            transforms[i][0, 3] = -(2 + i * 0.05)
+        transforms[i][1, 3] = i * 2.0
+        transforms[i][2, 3] = -i * 0.2 * np.random.rand()
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -891,6 +897,7 @@ def windmill():
     static_bars = None
     # rods = MedialRodComplex(h, meshes, transforms, static_bars)
     rods = PinnedVABD(h, meshes, transforms, static_bars)
+    # rods = MedialVABD(h, meshes, transforms, static_bars)
     
     
     viewer = MedialViewer(rods, static_bars)
@@ -958,7 +965,7 @@ def bug_rain():
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 10), (0, 4, 0))
-    # ps.set_ground_plane_mode("none")
+    ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
