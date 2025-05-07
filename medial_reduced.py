@@ -323,11 +323,14 @@ class PinnedWindMill(MedialRodComplex):
         self.dz[:] = self.U_prime @ dzprime
         self.states.dx.assign((self.U @ self.dz).reshape(-1, 3))
     
-    def process_collision(self):    
-        pass
+    def define_collider(self):
+        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = None, static_objects = self.static_meshes)
+        self.define_medials()
+    # def process_collision(self):    
+    #     pass
 
-    def compute_collision_energy(self):
-        return 0.0
+    # def compute_collision_energy(self):
+    #     return 0.0
 def bug_drop():
     n_meshes = 2
     meshes = ["assets/bug.tobj", "assets/tet.tobj"]
@@ -394,23 +397,25 @@ def staggered_bug():
 def windmill():
     # model = "bunny"
     model = "windmill"
+    drop = "bunny"
     # model = "bug"
-    n_meshes = 1
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    n_meshes = 8
+    # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
-    transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 0] = 0.5
-    transforms[-1][2, 1] = 0.5
-    transforms[-1][1, 2] = 0.5
+    transforms[0][:3, :3] = np.zeros((3, 3))
+    transforms[0][0, 0] = 0.5
+    transforms[0][2, 1] = 0.5
+    transforms[0][1, 2] = 0.5
     # transforms[-1][0, 1] = 1.5
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    # for i in range(n_meshes):
-    #     # transforms[i][0, 3] = i * 0.5
-    #     transforms[i][1, 3] = 1.2 + i * 0.25
-    #     transforms[i][2, 3] = i * 1.2 - 0.8
+    for i in range(1, n_meshes):
+        transforms[i][0, 3] = 0.5 + i * 0.05
+        transforms[i][1, 3] = i * 1.2
+        transforms[i][2, 3] = i * 0.0
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -448,5 +453,5 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     # bug_drop()
-    staggered_bug()
-    # windmill()
+    # staggered_bug()
+    windmill()

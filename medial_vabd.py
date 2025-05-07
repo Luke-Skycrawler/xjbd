@@ -6,7 +6,7 @@ from geometry.collision_cell import collision_eps
 from stretch import h, add_dx, compute_rhs, gravity, gravity_np, PSViewer
 from medial_reduced import MedialRodComplex, vec
 from mesh_complex import init_transforms
-from scipy.linalg import lu_factor, lu_solve, solve, polar, inv
+from scipy.linalg import lu_factor, lu_solve, solve, polar, inv, null_space
 from scipy.sparse import *
 from scipy.sparse.linalg import splu, norm
 from ortho import OrthogonalEnergy
@@ -15,6 +15,8 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
+
+eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
@@ -98,6 +100,38 @@ class WoodburySolver:
 
         return term1 - term2 
 
+
+class NullSpaceWoodburySolver(WoodburySolver):
+    def __init__(self, A0_dim, A_tilde, ns):
+        super().__init__(A0_dim - 6, A_tilde)
+        self.ns = ns
+        self.U_prime = np.zeros((A0_dim, A0_dim - 6))
+        self.U_prime[:12, :6] = ns
+        self.U_prime[12:, 6:] = np.identity(A0_dim - 12)
+
+    def update(self, A0, U, C, V):
+        self.A0[:] = self.U_prime.T @ A0 @ self.U_prime
+        self.U = U.toarray()
+        self.C = C
+        self.V = V.toarray()
+
+        self.lu0, self.piv0 = lu_factor(self.A0)
+        
+        self.k = self.U.shape[1]
+        self.add_rank = self.k > 0# and np.abs(np.linalg.det(self.C)) > 1e-5
+        if self.add_rank:
+            self.A_inv_U = self.apply_inv_A(self.U)
+            # self.central_term = inv(self.C) + self.V @ self.A_inv_U 
+
+    def apply_inv_A(self, b):
+        # x_tilde = lu_solve((self.lu, self.piv), b[self.A0_dim:])
+        x_tilde = self.tilde_solve.solve(b[self.A0_dim + 6:])
+
+        x0 = self.U_prime @ lu_solve((self.lu0, self.piv0), self.U_prime.T @ b[:self.A0_dim + 6])
+        # x0 = solve(self.A0, b[:self.A0_dim])
+        return np.concatenate([x0, x_tilde])
+    
+
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
         super().__init__(h, meshes, transforms, static_meshes)
@@ -123,6 +157,12 @@ class MedialVABD(MedialRodComplex):
         self.collider_medial.R = R
         # self.collider_medial.get_rest_collision_set()
 
+    def define_collider(self):
+        if collision_handler == "triangle":
+            super().define_collider()
+        else: 
+            self.define_medials()
+            
     def gen_F_idx(self):
         '''
         optioal, only used in optimizing fetching the deformation gradient 
@@ -742,6 +782,48 @@ class MedialVABD(MedialRodComplex):
         # wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         # self.set_bc_fixed_grad()
 
+class PinnedVABD(MedialVABD):
+    def __init__(self, h, meshes, transforms, static_bars = None):
+        super().__init__(h, meshes, transforms, static_bars)
+
+    def compute_nullspace(self):
+        v_rst = self.V
+        x_rst = v_rst[:, 0]
+        y_rst = v_rst[:, 1]
+        pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
+
+        self.pinned = np.arange(self.n_nodes)[pinned]
+        assert len(self.pinned) == 2
+
+        y = v_rst[self.pinned]
+        # pinned positions
+
+        lhs = np.ones((2, 4), float)
+        lhs[0, : 3] = y[0]
+        lhs[1, : 3] = y[1]
+        C = np.kron(lhs, np.identity(3))
+        ns= null_space(C)
+        self.ns = ns
+        assert ns.shape == (12, 6)
+        self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
+        self.U0_prime[:12, :6]= self.ns
+        self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
+        
+    def prefactor_once(self):
+        if self.abd_only:
+            return
+        h = self.h
+        self.compute_K()
+        self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
+        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
+
+        self.A_tilde = self.K0 + self.M_tilde
+
+        # cholesky factorization tend to have non-positive definite matrix, use lu instead
+        # self.c, self.low = lu_factor(self.A_tilde)
+        self.compute_nullspace()
+        self.solver = NullSpaceWoodburySolver(self.n_meshes * 12, self.A_tilde, self.ns)
+
 # def staggered_bug():
     
 #     n_meshes = 2 
@@ -767,23 +849,25 @@ class MedialVABD(MedialRodComplex):
 def windmill():
     # model = "bunny"
     model = "windmill"
+    drop = "bunny"
     # model = "bug"
-    n_meshes = 1
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    n_meshes = 8
+    # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
-    transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 0] = 0.5
-    transforms[-1][2, 1] = 0.5
-    transforms[-1][1, 2] = 0.5
+    transforms[0][:3, :3] = np.zeros((3, 3))
+    transforms[0][0, 0] = 0.5
+    transforms[0][2, 1] = 0.5
+    transforms[0][1, 2] = 0.5
     # transforms[-1][0, 1] = 1.5
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    # for i in range(n_meshes):
-    #     # transforms[i][0, 3] = i * 0.5
-    #     transforms[i][1, 3] = 1.2 + i * 0.25
-    #     transforms[i][2, 3] = i * 1.2 - 0.8
+    for i in range(1, n_meshes):
+        transforms[i][0, 3] = 0.5 + i * 0.05
+        transforms[i][1, 3] = i * 1.2
+        transforms[i][2, 3] = i * 0.0
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -806,7 +890,7 @@ def windmill():
     # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
     # rods = MedialRodComplex(h, meshes, transforms, static_bars)
-    rods = MedialVABD(h, meshes, transforms, static_bars)
+    rods = PinnedVABD(h, meshes, transforms, static_bars)
     
     
     viewer = MedialViewer(rods, static_bars)
@@ -878,5 +962,6 @@ if __name__ == "__main__":
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    staggered_bug()
+    # staggered_bug()
+    windmill()
     # bug_rain()

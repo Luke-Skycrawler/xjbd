@@ -80,7 +80,8 @@ class RodComplexBC(RodBCBase, RodComplex):
         if "assets/tet.tobj" in self.meshes_filename:
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         elif model in["bar2", "bug", "squishy", "bunny", "windmill"]: 
-            wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+            # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
+            pass
         else: 
             pos = self.transforms[:, :3, 3]
             positions = wp.array(pos, dtype = wp.vec3)
