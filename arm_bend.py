@@ -4,7 +4,10 @@ from warp.sparse import bsr_mv
 import polyscope as ps
 import polyscope.imgui as gui
 from mesh_complex import RodComplexBC
+from medial_reduced import MedialRodComplex
 from stretch import PSViewer, h, NewtonState, FEMMesh, compute_rhs, Triplets, add_dx
+from g2m.viewer import MedialViewer
+from g2m.fitter import SQEMFitter
 
 @wp.func
 def should_fix(xc: wp.vec3) -> bool:
@@ -81,11 +84,11 @@ def set_K_fixed(geo: FEMMesh, triplets: Triplets):
 def add_compx(state: NewtonState, comp_x: wp.array(dtype = wp.vec3)):
     i = wp.tid()
     state.x[i] -= comp_x[i]
-
-class ArmBend(RodComplexBC):
+        
+class ArmBend(MedialRodComplex):
     def __init__(self, h, meshes = [], transforms = [], static_meshes = None):
         super().__init__(h, meshes, transforms, static_meshes)
-
+        self.fitter = SQEMFitter(self.V, self.F, self.V_medial, self.R)
     
     def compute_rhs(self):
         wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
@@ -108,18 +111,44 @@ class ArmBend(RodComplexBC):
         wp.launch(set_b_fixed, dim = (self.n_nodes,), inputs = [self.geo, self.states.dx])
         return super().line_search()
 
+    def get_VR_optimized(self):
+        V, R = self.get_VR()
+        self.fitter.V[:] = self.states.x.numpy()
+        Vo, Ro = self.fitter.fit_spheres(V, R)
+        return Vo, Ro
+        
     # def process_collision(self):
     #     pass
 
     # def compute_collision_energy(self):
     #     return 0.0
 
+class SQEMViewer(MedialViewer):
+    def __init__(self, rod, static_mesh = None):
+        super().__init__(rod, static_mesh)
+        self.ui_use_sqem = False
+
+    def callback(self):
+        changed, self.ui_use_sqem = gui.Checkbox("SQEM", self.ui_use_sqem)
+        super().callback()
+    
+    def update_medial(self):
+        if self.ui_use_sqem:
+            V, R  = self.rod.get_VR_optimized()
+        else:
+            V, R = self.rod.get_VR()
+        self.V_medial[:] = V
+        self.R[:] = R
+        self.render_medial()
+
 def arm_bend():
-    meshes = ["assets/arm_bend.tobj"]
+    meshes = ["assets/arm_bend/arm_bend.tobj"]
     transforms = np.array([np.identity(4, float)])
     arm = ArmBend(h, meshes, transforms)
 
-    viewer = PSViewer(arm)
+    # viewer = PSViewer(arm)
+    # viewer = MedialViewer(arm)
+    viewer = SQEMViewer(arm)
     
     ps.set_user_callback(viewer.callback)
     ps.show()

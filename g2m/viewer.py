@@ -19,7 +19,7 @@ class MedialViewerInterface:
         self.ps_spheres.set_point_radius_quantity("radius", autoscale=False)
 
 
-    def update_medial(self):
+    def render_medial(self):
         self.ps_medial.update_node_positions(self.V_medial)
         self.ps_spheres.update_point_positions(self.V_medial)
         self.ps_spheres.add_scalar_quantity("radius", self.R)
@@ -52,7 +52,7 @@ class MedialViewer(MedialViewerInterface, MedialViewerSocket):
         # V, R is binded to the controlling arrays by reference
         self.V_medial[:] = V
         self.R[:] = R
-        super().update_medial()
+        self.render_medial()
 
     def save(self):
         super().save()

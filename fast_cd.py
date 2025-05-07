@@ -16,7 +16,8 @@ import igl
 import os
 
 # model = "bunny"
-model = "windmill"
+# model = "windmill"
+model = "arm_bend"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -317,8 +318,8 @@ def vis_weights():
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
-    # rod = RodLBSWeight()
-    rod = RodLBSWeightBC()
+    rod = RodLBSWeight()
+    # rod = RodLBSWeightBC()
     lam, Q = None, None
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:
