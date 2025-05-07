@@ -224,8 +224,8 @@ class MedialVABD(MedialRodComplex):
 
             if not self.abd_only: 
                 di = self.lbs_no_kron(Vmi, W_medial[:, 1:])
-                self.diags_tilde_lhs.append(di)
-
+                self.diags_tilde_lhs.append(di)     
+            start += nv
         self.Um0 = block_diag(diags0)
         self.Um_tilde = block_diag(diags_tilde)
 

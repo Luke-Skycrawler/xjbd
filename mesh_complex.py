@@ -88,10 +88,12 @@ class RodComplexBC(RodBCBase, RodComplex):
         
 
     def set_bc_fixed_hessian(self):
-        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
+        pass
+        # wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.triplets])
 
     def set_bc_fixed_grad(self):
-        wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
+        pass
+        # wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
     
     def process_collision(self):
         with wp.ScopedTimer("collision"):
@@ -169,8 +171,7 @@ def multiple_drape():
 @wp.kernel
 def set_velocity_kernel(states: NewtonState, thres: int):
     i = wp.tid()
-    states.xdot[i] = wp.vec3(0.0, -1.0, 3.0)
-    # states.xdot[i] = wp.cross(wp.vec3(0.0, 0.0, 1.0) , states.x[i])
+    states.xdot[i] = wp.vec3(0.0, -1.0, 0.0)
     if i >= thres:
         states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 
