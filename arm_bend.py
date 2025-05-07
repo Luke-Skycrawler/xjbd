@@ -77,6 +77,10 @@ def set_K_fixed(geo: FEMMesh, triplets: Triplets):
         else:
             triplets.vals[eij] = wp.mat33(0.0)
 
+@wp.kernel
+def add_compx(state: NewtonState, comp_x: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    state.x[i] -= comp_x[i]
 
 class ArmBend(RodComplexBC):
     def __init__(self, h, meshes = [], transforms = [], static_meshes = None):
@@ -99,9 +103,16 @@ class ArmBend(RodComplexBC):
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
 
     def line_search(self):
-        alpha = 1.0
-        wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-        return 1.0
+        # FIXME: not converged
+        wp.launch(add_compx, dim = (self.n_nodes, ), inputs = [self.states, self.comp_x])
+        wp.launch(set_b_fixed, dim = (self.n_nodes,), inputs = [self.geo, self.states.dx])
+        return super().line_search()
+
+    # def process_collision(self):
+    #     pass
+
+    # def compute_collision_energy(self):
+    #     return 0.0
 
 def arm_bend():
     meshes = ["assets/arm_bend.tobj"]
