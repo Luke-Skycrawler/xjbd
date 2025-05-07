@@ -9,7 +9,7 @@ from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from geometry.static_scene import StaticScene
 
-omega = 3.0
+omega = 1.0
 
 @wp.kernel
 def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
@@ -72,7 +72,8 @@ class RodComplexBC(RodBCBase, RodComplex):
             "bug": 2471,
             "squishy": 4778,
             "bunny": 3679, 
-            "windmill": 1350
+            "windmill": 1350,
+            "arm_bend": 1495
         }
         n_verts = model_ntets[model]
         wp.copy(self.states.x, self.xcs)

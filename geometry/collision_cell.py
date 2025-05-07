@@ -17,7 +17,7 @@ from collision.dcdx_delta import *
 
 from geometry.static_scene import StaticScene
 
-COLLISION_DEBUG = True
+COLLISION_DEBUG = False
 collision_eps = 5e-3
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
