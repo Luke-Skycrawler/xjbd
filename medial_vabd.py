@@ -156,6 +156,8 @@ class MedialVABD(MedialRodComplex):
         self.collider_medial.V = V
         self.collider_medial.R = R
         # self.collider_medial.get_rest_collision_set()
+        
+        self.compute_nullspace()
 
     def define_collider(self):
         if collision_handler == "triangle":
@@ -466,6 +468,9 @@ class MedialVABD(MedialRodComplex):
 
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
+        dz00 = dz_sys[:12]
+        dz00_ns = self.ns @ self.ns.T @ dz00
+        dz_sys[:12] = dz00_ns
         cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
@@ -634,7 +639,8 @@ class MedialVABD(MedialRodComplex):
         self.z0[:] = self.extract_z0(self.z)
         self.z_dot[:] = 0.0
         
-        if self.n_meshes <= 2: 
+        # if self.n_meshes <= 2: 
+        if False:
             off = (self.n_meshes - 1) * 12
             # self.z_dot[off + 9: off + 12] = np.array([0.0, 0.0, -3.0])
             self.z_dot[off + 9: off + 12] = np.array([0.0, -1.0, 0.0])
@@ -784,9 +790,6 @@ class MedialVABD(MedialRodComplex):
         # wp.launch(compute_rhs, (self.n_nodes, ), inputs = [self.states, self.h, self.M, self.b])
         # self.set_bc_fixed_grad()
 
-class PinnedVABD(MedialVABD):
-    def __init__(self, h, meshes, transforms, static_bars = None):
-        super().__init__(h, meshes, transforms, static_bars)
 
     def compute_nullspace(self):
         v_rst = self.V
@@ -810,6 +813,33 @@ class PinnedVABD(MedialVABD):
         self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
         self.U0_prime[:12, :6]= self.ns
         self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
+
+class PinnedVABD(MedialVABD):
+    def __init__(self, h, meshes, transforms, static_bars = None):
+        super().__init__(h, meshes, transforms, static_bars)
+
+    # def compute_nullspace(self):
+    #     v_rst = self.V
+    #     x_rst = v_rst[:, 0]
+    #     y_rst = v_rst[:, 1]
+    #     pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
+
+    #     self.pinned = np.arange(self.n_nodes)[pinned]
+    #     assert len(self.pinned) == 2
+
+    #     y = v_rst[self.pinned]
+    #     # pinned positions
+
+    #     lhs = np.ones((2, 4), float)
+    #     lhs[0, : 3] = y[0]
+    #     lhs[1, : 3] = y[1]
+    #     C = np.kron(lhs, np.identity(3))
+    #     ns= null_space(C)
+    #     self.ns = ns
+    #     assert ns.shape == (12, 6)
+    #     self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
+    #     self.U0_prime[:12, :6]= self.ns
+    #     self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
         
     def prefactor_once(self):
         if self.abd_only:
@@ -867,8 +897,8 @@ def windmill():
     # transforms[-1][2, 2] = 1.5
 
     for i in range(1, n_meshes):
-        # if i % 2 == 0:
-        if True:
+        if i % 2 == 0:
+        # if True:
             transforms[i][0, 3] = 1.0 + i * 0.2 * np.random.rand()
         else:
             transforms[i][0, 3] = -(2 + i * 0.05)
@@ -896,8 +926,8 @@ def windmill():
     # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
     # rods = MedialRodComplex(h, meshes, transforms, static_bars)
-    rods = PinnedVABD(h, meshes, transforms, static_bars)
-    # rods = MedialVABD(h, meshes, transforms, static_bars)
+    # rods = PinnedVABD(h, meshes, transforms, static_bars)
+    rods = MedialVABD(h, meshes, transforms, static_bars)
     
     
     viewer = MedialViewer(rods, static_bars)
