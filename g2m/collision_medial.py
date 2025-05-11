@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
 from geometry.static_scene import StaticScene
-from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
+from mtk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
@@ -12,14 +12,14 @@ CC_SET_SIZE = 1024
 SS_SET_SIZE = 1024
 G_SET_SIZE = 1024
 
-ground_rel_stiffness = 10
+ground_rel_stiffness = 1.0
 
 per_mesh_verts = 40
 COLLISION_DEBUG = False
 
 cc_collision = True
 ss_colliison = True
-sg_collision = False
+sg_collision = True
 cc_static_collision = True
 
 # @wp.kernel
@@ -424,6 +424,46 @@ class MedialCollisionDetector:
                 ret += self.ee_static_set.E.numpy()[0]
         return ret
 
+    def collision_set_verbose(self, V, R = None, energy_only = False):
+        self.refit(V, R)
+        ret = 0.0
+        if ss_colliison:
+            self.pt_set.cnt.zero_()
+            self.pt_set.E.zero_()
+            wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set, self.body])
+            ret += self.pt_set.E.numpy()[0]
+
+        if cc_collision:
+            self.ee_set.cnt.zero_()
+            self.ee_set.E.zero_()
+            wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
+            ret += self.ee_set.E.numpy()[0]
+
+
+        if self.ground is not None and sg_collision:
+            self.g_set.cnt.zero_()
+            self.g_set.E.zero_()
+            wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
+            ret += self.g_set.E.numpy()[0] * ground_rel_stiffness
+
+        if hasattr(self, "static_soup"):
+            if sg_collision:
+                self.p_static_set.cnt.zero_()
+                self.p_static_set.E.zero_()
+                wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
+                ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
+
+            if self.static_objects.has_medials and cc_static_collision:
+                # only cone-cone collision
+                self.ee_static_set.cnt.zero_()
+                self.ee_static_set.E.zero_()
+                wp.launch(cone_cone_collision_set_static, (self.n_edges, self.n_edges_static), inputs = [self.medial_geo, self.medial_geo_static, self.ee_static_set])
+                ret += self.ee_static_set.E.numpy()[0]
+
+        nss = self.pt_set.cnt.numpy()[0]
+        ncc = self.ee_set.cnt.numpy()[0]
+        return ret, nss, ncc
+
 
     def sphere(self, e0):
         ve0 = self.V[e0]
@@ -502,8 +542,6 @@ class MedialCollisionDetector:
         for ss, ssid in zip(self.ss_set, self.ss_id):
             e0, e1, e2, e3 = ssid
 
-            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                continue
 
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3
@@ -688,6 +726,169 @@ class MedialCollisionDetector:
             bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
             H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
             # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
+        idx = sorted(self.indices_set)
+        H_dim = len(idx) * 3
+        idx_inv = dict(zip(idx, range(len(idx))))
+        H = np.zeros((H_dim, H_dim))
+        for r, c, bb in zip(rows, cols, blocks):
+            i = idx_inv[r]
+            j = idx_inv[c]
+            H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
+        
+        idx = np.array(idx, int).reshape((-1, 1))
+        ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
+        return b[ret_idx], H, ret_idx
+        
+    def analyze_ss(self):
+
+        b = np.zeros(self.n_vertices * 3)
+        # if self.dense:
+        #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+
+        rows = []
+        cols = []
+        blocks = []
+        self.indices_set.clear()
+
+        nss = self.pt_set.cnt.numpy()[0]
+        ss_id = self.pt_set.a.numpy()[:nss]
+
+        
+        self.ss_set = []
+        self.ss_id = []
+        
+        for id in ss_id:
+            if tuple(id) in self.rest_pt:
+                n_repeated_ss += 1
+                continue
+            e0, e1, e2, e3 = id
+            s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.sphere(e2), self.sphere(e3)
+            
+            cons = SlabSphereConstraint(s0, s1, s2, s3)
+            dist = cons.compute_distance()
+
+            self.ss_set.append(cons)
+            self.ss_id.append(id)
+
+          
+        for ss, ssid in zip(self.ss_set, self.ss_id):
+            e0, e1, e2, e3 = ssid
+
+            E = [e0, e1, e2, e3]
+            ee = np.array(E)# * 3
+
+            dist = np.abs(ss.get_distance())
+            g, h = ss.get_dist_gh()
+            b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3]
+            b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6]
+            b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
+            b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
+            
+            h = 2 * dist * h + 2 * np.outer(g, g)
+
+            self.indices_set.update(ee)
+            # self.indices_set.update(ee + 1)
+            # self.indices_set.update(ee + 2)
+            # if self.dense:
+            if False:
+                for ii in range(4):
+                    for jj in range(4):
+                        H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
+            else:
+                for ii in range(4):
+                    for jj in range(4):
+                        rows.append(E[ii])
+                        cols.append(E[jj])
+                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+        idx = sorted(self.indices_set)
+        H_dim = len(idx) * 3
+        idx_inv = dict(zip(idx, range(len(idx))))
+        H = np.zeros((H_dim, H_dim))
+        for r, c, bb in zip(rows, cols, blocks):
+            i = idx_inv[r]
+            j = idx_inv[c]
+            H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
+        
+        idx = np.array(idx, int).reshape((-1, 1))
+        ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
+        return b[ret_idx], H, ret_idx
+
+    def analyze_cc(self):
+
+        b = np.zeros(self.n_vertices * 3)
+        # if self.dense:
+        #     H = np.zeros((self.n_vertices * 3, self.n_vertices * 3))
+
+        rows = []
+        cols = []
+        blocks = []
+        self.indices_set.clear()
+
+        nss = self.pt_set.cnt.numpy()[0]
+        ss_id = self.pt_set.a.numpy()[:nss]
+        ncc = self.ee_set.cnt.numpy()[0]
+        cc_id = self.ee_set.a.numpy()[:ncc]
+
+
+        self.cc_set = []
+        self.cc_id = []
+        
+            
+        for id in cc_id:
+            if tuple(id) in self.rest_cc:
+                n_repeated_cc += 1
+                continue
+            e0, e1, e2, e3 = id
+
+            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
+                continue
+
+            s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.sphere(e2), self.sphere(e3)
+
+            cons = ConeConeConstraint(s0, s1, s2, s3)
+            dist = cons.compute_distance()
+
+            self.cc_set.append(cons)
+            self.cc_id.append(id)
+
+
+        for cc, ccid in zip(self.cc_set, self.cc_id):
+            # i, j = ccid
+
+            # e0, e1 = self.E[i]
+            # e2, e3 = self.E[j] 
+            e0, e1, e2, e3 = ccid
+
+            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
+                continue
+
+            E = [e0, e1, e2, e3]
+            ee = np.array(E)# * 3
+
+            dist = np.abs(cc.get_distance())
+            g, h = cc.get_dist_gh()
+            b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3]
+            b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6]
+            b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
+            b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
+            
+            h = 2 * dist * h + 2 * np.outer(g, g)
+
+            self.indices_set.update(ee)
+            # self.indices_set.update(ee + 1)
+            # self.indices_set.update(ee + 2)
+            # if self.dense:
+            if False:
+                for ii in range(4):
+                    for jj in range(4):
+                        H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
+            else:
+                for ii in range(4):
+                    for jj in range(4):
+                        rows.append(E[ii])
+                        cols.append(E[jj])
+                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+
         idx = sorted(self.indices_set)
         H_dim = len(idx) * 3
         idx_inv = dict(zip(idx, range(len(idx))))

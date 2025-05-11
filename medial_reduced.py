@@ -112,7 +112,7 @@ class MedialRodComplex(RodComplexBC):
 
     def load_Q(self, model):
         Q = np.load(f"data/W_{model}.npy")
-        Q = Q[:, 2:10]
+        Q = Q[:, :10]
         Q[:, 0] = 1.0
         return Q
         
@@ -350,9 +350,9 @@ def bug_drop():
     ps.show()
 
 def staggered_bug():
-    model = "bunny"
-    # model = "bug"
-    n_meshes = 2
+    # model = "bunny"
+    model = "bug"
+    n_meshes = 1
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -453,5 +453,5 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     # bug_drop()
-    # staggered_bug()
-    windmill()
+    staggered_bug()
+    # windmill()

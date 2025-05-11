@@ -15,16 +15,19 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
+from mtk import MedialCollider
 
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
+cpp_test = True
+
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "woodbury"  # default for medial proxy
-# solver_choice = "direct"  # default for medial proxy
+# solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
@@ -157,7 +160,8 @@ class MedialVABD(MedialRodComplex):
         self.collider_medial.R = R
         # self.collider_medial.get_rest_collision_set()
         
-        self.compute_nullspace()
+        # self.compute_nullspace()
+        self.cpp_collider = MedialCollider(V, R, self.E_medial, self.F_medial, 0.0)
 
     def define_collider(self):
         if collision_handler == "triangle":
@@ -178,9 +182,10 @@ class MedialVABD(MedialRodComplex):
         start = 0
         for i in range(self.n_meshes):
             model = self.models[i]
-            nv = self.Q[model].shape[0]
-            self.sum_W[i] = np.sum(ww[start: start + nv])
-            start += nv
+            # nv = self.Q[model].shape[0]
+            ntets = self.n_tets // self.n_meshes
+            self.sum_W[i] = np.sum(ww[start: start + ntets])
+            start += ntets
 
     def define_A0_b0_btilde(self):
         self.A0 = np.zeros((self.n_meshes * 12, self.n_meshes * 12))
@@ -307,6 +312,25 @@ class MedialVABD(MedialRodComplex):
         self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
 
         self.A_tilde = self.K0 + self.M_tilde
+
+        np.save("A_tilde.npy", self.A_tilde.toarray())
+        np.save("K0.npy", self.K0.toarray())
+        np.save("M_tilde.npy", self.M_tilde.toarray())
+
+        kk = self.to_scipy_bsr().tocsc()
+        mm = self.to_scipy_bsr(self.M_sparse).tocsc()
+        np.save("K_sparse_values.npy", kk.data)
+        np.save("K_sparse_indices.npy", kk.indices)
+        np.save("K_sparse_outer.npy", kk.indptr)
+
+        np.save("M_sparse_values.npy", mm.data)
+        np.save("M_sparse_indices.npy", mm.indices)
+        np.save("M_sparse_outer.npy", mm.indptr)
+        
+        ut = self.U_tilde.tocsc()
+        np.save("U_tilde_values.npy", ut.data)
+        np.save("U_tilde_indices.npy", ut.indices)
+        np.save("U_tilde_outer.npy", ut.indptr)
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
@@ -466,11 +490,21 @@ class MedialVABD(MedialRodComplex):
             elif solver_choice == "woodbury":
                 dz_sys = dz_sys_wb
 
+        np.save("A_sys.npy", A_sys) 
+        np.save("b_sys.npy", b_sys)
+        np.save("sum_W.npy", self.sum_W)
+        np.save("mm.npy", self.mm.toarray())
+        np.save("W.npy", self.W.numpy())
+        np.save("A0.npy", self.A0)
+        np.save("b0.npy", self.b0)
+        
+        
+        # quit()
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         
-        dz00 = dz_sys[:12]
-        dz00_ns = self.ns @ self.ns.T @ dz00
-        dz_sys[:12] = dz00_ns
+        # dz00 = dz_sys[:12]
+        # dz00_ns = self.ns @ self.ns.T @ dz00
+        # dz_sys[:12] = dz00_ns
         cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
@@ -495,7 +529,7 @@ class MedialVABD(MedialRodComplex):
     def converged(self):
         norm_dz = np.linalg.norm(self.dz)
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-3
+        return norm_dz < 1e-4
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -639,11 +673,13 @@ class MedialVABD(MedialRodComplex):
         self.z0[:] = self.extract_z0(self.z)
         self.z_dot[:] = 0.0
         
-        # if self.n_meshes <= 2: 
-        if False:
+        if self.n_meshes <= 2: 
+        # if False:
             off = (self.n_meshes - 1) * 12
             # self.z_dot[off + 9: off + 12] = np.array([0.0, 0.0, -3.0])
-            self.z_dot[off + 9: off + 12] = np.array([0.0, -1.0, 0.0])
+            self.z_dot[off + 9: off + 12] = np.array([0.0, 0.0, 0.0])
+            # self.z_dot[off + 9: off + 12] = np.array([0.0, -1.0, 0.0])
+            # self.z_dot[off + 9: off + 12] = np.array([0.0, 0.0, i * -3.0])
             
             # self.z_dot[2] = -1.0
             # self.z_dot[6] = 1.0
@@ -677,9 +713,34 @@ class MedialVABD(MedialRodComplex):
     def process_collision_medial_based(self):
         V, R = self.get_VR()
         with wp.ScopedTimer("detect"):
-            self.collider_medial.collision_set(V, R)
+            _, nss, ncc = self.collider_medial.collision_set_verbose(V, R)
         with wp.ScopedTimer("analyze"):
             g, H, idx = self.collider_medial.analyze()
+
+        if cpp_test:
+            self.cpp_collider.collision_set(V, R)
+            # if nss > 0 or ncc > 0:
+            #     g_cpp, H_cpp, idx_cpp = self.cpp_collider.analyze_cc()
+            #     g_cpp, H_cpp, idx_cpp = self.cpp_collider.analyze_ss()
+            # if (nss > 0):
+            #     g, H, idx = self.collider_medial.analyze_ss()
+            #     g_cpp, H_cpp, idx_cpp = self.cpp_collider.analyze_ss()
+            #     assert np.isclose(g, g_cpp, rtol = 1e-2).all(), f"cpp medial collision g failed, diff = {np.linalg.norm(g - g_cpp)}, g norm = {np.linalg.norm(g)}"
+            #     assert np.isclose(H, H_cpp, rtol = 1e-2).all(), f"cpp medial collision H failed, diff = {np.linalg.norm(H - H_cpp)}, H norm = {np.linalg.norm(H)}"
+            #     assert np.all(idx == idx_cpp), "indices mismatch"
+
+            # if (ncc > 0):
+            #     g, H, idx = self.collider_medial.analyze_cc()
+            #     g_cpp, H_cpp, idx_cpp = self.cpp_collider.analyze_cc()
+            #     assert np.isclose(g, g_cpp, rtol = 1e-2).all(), f"cpp medial collision g failed, diff = {np.linalg.norm(g - g_cpp)}, g norm = {np.linalg.norm(g)}"
+            #     assert np.isclose(H, H_cpp, rtol = 1e-2).all(), f"cpp medial collision H failed, diff = {np.linalg.norm(H - H_cpp)}, H norm = {np.linalg.norm(H)}"
+            #     assert np.all(idx == idx_cpp), "indices mismatch"
+                
+            g_cpp, H_cpp, idx_cpp = self.cpp_collider.analyze()
+            assert np.isclose(g, g_cpp, rtol = 1e-2).all(), f"cpp medial collision g failed, diff = {np.linalg.norm(g - g_cpp)}, g norm = {np.linalg.norm(g)}"
+            assert np.isclose(H, H_cpp, rtol = 1e-2).all(), f"cpp medial collision H failed, diff = {np.linalg.norm(H - H_cpp)}, H norm = {np.linalg.norm(H)}"
+            assert np.all(idx == idx_cpp), "indices mismatch"
+            
             
         # with wp.ScopedTimer("U prime"):
         #     U_prime = self.compute_U_prime()
@@ -703,7 +764,9 @@ class MedialVABD(MedialRodComplex):
             # self.A0_col = self.Um0.T @ H @ self.Um0 * term
             # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+            Um_sys_full = vstack([self.Um0.T, Um_tildeT]).tocsc()
+            Um_sys = Um_sys_full[:, idx]
+            np.save("Um_sys_full.npy", Um_sys_full.toarray())
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
@@ -780,6 +843,10 @@ class MedialVABD(MedialRodComplex):
         h = self.h
         with wp.ScopedTimer("energy"):
             ret = self.collider_medial.energy(V, R) * medial_collision_stiffness * h * h    
+
+        if cpp_test:
+            e_cpp = self.cpp_collider.energy(V, R) * medial_collision_stiffness * h * h    
+            assert np.isclose(ret, e_cpp, rtol = 1e-2).all(), f"cpp medial collision energy failed, diff = {ret - e_cpp * 10.0}, ret norm = {ret}, e cpp = {e_cpp * 10}"
         return ret
 
     def compute_A(self):
@@ -935,22 +1002,23 @@ def windmill():
     ps.show()
 
 def staggered_bug():
-    model = "bunny"
-    # model = "bug"
-    n_meshes = 2
+    # model = "bunny"
+    model = "bug"
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    
+    transforms[0][1, 3] = 1.0 
+    # transforms[-1][:3, :3] = np.zeros((3, 3))
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
 
-    transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 1] = 1.5
-    transforms[-1][1, 0] = 1.5
-    transforms[-1][2, 2] = 1.5
-
-    for i in range(n_meshes):
-        # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.8
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 0.2 + i * 0.25
+    #     transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -960,17 +1028,17 @@ def staggered_bug():
     scale[3, 3] = 1.0
 
     # bouncy box
-    static_meshes_file = ["assets/bouncybox.obj"]
-    box_size = 4
-    scale = np.identity(4) * box_size
-    scale[3, 3] = 1.0
-    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    for i in range(n_meshes):
-        transforms[i][1, 3] += box_size * 1.5
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
         
     
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     
     viewer = MedialViewer(rods, static_bars)
@@ -995,10 +1063,10 @@ def bug_rain():
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 10), (0, 4, 0))
-    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    # staggered_bug()
-    windmill()
+    staggered_bug()
+    # windmill()
     # bug_rain()
