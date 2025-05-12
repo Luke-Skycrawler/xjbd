@@ -247,7 +247,7 @@ def init_transforms(transforms: wp.array(dtype = wp.mat44), bb_x: float, bb_y: f
     pos = wp.vec3(0.0)
     for dim in range(3):
         xd = int_pow(7, i, grid_dims[dim])
-        pos[dim] = float(xd) / float(grid_dims[dim]) * 10.0 - 5.0
+        pos[dim] = float(xd) / float(grid_dims[dim]) * 30.0 - 15.0
     pos[1] = wp.abs(pos[1]) + 1.0
 
     rng = wp.rand_init(123 + i)

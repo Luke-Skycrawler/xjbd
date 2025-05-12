@@ -28,6 +28,7 @@ solver_choice = "woodbury"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
+use_nullspace = False
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -156,8 +157,8 @@ class MedialVABD(MedialRodComplex):
         self.collider_medial.V = V
         self.collider_medial.R = R
         # self.collider_medial.get_rest_collision_set()
-        
-        self.compute_nullspace()
+        if use_nullspace:
+            self.compute_nullspace()
 
     def define_collider(self):
         if collision_handler == "triangle":
@@ -202,9 +203,10 @@ class MedialVABD(MedialRodComplex):
             xi = x0[start: start + nv]
             Ui = self.lbs_matrix(xi, Q)
             diags.append(Ui)
+            start += nv
         self.U = block_diag(diags)
 
-        self.wp_define_U()        
+        # self.wp_define_U()        
         # Uwp = self.to_scipy_bsr(self.Uwp)
         # print(f"U norm = {norm(self.U)}, diff norm = {norm(self.U - Uwp)}")
 
@@ -362,9 +364,9 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
-        zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
-        bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
+        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
+        # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
 
     def dz_tiled2dz(self, dz_tilde, dz0):
         dz = np.zeros_like(dz_tilde)
@@ -467,10 +469,10 @@ class MedialVABD(MedialRodComplex):
                 dz_sys = dz_sys_wb
 
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
-        
-        dz00 = dz_sys[:12]
-        dz00_ns = self.ns @ self.ns.T @ dz00
-        dz_sys[:12] = dz00_ns
+        if use_nullspace:
+            dz00 = dz_sys[:12]
+            dz00_ns = self.ns @ self.ns.T @ dz00
+            dz_sys[:12] = dz00_ns
         cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
@@ -648,7 +650,7 @@ class MedialVABD(MedialRodComplex):
             # self.z_dot[2] = -1.0
             # self.z_dot[6] = 1.0
         else:
-            self.z_dot[:9] = vec(np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]))
+            # self.z_dot[:9] = vec(np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]))
             for i in range(1, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
@@ -978,17 +980,39 @@ def staggered_bug():
     ps.show()
 
 def bug_rain():
-    n_meshes = 20
-    meshes = ["assets/bug.tobj"] * n_meshes
-    
+    model = "bunny"
+    # model = "bug"
+    n_meshes = 125
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+
     transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
     # v, _ = import_tobj(meshes[0])
     # bb_size = np.max(v, axis = 0) - np.min(v, axis = 0)
     bb_size = np.ones(3, float)
-    wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
+    # wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
+    tt = np.zeros((n_meshes, 4, 4), float)
+    for i in range(n_meshes):
+        gap = 2.0
+        tt[i] = np.identity(4)
+        x = i % 5
+        y = i // 25
+        z = (i // 5) % 5
+
+        x = (x - 2) * gap 
+        y = y * gap + 3.0
+        z = (z - 2) * gap
+
+        tt[i, :3, 3] = np.array([x, y, z], float)
+
     print(f"bb_size = {bb_size}")
-    rods = MedialVABD(h, meshes, transforms.numpy())
-    viewer = MedialViewer(rods)
+
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 15
+    scale[3, 3] = 1.0
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # rods = MedialVABD(h, meshes, transforms.numpy(), static_bars)
+    rods = MedialVABD(h, meshes, tt, static_bars)
+    viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
@@ -1000,5 +1024,6 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     # staggered_bug()
-    windmill()
+    # windmill()
     # bug_rain()
+    bug_rain()
