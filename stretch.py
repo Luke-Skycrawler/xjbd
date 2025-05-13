@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 1e-2
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -143,7 +143,7 @@ class PSViewer:
         self.ui_pause = True
         self.animate = False
         
-        self.end_frame = 4000
+        self.end_frame = 5000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()

@@ -649,10 +649,10 @@ class MedialVABD(MedialRodComplex):
             # self.z_dot[6] = 1.0
         else:
             # self.z_dot[:9] = vec(np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]))
-            for i in range(1, self.n_meshes):
+            for i in range(0, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
-                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -5.0, 0.0])
+                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -935,22 +935,23 @@ def windmill():
     ps.show()
 
 def staggered_bug():
-    model = "bunny"
+    model = "squishy"
     # model = "bug"
-    n_meshes = 2
+    n_meshes = 5
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
-    transforms[-1][:3, :3] = np.zeros((3, 3))
-    transforms[-1][0, 1] = 1.5
-    transforms[-1][1, 0] = 1.5
-    transforms[-1][2, 2] = 1.5
+    # transforms[-1][:3, :3] = np.zeros((3, 3))
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
-        # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.25
-        transforms[i][2, 3] = i * 1.2 - 0.8
+        transforms[i][:3, :3] = np.identity(3) * 0.9
+        transforms[i][0, 3] = i * 1.5 - 3
+        transforms[i][1, 3] = 1.2
+        transforms[i][2, 3] = - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -978,9 +979,9 @@ def staggered_bug():
     ps.show()
 
 def bug_rain():
-    model = "bunny"
+    model = "squishy"
     # model = "bug"
-    n_meshes = 25
+    n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
 
     transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
@@ -997,7 +998,7 @@ def bug_rain():
         z = (i // 5) % 5
 
         x = (x - 2) * gap 
-        y = y * gap + 1.2
+        y = y * gap + 1.5
         z = (z - 2) * gap
 
         tt[i, :3, 3] = np.array([x, y, z], float)
@@ -1021,7 +1022,7 @@ if __name__ == "__main__":
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    # staggered_bug()
+    staggered_bug()
     # windmill()
     # bug_rain()
-    bug_rain()
+    # bug_rain()

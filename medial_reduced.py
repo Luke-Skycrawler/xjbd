@@ -112,7 +112,7 @@ class MedialRodComplex(RodComplexBC):
 
     def load_Q(self, model):
         Q = np.load(f"data/W_{model}.npy")
-        Q = Q[:, 2:10]
+        Q = Q[:, :10]
         Q[:, 0] = 1.0
         return Q
         
