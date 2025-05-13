@@ -176,13 +176,11 @@ class MedialVABD(MedialRodComplex):
     def sum_weights(self):
         ww  = self.W.numpy()
         self.sum_W = np.zeros((self.n_meshes), float)
-        start = 0
         for i in range(self.n_meshes):
-            model = self.models[i]
-            nv = self.Q[model].shape[0]
-            self.sum_W[i] = np.sum(ww[start: start + nv])
-            start += nv
-
+            start = self.tet_start[i]
+            nt = self.tet_start[i + 1] - self.tet_start[i]
+            self.sum_W[i] = np.sum(ww[start: start + nt])
+    
     def define_A0_b0_btilde(self):
         self.A0 = np.zeros((self.n_meshes * 12, self.n_meshes * 12))
         self.b0 = np.zeros((self.n_meshes * 12,))
@@ -982,7 +980,7 @@ def staggered_bug():
 def bug_rain():
     model = "bunny"
     # model = "bug"
-    n_meshes = 125
+    n_meshes = 25
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
 
     transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
@@ -999,7 +997,7 @@ def bug_rain():
         z = (i // 5) % 5
 
         x = (x - 2) * gap 
-        y = y * gap + 3.0
+        y = y * gap + 1.2
         z = (z - 2) * gap
 
         tt[i, :3, 3] = np.array([x, y, z], float)

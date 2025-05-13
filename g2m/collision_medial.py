@@ -464,9 +464,9 @@ class MedialCollisionDetector:
         n_repeated_cc = 0
         n_repeated_ss = 0
         for id in ss_id:
-            if tuple(id) in self.rest_pt:
-                n_repeated_ss += 1
-                continue
+            # if tuple(id) in self.rest_pt:
+            #     n_repeated_ss += 1
+            #     continue
             e0, e1, e2, e3 = id
             s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.sphere(e2), self.sphere(e3)
             
@@ -478,9 +478,9 @@ class MedialCollisionDetector:
 
             
         for id in cc_id:
-            if tuple(id) in self.rest_cc:
-                n_repeated_cc += 1
-                continue
+            # if tuple(id) in self.rest_cc:
+            #     n_repeated_cc += 1
+            #     continue
             e0, e1, e2, e3 = id
 
             if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
@@ -501,9 +501,6 @@ class MedialCollisionDetector:
 
         for ss, ssid in zip(self.ss_set, self.ss_id):
             e0, e1, e2, e3 = ssid
-
-            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                continue
 
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3
@@ -538,9 +535,6 @@ class MedialCollisionDetector:
             # e0, e1 = self.E[i]
             # e2, e3 = self.E[j] 
             e0, e1, e2, e3 = ccid
-
-            if self.is_1_ring(e0, e1, e2, e3) or self.is_2_ring(e0, e1, e2, e3):
-                continue
 
             E = [e0, e1, e2, e3]
             ee = np.array(E)# * 3

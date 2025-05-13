@@ -185,6 +185,7 @@ class TOBJComplex:
 
         self.n_nodes = 0
         self.n_tets = 0
+        self.tet_start = []
         V = np.zeros((0, 3), dtype = float)
         T = np.zeros((0, 4), dtype = int)
         F_from_file = np.zeros((0, 3), dtype = int)
@@ -214,10 +215,11 @@ class TOBJComplex:
             if ff.shape[0]:
                 F_from_file = np.vstack([F_from_file, ff + self.n_nodes])
 
+            self.tet_start.append(self.n_tets)
             self.n_nodes += v.shape[0]
             self.n_tets += t.shape[0]
 
-
+        self.tet_start.append(self.n_tets)
         self.xcs = wp.zeros((self.n_nodes), dtype = wp.vec3) 
         self.T = wp.zeros((self.n_tets, 4), dtype = int)
 
