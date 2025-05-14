@@ -64,6 +64,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def reset(self):
         n_verts = 4
         self.theta = 0.0
+        self.frame = 0
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
         model_ntets = {
             "bar2": 525,
@@ -107,6 +108,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                 self.add_collision_to_sys_matrix(triplets)
     def step(self):
         self.theta += omega * self.h
+        self.frame += 1
         with wp.ScopedTimer("step"):
             newton_iter = True
             n_iter = 0

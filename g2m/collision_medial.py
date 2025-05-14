@@ -14,7 +14,7 @@ G_SET_SIZE = 1024
 
 ground_rel_stiffness = 10
 
-per_mesh_verts = 40
+per_mesh_verts = 211
 COLLISION_DEBUG = False
 
 cc_collision = True

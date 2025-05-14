@@ -159,13 +159,15 @@ class PSViewer:
     def save(self):
         ps.screenshot(f"output/{self.frame:04d}.jpg")
         igl.write_obj(f"output/obj/{self.frame:04d}.obj", self.V, self.F)
+        if hasattr(self.rod, "save_states"):
+            self.rod.save_states()
 
     def callback(self):
         changed, self.ui_pause = gui.Checkbox("Pause", self.ui_pause)
         self.animate = gui.Button("Step") or not self.ui_pause
         if gui.Button("Reset"):
             self.rod.reset()
-            self.frame = 0
+            self.frame = self.rod.frame
             self.ui_pause = True
             self.animate = True
 
@@ -176,7 +178,7 @@ class PSViewer:
             self.rod.step()
             self.V = self.rod.states.x.numpy()
             self.ps_mesh.update_vertex_positions(self.V)
-            self.frame += 1
+            self.frame = self.rod.frame
             
             print("frame = ", self.frame)
 

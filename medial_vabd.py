@@ -331,6 +331,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde0 = np.copy(self.z_tilde)
         self.z_tilde_dot = np.zeros_like(self.z_tilde)
         self.dz_tilde = np.zeros_like(self.z_tilde)
+        self.z_fields = [self.z, self.z0, self.z_dot, self.z_tilde, self.z_tilde0, self.z_tilde_dot]
+        self.fields_alias = ["z", "z0", "z_dot", "z_tilde", "z_tilde0", "z_tilde_dot"]
 
     def extract_z0(self, z):
         z0 = np.zeros(self.n_meshes * 12)
@@ -629,7 +631,7 @@ class MedialVABD(MedialRodComplex):
         wp.launch(per_node_forces, (self.n_nodes, ), inputs = [self.geo, b, self.h])
         return b.numpy().reshape(-1)
 
-    def reset_z(self):
+    def reset_z(self, from_frame = 0):
         self.z[:] = 0.0
         self.dz[:] = 0.0
 
@@ -660,7 +662,21 @@ class MedialVABD(MedialRodComplex):
         self.dz_tilde[:] = 0.0
 
         self.frame = 0
+        
+        if from_frame > 0:
+            self.frame = from_frame
+            states = np.load(f"output/states/z_{self.frame}.npz")
+            for (alias, field) in zip(self.fields_alias, self.z_fields):
+                # field[:] = np.load(f"output/states/{alias}_{self.frame}.npy")
+                field[:] = states[alias]
 
+            self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+
+    def save_states(self):
+        np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
+        # for alias, field in zip(self.fields_alias, self.z_fields):
+        #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
+            
     def compute_Um_tildeT(self):
         if self.abd_only:
             return np.zeros((0, self.n_medial * 3), float)
@@ -935,9 +951,10 @@ def windmill():
     ps.show()
 
 def staggered_bug():
+    ps.look_at((0, 4, 10), (0, 4, 0))
     model = "squishy"
     # model = "bug"
-    n_meshes = 5
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -974,6 +991,32 @@ def staggered_bug():
     # static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+def pyramid(from_frame = 0):
+    model = "squishy"
+    # model = "bug"
+    n_meshes = 136
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    positions = np.load("data/init_pos.npy")
+    for i in range(n_meshes):
+        transforms[i][:3, 3] = positions[i]
+    
+    # stacked bowls
+    static_meshes_file = ["assets/bowl stack.obj"]
+    scale = np.identity(4)
+          
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    if from_frame > 0:
+        rods.reset_z(from_frame)
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
@@ -1017,12 +1060,12 @@ def bug_rain():
 
 if __name__ == "__main__":
     ps.init()
-    ps.look_at((0, 4, 10), (0, 4, 0))
     ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    staggered_bug()
+    ps.look_at((0, 6, 15), (0, 6, 0))
+    # staggered_bug()
+    pyramid()
     # windmill()
-    # bug_rain()
     # bug_rain()
