@@ -1,6 +1,6 @@
 import warp as wp
 import numpy as np
-from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
+from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell, edge_aabbs
 from geometry.static_scene import StaticScene
 from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
@@ -233,6 +233,46 @@ def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, c
             if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                 append(collision_list, element, dmr * dmr)
 
+
+@wp.kernel
+def cone_static_colliison(geo: MedialGeometry, triangles_soup: TriangleSoup, collision_list: ConeConeCollisionList, edge_bvh: wp.uint64):
+    '''
+    cone collision with static triangle soup edges
+    '''
+
+    x = wp.tid()
+    
+    ie0 = geo.edges[x][0]
+    ie1 = geo.edges[x][1]
+
+    e0 = geo.vertices[ie0]
+    e1 = geo.vertices[ie1]  
+    r0 = geo.radius[ie0]
+    r1 = geo.radius[ie1]
+
+    l0 = e0 - wp.vec3(r0)
+    u0 = e0 + wp.vec3(r0)
+    l1 = e1 - wp.vec3(r1)
+    u1 = e1 + wp.vec3(r1)
+    low = wp.min(l0, l1)
+    high = wp.max(u0, u1)
+    query = wp.bvh_query_aabb(edge_bvh, low, high)
+    y = int(0)
+
+    while wp.bvh_query_next(query, y):
+        iy0 = triangles_soup.edges[y * 2 + 0]
+        iy1 = triangles_soup.edges[y * 2 + 1]
+
+        e2 = triangles_soup.vertices[iy0]
+        e3 = triangles_soup.vertices[iy1]
+        r2 = 0.0
+        r3 = 0.0
+
+        dist, _, foo, bar = compute_distance_cone_cone(e0, e1, e2, e3, r0, r1, r2, r3)
+        if dist < 0.0: 
+            element = wp.vec4i(ie0, ie1, iy0,  iy1)
+            append(collision_list, element, dist)
+
 @wp.kernel
 def refuse_2_ring(geo: MedialGeometry, cc_list: ConeConeCollisionList):
     i = wp.tid()
@@ -327,7 +367,15 @@ class MedialCollisionDetector:
         static_soup.indices = static_objects.indices
         static_soup.vertices = static_objects.xcs
         static_soup.mesh_id = self.staic_triangles.id
+        F = static_objects.indices.numpy().reshape(-1, 3)
+        E = igl.edges(F)
+        self.static_edges = wp.array(E.reshape(-1), dtype = int)
+        n_static_edges = E.shape[0]
+        static_soup.edges = self.static_edges
         self.static_soup = static_soup
+        
+        # np arrays for static objects
+        self.V_static = static_objects.xcs.numpy()
         
         p_static_set = StaticCollisionList()
         p_static_set.cnt = wp.zeros((1, ), dtype =int)
@@ -337,6 +385,20 @@ class MedialCollisionDetector:
         self.p_static_set = p_static_set
         self.n_static = 0
 
+        p_static_set_cone = ConeConeCollisionList()
+        p_static_set_cone.cnt = wp.zeros((1, ), dtype =int)
+        p_static_set_cone.a = wp.zeros((CC_SET_SIZE, ), dtype = wp.vec4i)
+        p_static_set_cone.E = wp.zeros((1, ), dtype = float)
+        p_static_set_cone.dist = wp.zeros((CC_SET_SIZE, ), dtype = float)
+
+        self.p_static_set_cone = p_static_set_cone
+        self.n_static_cone = 0
+
+        self.static_lowers = wp.zeros((n_static_edges, ), dtype = wp.vec3)
+        self.static_uppers = wp.zeros_like(self.static_lowers)
+        wp.launch(edge_aabbs, dim = (n_static_edges,), inputs = [self.static_edges, self.static_soup.vertices, self.static_lowers, self.static_uppers])
+        
+        self.staic_edge_bvh = wp.Bvh(self.static_lowers, self.static_uppers)
 
         self.static_indices = static_objects.indices.numpy()
         self.static_V = static_objects.xcs.numpy()
@@ -416,6 +478,11 @@ class MedialCollisionDetector:
                 wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
                 ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
 
+                self.p_static_set_cone.cnt.zero_()
+                self.p_static_set_cone.E.zero_()
+                wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
+                ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
+
             if self.static_objects.has_medials and cc_static_collision:
                 # only cone-cone collision
                 self.ee_static_set.cnt.zero_()
@@ -432,6 +499,14 @@ class MedialCollisionDetector:
         v_rst_0 = self.V_rest[e0]   
 
         s0 = MedialSphere(ve0, v_rst_0, r0, e0)
+        return s0
+
+    def static_sphere(self, e0):
+        ve0 = self.V_static[e0]
+        r0 = 0.0
+        v_rst_0 = self.V_static[e0]
+        s0 = MedialSphere(ve0, v_rst_0, r0, e0)
+        
         return s0
 
     def analyze(self):
@@ -589,6 +664,9 @@ class MedialCollisionDetector:
             static_id = self.p_static_set.a.numpy()[:n_static]
             self.n_static = n_static
 
+            n_static_cone = self.p_static_set_cone.cnt.numpy()[0]   
+            static_id_cone = self.p_static_set_cone.a.numpy()[:n_static_cone]
+            self.n_static_cone = n_static_cone
             
             for id in static_id:
                 i, t = id
@@ -621,6 +699,31 @@ class MedialCollisionDetector:
                 cols.append(i)
                 blocks.append(hh * ground_rel_stiffness)
             
+            for ccid in static_id_cone:
+                e0, e1, e2, e3 = ccid
+
+                s0, s1, s2, s3 = self.sphere(e0), self.sphere(e1), self.static_sphere(e2), self.static_sphere(e3)
+
+                cons = ConeConeConstraint(s0, s1, s2, s3)
+                dist = cons.compute_distance()
+                
+                ee = np.array([e0, e1])# * 3
+
+                dist = np.abs(dist)
+                g, h = cons.get_dist_gh()
+                b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3] * ground_rel_stiffness
+                b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6] * ground_rel_stiffness
+                
+                h = (2 * dist * h + 2 * np.outer(g, g)) * ground_rel_stiffness
+
+                self.indices_set.update(ee)
+                for ii in range(2):
+                    for jj in range(2):
+                        rows.append(ee[ii])
+                        cols.append(ee[jj])
+                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]) 
+
+
             self.indices_set.update(static_id[:, 0])
             if self.static_objects.has_medials:
                 n_static_ee = self.ee_static_set.cnt.numpy()[0]

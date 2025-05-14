@@ -946,7 +946,7 @@ class MeshCollisionDetector:
             self.static_neighbor_faces = wp.array(EF.reshape(-1), dtype = int)
 
             # static edges bvh
-            self.static_lowers = wp.zeros((n_static_edges * 2, ), dtype = wp.vec3)
+            self.static_lowers = wp.zeros((n_static_edges, ), dtype = wp.vec3)
             self.static_uppers = wp.zeros_like(self.static_lowers)
             wp.launch(edge_aabbs, dim = (n_static_edges,), inputs = [self.static_edges, self.static_soup.vertices, self.static_lowers, self.static_uppers])
             self.static_edges_bvh = wp.Bvh(self.static_lowers, self.static_uppers)
