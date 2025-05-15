@@ -495,7 +495,8 @@ class MedialVABD(MedialRodComplex):
             self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def converged(self):
-        norm_dz = np.linalg.norm(self.dz)
+        norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
+        # norm_dz = np.linalg.norm(self.dz)
         print(f"dz norm = {norm_dz}")
         return norm_dz < 1e-3
         
@@ -1066,6 +1067,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # staggered_bug()
-    pyramid()
+    pyramid(495)
     # windmill()
     # bug_rain()

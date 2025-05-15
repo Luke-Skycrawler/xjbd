@@ -8,9 +8,9 @@ from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
 from typing import Tuple, Set
 import igl
-CC_SET_SIZE = 1024
-SS_SET_SIZE = 1024
-G_SET_SIZE = 1024
+CC_SET_SIZE = 8192
+SS_SET_SIZE = 8192
+G_SET_SIZE = 8192
 
 ground_rel_stiffness = 10
 
