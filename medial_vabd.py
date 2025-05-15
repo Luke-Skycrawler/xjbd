@@ -370,7 +370,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        if self.frame %4 == 0:
+            self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
 
@@ -522,7 +523,7 @@ class MedialVABD(MedialRodComplex):
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         # norm_dz = np.linalg.norm(self.dz)
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-3
+        return norm_dz < 2e-3
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -1032,12 +1033,12 @@ def staggered_bug():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 136
+    n_meshes = 60
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
-    positions = np.load("data/init_pos.npy")
+    positions = np.load("data/init_pos60.npy")
     for i in range(n_meshes):
     # for i in range(30, 31):
         # transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
@@ -1102,6 +1103,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # staggered_bug()
-    pyramid(612)
+    pyramid()
     # windmill()
     # bug_rain()
