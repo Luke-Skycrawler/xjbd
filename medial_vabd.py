@@ -1102,6 +1102,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # staggered_bug()
-    pyramid(437)
+    pyramid(612)
     # windmill()
     # bug_rain()
