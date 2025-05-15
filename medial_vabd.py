@@ -22,6 +22,7 @@ medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
+cpp_only = True
 
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
@@ -434,7 +435,7 @@ class MedialVABD(MedialRodComplex):
         
         # self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
 
-        if solver_choice in ["direct", "compare"]:
+        if not cpp_only and solver_choice in ["direct", "compare"]:
             
             A_sys = np.zeros((self.n_reduced, self.n_reduced))
             
@@ -460,13 +461,18 @@ class MedialVABD(MedialRodComplex):
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
         if solver_choice in ["direct", "compare"]:
-            with wp.ScopedTimer("linalg system"): 
-                dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+            if not cpp_only:
+                with wp.ScopedTimer("linalg system"): 
+                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
             
             with wp.ScopedTimer("cpp direct solver"):
                 dz_sys_cpp = self.direct_solver.solve(b_sys)
+
+            if not cpp_only:
                 cond = np.isclose(dz_sys, dz_sys_cpp, rtol = 1e-2).all()
                 print(f"cpp diff = {np.linalg.norm(dz_sys - dz_sys_cpp)}, cond = {cond}, norm  = {np.linalg.norm(dz_sys_cpp)}, norm ref = {np.linalg.norm(dz_sys)}")
+            else :
+                dz_sys = dz_sys_cpp
 
 
         if solver_choice in ["woodbury", "compare"]:
@@ -489,10 +495,12 @@ class MedialVABD(MedialRodComplex):
             dz00 = dz_sys[:12]
             dz00_ns = self.ns @ self.ns.T @ dz00
             dz_sys[:12] = dz00_ns
-        cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
-        print(f"dz dot gradient cos = {cos_dz_b}")
-        if cos_dz_b < 0.0:
-            print("warning: dz is in the opposite direction of gradient")
+            
+        if not cpp_only:
+            cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
+            print(f"dz dot gradient cos = {cos_dz_b}")
+            if cos_dz_b < 0.0:
+                print("warning: dz is in the opposite direction of gradient")
         # if cos_dz_b < 0.2:
         #     dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(dz_sys)
         dz0 = dz_sys[:self.n_meshes * 12]
@@ -719,38 +727,42 @@ class MedialVABD(MedialRodComplex):
         
         # with wp.ScopedTimer("prod 1"):
         #     Um_tildeT = U_prime @ self.Um_tilde.T
-
-        with wp.ScopedTimer("Um tildeT"):
-            Um_tildeT = self.compute_Um_tildeT()
-
+        
         # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
         term = self.h * self.h * medial_collision_stiffness
 
-        with wp.ScopedTimer("cpp collsion"):
-            rotations = [self.get_F(i) for i in range(self.n_meshes)]
+        with wp.ScopedTimer("cpp collision"):
+            # rotations = [self.get_F(i) for i in range(self.n_meshes)]
+            rotations = self.get_F_batch()
             self.direct_solver.compute_Um_tilde(rotations)
             self.direct_solver.compute_Ab_sys_col(H, g, term)
-        with wp.ScopedTimer("collision linalg system"):
-            # rhs = Um_tildeT @ g
-            # A = Um_tildeT @ H @ Um_tildeT.T 
+            
+        if not cpp_only:
+            with wp.ScopedTimer("Um tildeT"):
+                Um_tildeT = self.compute_Um_tildeT()
 
-            # self.b_col_tilde = rhs * term
-            # self.A_col_tilde = A * term
 
-            # self.A0_col = self.Um0.T @ H @ self.Um0 * term
-            # self.b0_col = self.Um0.T @ g * term
+            with wp.ScopedTimer("collision linalg system"):
+                # rhs = Um_tildeT @ g
+                # A = Um_tildeT @ H @ Um_tildeT.T 
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()
-            # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
-            step1 = Um_sys @ (H * term)
-            # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
-            self.b_sys_col = Um_sys @ (g * term)
+                # self.b_col_tilde = rhs * term
+                # self.A_col_tilde = A * term
 
-            self.A_sys_col = step1 @ Um_sys.T
-        
-        self.U_col = Um_sys
-        self.C_col = H * term
+                # self.A0_col = self.Um0.T @ H @ self.Um0 * term
+                # self.b0_col = self.Um0.T @ g * term
+
+                Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()
+                # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
+                step1 = Um_sys @ (H * term)
+                # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+                self.b_sys_col = Um_sys @ (g * term)
+
+                self.A_sys_col = step1 @ Um_sys.T
+            
+            self.U_col = Um_sys
+            self.C_col = H * term
 
 
 
@@ -1020,16 +1032,16 @@ def staggered_bug():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 1
+    n_meshes = 136
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
     positions = np.load("data/init_pos.npy")
-    # for i in range(n_meshes):
-    for i in range(30, 31):
-        transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
-        # transforms[i][:3, 3] = positions[i]
+    for i in range(n_meshes):
+    # for i in range(30, 31):
+        # transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
+        transforms[i][:3, 3] = positions[i]
     
     # stacked bowls
     static_meshes_file = ["assets/bowl stack.obj"]
@@ -1090,6 +1102,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # staggered_bug()
-    pyramid(0)
+    pyramid(437)
     # windmill()
     # bug_rain()

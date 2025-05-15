@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 1e-2
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -157,7 +157,7 @@ class PSViewer:
                 self.static_spheres.set_point_radius_quantity("radius", autoscale=False)
 
     def save(self):
-        ps.screenshot(f"output/{self.frame:04d}.jpg")
+        # ps.screenshot(f"output/{self.frame:04d}.jpg")
         igl.write_obj(f"output/obj/{self.frame:04d}.obj", self.V, self.F)
         if hasattr(self.rod, "save_states"):
             self.rod.save_states()
