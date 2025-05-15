@@ -15,7 +15,7 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
-
+from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -311,6 +311,11 @@ class MedialVABD(MedialRodComplex):
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
+        n_medials = self.V_medial.shape[0]
+        self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes)
+        self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial["squishy"])
+        self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
+
 
     def define_z(self, transforms):
         self.n_modes = self.Q[self.models[0]].shape[1] * 12 
@@ -402,6 +407,7 @@ class MedialVABD(MedialRodComplex):
         h2 = self.h * self.h
         
         # set A0, b0
+        aa = []
         with wp.ScopedTimer("compute A0"):
             Fs = [self.get_F(i) for i in range(self.n_meshes)]
             gg, HH = self.ortho.analyze(np.array(Fs))
@@ -411,10 +417,14 @@ class MedialVABD(MedialRodComplex):
                 # g, H = self.ortho.analyze(fi)
                 g = gg[i]
                 H = HH[i]
+
                 mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
-                self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = H * h2 * self.sum_W[i] + mmi
+                aai = H * h2 * self.sum_W[i] + mmi
+                self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
+                aa.append(aai)
                 self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
 
+        self.direct_solver.update_A0(aa)
         # set b_tilde
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
 
@@ -444,7 +454,7 @@ class MedialVABD(MedialRodComplex):
             # np.save("A_tilde_K0.npy", self.A_tilde)
             if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
-
+            
         b_sys = np.zeros(self.n_reduced)
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
@@ -452,6 +462,12 @@ class MedialVABD(MedialRodComplex):
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
                 dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+            
+            with wp.ScopedTimer("cpp direct solver"):
+                dz_sys_cpp = self.direct_solver.solve(b_sys)
+                cond = np.isclose(dz_sys, dz_sys_cpp, rtol = 1e-2).all()
+                print(f"cpp diff = {np.linalg.norm(dz_sys - dz_sys_cpp)}, cond = {cond}, norm  = {np.linalg.norm(dz_sys_cpp)}, norm ref = {np.linalg.norm(dz_sys)}")
+
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -710,6 +726,11 @@ class MedialVABD(MedialRodComplex):
         # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
         term = self.h * self.h * medial_collision_stiffness
+
+        with wp.ScopedTimer("cpp collsion"):
+            rotations = [self.get_F(i) for i in range(self.n_meshes)]
+            self.direct_solver.compute_Um_tilde(rotations)
+            self.direct_solver.compute_Ab_sys_col(H, g, term)
         with wp.ScopedTimer("collision linalg system"):
             # rhs = Um_tildeT @ g
             # A = Um_tildeT @ H @ Um_tildeT.T 
