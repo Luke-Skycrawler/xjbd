@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell, edge_aabbs
 from geometry.static_scene import StaticScene
-from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
+from mtk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
@@ -295,7 +295,7 @@ def plane_normal(v0, v1, v2):
     return n / np.sqrt(np.dot(n, n))    
 
 class MedialCollisionDetector:
-    def __init__(self, V_medial, R, E, F, body_medial, ground = None, dense = True, static_objects: StaticScene = None): 
+    def __init__(self, V_medial, R, E, F, body_medial, ground = None, dense = False, static_objects: StaticScene = None): 
         '''
         medial-medial collision detection & response
         '''
@@ -785,18 +785,21 @@ class MedialCollisionDetector:
             bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
             H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
             # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
-        idx = sorted(self.indices_set)
-        H_dim = len(idx) * 3
-        idx_inv = dict(zip(idx, range(len(idx))))
-        H = np.zeros((H_dim, H_dim))
-        for r, c, bb in zip(rows, cols, blocks):
-            i = idx_inv[r]
-            j = idx_inv[c]
-            H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
+            return b, H, None 
         
-        idx = np.array(idx, int).reshape((-1, 1))
-        ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
-        return b[ret_idx], H, ret_idx
+        else:
+            idx = sorted(self.indices_set)
+            H_dim = len(idx) * 3
+            idx_inv = dict(zip(idx, range(len(idx))))
+            H = np.zeros((H_dim, H_dim))
+            for r, c, bb in zip(rows, cols, blocks):
+                i = idx_inv[r]
+                j = idx_inv[c]
+                H[i * 3: (i + 1) * 3, j *3 : (j  +1) * 3] += bb
+            
+            idx = np.array(idx, int).reshape((-1, 1))
+            ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
+            return b, H, ret_idx
 
     def energy(self, V, R = None):
         return self.collision_set(V, R, energy_only = True)

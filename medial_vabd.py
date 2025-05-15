@@ -23,7 +23,7 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
@@ -720,7 +720,7 @@ class MedialVABD(MedialRodComplex):
             # self.A0_col = self.Um0.T @ H @ self.Um0 * term
             # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
@@ -999,14 +999,16 @@ def staggered_bug():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 136
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
     positions = np.load("data/init_pos.npy")
-    for i in range(n_meshes):
-        transforms[i][:3, 3] = positions[i]
+    # for i in range(n_meshes):
+    for i in range(30, 31):
+        transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
+        # transforms[i][:3, 3] = positions[i]
     
     # stacked bowls
     static_meshes_file = ["assets/bowl stack.obj"]
@@ -1067,6 +1069,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # staggered_bug()
-    pyramid(495)
+    pyramid(0)
     # windmill()
     # bug_rain()
