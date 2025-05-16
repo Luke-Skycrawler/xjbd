@@ -496,9 +496,10 @@ class MedialVABD(MedialRodComplex):
             self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def converged(self):
-        norm_dz = np.linalg.norm(self.dz)
+        # norm_dz = np.linalg.norm(self.dz)
+        norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-3
+        return norm_dz < 2e-3
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -981,7 +982,7 @@ def staggered_bug():
     scale[3, 3] = 1.0
 
     # bouncy box
-    static_meshes_file = ["assets/bouncybox.obj"]
+    static_meshes_file = ["assets/bouncyclosed.obj"]
     box_size = 4
     scale = np.identity(4) * box_size
     scale[3, 3] = 1.0
