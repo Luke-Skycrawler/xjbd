@@ -373,10 +373,7 @@ class MedialCollisionDetector:
         n_static_edges = E.shape[0]
         static_soup.edges = self.static_edges
         self.static_soup = static_soup
-        
-        # np arrays for static objects
-        self.V_static = static_objects.xcs.numpy()
-        
+                
         p_static_set = StaticCollisionList()
         p_static_set.cnt = wp.zeros((1, ), dtype =int)
         p_static_set.a = wp.zeros((CC_SET_SIZE, ), dtype = wp.vec2i)
@@ -489,6 +486,13 @@ class MedialCollisionDetector:
                 self.ee_static_set.E.zero_()
                 wp.launch(cone_cone_collision_set_static, (self.n_edges, self.n_edges_static), inputs = [self.medial_geo, self.medial_geo_static, self.ee_static_set])
                 ret += self.ee_static_set.E.numpy()[0]
+
+        npt = self.pt_set.cnt.numpy()[0]
+        ncc = self.ee_set.cnt.numpy()[0]
+        nss = self.p_static_set.cnt.numpy()[0]
+        nsc = self.p_static_set_cone.cnt.numpy()[0]
+        
+        print(f"npt = {npt}, ncc = {ncc}, nss = {nss}, nsc = {nsc}")
         return ret
 
 
@@ -502,9 +506,9 @@ class MedialCollisionDetector:
         return s0
 
     def static_sphere(self, e0):
-        ve0 = self.V_static[e0]
+        ve0 = self.static_V[e0]
         r0 = 0.0
-        v_rst_0 = self.V_static[e0]
+        v_rst_0 = self.static_V[e0]
         s0 = MedialSphere(ve0, v_rst_0, r0, e0)
         
         return s0
@@ -698,7 +702,7 @@ class MedialCollisionDetector:
                 rows.append(i)
                 cols.append(i)
                 blocks.append(hh * ground_rel_stiffness)
-            
+            self.indices_set.update(static_id[:, 0])
             for ccid in static_id_cone:
                 e0, e1, e2, e3 = ccid
 
@@ -724,7 +728,6 @@ class MedialCollisionDetector:
                         blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]) 
 
 
-            self.indices_set.update(static_id[:, 0])
             if self.static_objects.has_medials:
                 n_static_ee = self.ee_static_set.cnt.numpy()[0]
                 ee_static_id = self.ee_static_set.a.numpy()[:n_static_ee]
