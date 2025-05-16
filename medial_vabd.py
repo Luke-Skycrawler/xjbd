@@ -268,8 +268,8 @@ class MedialVABD(MedialRodComplex):
                 di = self.lbs_no_kron(Vmi, W_medial[:, 1:])
                 self.diags_tilde_lhs.append(di)     
             start += nv
-        self.Um0 = block_diag(diags0)
-        self.Um_tilde = block_diag(diags_tilde)
+        self.Um0 = block_diag(diags0, "csc")
+        self.Um_tilde = block_diag(diags_tilde, "csc")
 
     def define_mm(self):
         self.mm = self.U0.T @ self.to_scipy_bsr(self.M_sparse) @ self.U0
@@ -364,7 +364,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+        if self.frame % 4 == 0:
+            self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
 
@@ -719,13 +720,13 @@ class MedialVABD(MedialRodComplex):
             # self.A0_col = self.Um0.T @ H @ self.Um0 * term
             # self.b0_col = self.Um0.T @ g * term
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT]).tocsc()[:, idx]
+            Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")[:, idx]
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
             self.b_sys_col = Um_sys @ (g * term)
-
-            self.A_sys_col = step1 @ Um_sys.T
+            if solver_choice == "direct":
+                self.A_sys_col = step1 @ Um_sys.T
         
         self.U_col = Um_sys
         self.C_col = H * term
@@ -954,7 +955,7 @@ def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
     model = "squishy"
     # model = "bug"
-    n_meshes = 1
+    n_meshes = 20
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -964,11 +965,13 @@ def staggered_bug():
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    for i in range(n_meshes):
-        transforms[i][:3, :3] = np.identity(3) * 0.9
-        transforms[i][0, 3] = i * 1.5 - 3
-        transforms[i][1, 3] = 1.2
-        transforms[i][2, 3] = - 0.8
+    for i in range(5):
+        for j in range(4):
+            idx = j + i * 4
+            transforms[idx][:3, :3] = np.identity(3) * 0.9
+            transforms[idx][0, 3] = i * 1.5 - 3
+            transforms[idx][1, 3] = 1.2 + j * 2.5
+            transforms[idx][2, 3] = - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -1065,7 +1068,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    # staggered_bug()
-    pyramid()
+    staggered_bug()
+    # pyramid()
     # windmill()
     # bug_rain()

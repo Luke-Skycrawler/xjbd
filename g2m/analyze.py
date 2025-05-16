@@ -256,7 +256,7 @@ if __name__ == "__main__":
     # print(samples, radius)
     wp.launch(test_kernel, n_samples, inputs = [c, r, dist, m])
     
-    from mipctk import ConeConeConstraint, SlabSphereConstraint
+    from mtk import ConeConeConstraint, SlabSphereConstraint
     v4 = np.zeros((n_samples * 4, 4), dtype = float)
     v4[:, :3] = samples
     v4[:, 3] = radius

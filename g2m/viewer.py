@@ -56,8 +56,8 @@ class MedialViewer(MedialViewerInterface, MedialViewerSocket):
 
     def save(self):
         super().save()
-        np.save(f"output/medial/V{self.frame:04d}.npy", self.V_medial)
-        np.save(f"output/medial/R{self.frame:04d}.npy", self.R)
+        # np.save(f"output/medial/V{self.frame:04d}.npy", self.V_medial)
+        # np.save(f"output/medial/R{self.frame:04d}.npy", self.R)
 
     def callback(self):
         super().callback()

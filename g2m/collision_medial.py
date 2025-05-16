@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 from geometry.collision_cell import TriangleSoup, point_triangle_distance_wp, point_projects_inside_triangle, inside_collision_cell
 from geometry.static_scene import StaticScene
-from mipctk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
+from mtk import MedialSphere, ConeConeConstraint, SlabSphereConstraint
 from scipy.sparse import bsr_array, bsr_matrix
 from warp.sparse import bsr_set_from_triplets, bsr_zeros
 from g2m.analyze import compute_distance_cone_cone, compute_distance_slab_sphere
