@@ -28,7 +28,7 @@ solver_choice = "woodbury"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = False
+use_nullspace = True
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -915,13 +915,13 @@ def windmill():
     # transforms[-1][2, 2] = 1.5
 
     for i in range(1, n_meshes):
-        if i % 2 == 0:
+        if i // 3 == 0:
         # if True:
-            transforms[i][0, 3] = 1.0 + i * 0.2 * np.random.rand()
+            transforms[i][0, 3] = 1.0 + i * 0.05
         else:
             transforms[i][0, 3] = -(2 + i * 0.05)
         transforms[i][1, 3] = i * 2.0
-        transforms[i][2, 3] = -i * 0.2 * np.random.rand()
+        transforms[i][2, 3] = -0.05
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
@@ -1069,7 +1069,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    staggered_bug()
+    # staggered_bug()
     # pyramid()
-    # windmill()
+    windmill()
     # bug_rain()

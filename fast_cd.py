@@ -185,7 +185,7 @@ class RodLBSWeightBC(RodLBSWeight):
 
     def get_contraint_weight(self):
         v_rst = self.xcs.numpy()        
-        w = np.zeros((self.n_nodes, 2), float)
+        w = np.zeros((self.n_nodes, 3), float)
 
         x_rst = v_rst[:, 0]
         z_rst = v_rst[:, 2]
@@ -194,8 +194,10 @@ class RodLBSWeightBC(RodLBSWeight):
         # select2 = np.abs(z_rst) < eps * 10
         # select = select & select2
         select = np.array([80, 97])
-        w[select, 0] = 1.0
-        w[:, 1] = 1.0 - w[:, 0]
+        w[select[0], 0] = 1.0
+        w[select[1], 1] = 1.0
+        w[:, 2] = 1.0
+        w[select, 2] = 0.0
         # w[x_rst < -0.5 + eps, 0] = 1.0
         # w[x_rst > 0.5 - eps, 1] = 1.0        
         # w[:, 0] = x_rst * 2
@@ -236,9 +238,9 @@ class RodLBSWeightBC(RodLBSWeight):
         for ii in range(3):
             for jj in range(4):
                 Jwij.append(J.T @ A[ii, jj])
-        self.Jw = np.vstack(Jwij, )
-        # w = self.get_contraint_weight()
-        # self.Jw = w.T
+        # self.Jw = np.vstack(Jwij, )
+        w = self.get_contraint_weight()
+        self.Jw = w.T
 
         # w = np.zeros(self.n_nodes, float)
         # v_rst = self.xcs.numpy()
