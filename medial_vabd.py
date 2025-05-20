@@ -29,6 +29,7 @@ if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = True
+n_windmills = 2
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -471,9 +472,11 @@ class MedialVABD(MedialRodComplex):
 
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         if use_nullspace:
-            dz00 = dz_sys[:12]
-            dz00_ns = self.ns @ self.ns.T @ dz00
-            dz_sys[:12] = dz00_ns
+            for i in range(n_windmills):
+                dz00 = dz_sys[i * 12:i * 12 + 12]
+                ns = self.ns[i]
+                dz00_ns = ns @ ns.T @ dz00
+                dz_sys[i * 12: i * 12 + 12] = dz00_ns
         cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
@@ -499,7 +502,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 2e-3
+        return norm_dz < 1e-4
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -810,69 +813,59 @@ class MedialVABD(MedialRodComplex):
 
 
     def compute_nullspace(self):
-        v_rst = self.V
-        x_rst = v_rst[:, 0]
-        y_rst = v_rst[:, 1]
-        pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
 
-        self.pinned = np.arange(self.n_nodes)[pinned]
-        assert len(self.pinned) == 2
+        p0_rest = np.array([0.0, 0.0, 0.0, 1.0], float)
+        v0_rest = np.array([0.0, 1.0, 0.0, 0.0], float)
+        # axis
+        n_nodes_per_windmill = 1350
 
-        y = v_rst[self.pinned]
-        # pinned positions
+        self.ns = np.zeros((n_windmills, 12, 6))
+        for i in range(n_windmills):
+            v_rst = self.V[i * n_nodes_per_windmill: (i + 1) * n_nodes_per_windmill]
+            
+            p0 = (self.transforms[i] @ p0_rest)[:3]
+            v0 = (self.transforms[i] @ v0_rest)[:3].reshape((-1, 1))
+            v0 = v0 / np.linalg.norm(v0)
+            dx = v_rst - p0 
+            dx_projected = (v_rst - p0) @ v0 @ v0.T
+            dist = np.linalg.norm(dx - dx_projected, axis = 1)
+            pinned = dist < eps
 
-        lhs = np.ones((2, 4), float)
-        lhs[0, : 3] = y[0]
-        lhs[1, : 3] = y[1]
-        C = np.kron(lhs, np.identity(3))
-        ns= null_space(C)
-        self.ns = ns
-        assert ns.shape == (12, 6)
-        self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
-        self.U0_prime[:12, :6]= self.ns
-        self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
+            pi = np.arange(n_nodes_per_windmill)[pinned]
+            assert len(pi) == 2
+            
+            y = v_rst[pi]
 
-class PinnedVABD(MedialVABD):
-    def __init__(self, h, meshes, transforms, static_bars = None):
-        super().__init__(h, meshes, transforms, static_bars)
+            lhs = np.ones((2, 4), float)
+            lhs[0, : 3] = y[0]
+            lhs[1, : 3] = y[1]
+            C = np.kron(lhs, np.identity(3))
+            ns= null_space(C)
+            self.ns[i] = ns
+            assert ns.shape == (12, 6)
 
-    # def compute_nullspace(self):
-    #     v_rst = self.V
-    #     x_rst = v_rst[:, 0]
-    #     y_rst = v_rst[:, 1]
-    #     pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
 
-    #     self.pinned = np.arange(self.n_nodes)[pinned]
-    #     assert len(self.pinned) == 2
+        # v_rst = self.V
+        # x_rst = v_rst[:, 0]
+        # y_rst = v_rst[:, 1]
+        # pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
 
-    #     y = v_rst[self.pinned]
-    #     # pinned positions
+        # self.pinned = np.arange(self.n_nodes)[pinned]
+        # assert len(self.pinned) == 2
 
-    #     lhs = np.ones((2, 4), float)
-    #     lhs[0, : 3] = y[0]
-    #     lhs[1, : 3] = y[1]
-    #     C = np.kron(lhs, np.identity(3))
-    #     ns= null_space(C)
-    #     self.ns = ns
-    #     assert ns.shape == (12, 6)
-    #     self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
-    #     self.U0_prime[:12, :6]= self.ns
-    #     self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
-        
-    def prefactor_once(self):
-        if self.abd_only:
-            return
-        h = self.h
-        self.compute_K()
-        self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
-        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
+        # y = v_rst[self.pinned]
+        # # pinned positions
 
-        self.A_tilde = self.K0 + self.M_tilde
-
-        # cholesky factorization tend to have non-positive definite matrix, use lu instead
-        # self.c, self.low = lu_factor(self.A_tilde)
-        self.compute_nullspace()
-        self.solver = NullSpaceWoodburySolver(self.n_meshes * 12, self.A_tilde, self.ns)
+        # lhs = np.ones((2, 4), float)
+        # lhs[0, : 3] = y[0]
+        # lhs[1, : 3] = y[1]
+        # C = np.kron(lhs, np.identity(3))
+        # ns= null_space(C)
+        # self.ns = ns
+        # assert ns.shape == (12, 6)
+        # self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
+        # self.U0_prime[:12, :6]= self.ns
+        # self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
 
 # def staggered_bug():
     
@@ -903,19 +896,30 @@ def windmill():
     # model = "bug"
     n_meshes = 9
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
+    meshes = [f"assets/{model}/{model}.tobj"] * n_windmills + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - n_windmills)
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
     transforms[0][:3, :3] = np.zeros((3, 3))
     transforms[0][0, 0] = 0.5
     transforms[0][2, 1] = 0.5
     transforms[0][1, 2] = 0.5
+
+    transforms[1][:3, 3] = np.array([0.0, -3.4, 0.0])
+    transforms[1][:3, :3] = np.zeros((3, 3))
+    transforms[1][0, 0] = 0.5
+    transforms[1][2, 1] = 0.5
+    transforms[1][1, 2] = 0.5
+
+    c = np.cos(np.pi / 4)
+    s = np.sin(np.pi / 4)
+    transforms[1][:3, :3] = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], float) @ transforms[1][:3, :3]
+
     # transforms[-1][0, 1] = 1.5
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    for i in range(1, n_meshes):
-        if i // 3 == 0:
+    for i in range(n_windmills, n_meshes):
+        if i // 10 == 0:
         # if True:
             transforms[i][0, 3] = 1.0 + i * 0.05
         else:
@@ -946,7 +950,7 @@ def windmill():
     # rods = MedialRodComplex(h, meshes, transforms, static_bars)
     # rods = PinnedVABD(h, meshes, transforms, static_bars)
     rods = MedialVABD(h, meshes, transforms, static_bars)
-    
+    # rods.reset_z(1279)
     
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
