@@ -140,6 +140,41 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList,
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
             append(cc_list, col, dist)
+
+@wp.kernel
+def cone_cone_collision_set_bvh(cones_bvh: wp.uint64, geo: MedialGeometry, cc_list: ConeConeCollisionList, body: wp.array(dtype = int)):
+    i = wp.tid()
+    ex = geo.edges[i]
+    c0 = geo.vertices[ex[0]]
+    c1 = geo.vertices[ex[1]]
+    r0 = geo.radius[ex[0]]
+    r1 = geo.radius[ex[1]]
+    l0 = c0 - wp.vec3(r0)
+    l1 = c1 - wp.vec3(r1)
+    
+    u0 = c0 + wp.vec3(r0)
+    u1 = c1 + wp.vec3(r1)
+
+    low = wp.min(l0, l1) 
+    high = wp.max(u0, u1)
+
+    query = wp.bvh_query_aabb(cones_bvh, low, high)
+    j = int(0)
+    while wp.bvh_query_next(query, j):
+        if i < j:
+            ey = geo.edges[j]
+            c2 = geo.vertices[ey[0]]
+            c3 = geo.vertices[ey[1]]
+            r2 = geo.radius[ey[0]]
+            r3 = geo.radius[ey[1]]
+            dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
+            # hack = ex[0] // per_mesh_verts == ey[0] // per_mesh_verts
+            hack = body[ex[0]] == body[ey[0]]
+            refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1]) or hack
+            if dist < 0.0 and not refuse_cond:
+                col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
+                append(cc_list, col, dist)
+
 @wp.kernel
 def cone_cone_collision_set_static(geo: MedialGeometry, geo_static: MedialGeometry, cc_list: ConeConeCollisionList):
     i, j = wp.tid()
@@ -294,6 +329,26 @@ def plane_normal(v0, v1, v2):
     n = np.cross(v1 - v0, v2 - v0)
     return n / np.sqrt(np.dot(n, n))    
 
+
+
+@wp.kernel
+def cone_aabbs(geo: MedialGeometry, lowers: wp.array(dtype = wp.vec3), uppers: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+
+    
+    i0 = geo.edges[i][0]
+    i1 = geo.edges[i][1]
+    e0 = geo.vertices[i0]
+    e1 = geo.vertices[i1]
+    
+    l0 = e0 - wp.vec3(geo.radius[i0])
+    l1 = e1 - wp.vec3(geo.radius[i1])
+    u0 = e0 + wp.vec3(geo.radius[i0])
+    u1 = e1 + wp.vec3(geo.radius[i1])
+    
+    lowers[i] = wp.min(l0, l1)
+    uppers[i] = wp.max(u0, u1)
+
 class MedialCollisionDetector:
     def __init__(self, V_medial, R, E, F, body_medial, ground = None, dense = False, static_objects: StaticScene = None): 
         '''
@@ -358,6 +413,14 @@ class MedialCollisionDetector:
         self.rest_cc: Set[Tuple[int, int, int, int]] = set()
         self.rest_pt: Set[Tuple[int, int, int, int]] = set()
         # self.get_rest_collision_set()
+        
+        
+        # cones bvh 
+        self.cone_bvh_lowers = wp.zeros((self.n_edges,), dtype = wp.vec3)
+        self.cone_bvh_uppers = wp.zeros((self.n_edges,), dtype = wp.vec3)
+        self.cone_bvh = wp.Bvh(self.cone_bvh_lowers, self.cone_bvh_uppers)
+
+
         if static_objects is not None:
             self.define_static_mesh(static_objects)
 
@@ -457,9 +520,17 @@ class MedialCollisionDetector:
             ret += self.pt_set.E.numpy()[0]
 
         if cc_collision:
+            
+            # update bvh 
+            wp.launch(cone_aabbs, (self.n_edges, ), inputs = [self.medial_geo, self.cone_bvh_lowers, self.cone_bvh_uppers])
+            # refit 
+            self.cone_bvh.refit()
+            
+
             self.ee_set.cnt.zero_()
             self.ee_set.E.zero_()
-            wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
+            wp.launch(cone_cone_collision_set_bvh, (self.n_edges, ), inputs = [self.cone_bvh.id, self.medial_geo, self.ee_set, self.body])
+            # wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
             ret += self.ee_set.E.numpy()[0]
 
 
