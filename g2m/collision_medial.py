@@ -315,7 +315,8 @@ class MedialCollisionDetector:
         self.ground = ground
         # warp arrays 
         self.medial_geo = MedialGeometry()
-        self.indices_set:set[int] = set()
+        self.indices_set:Set[int] = set()
+        self.body_indices: Set[Tuple[int, int]] = set()
         
         self.medial_geo.vertices = wp.array(V_medial, dtype = wp.vec3)
         self.medial_geo.radius = wp.array(R, dtype = float)
@@ -487,12 +488,12 @@ class MedialCollisionDetector:
                 wp.launch(cone_cone_collision_set_static, (self.n_edges, self.n_edges_static), inputs = [self.medial_geo, self.medial_geo_static, self.ee_static_set])
                 ret += self.ee_static_set.E.numpy()[0]
 
-        npt = self.pt_set.cnt.numpy()[0]
-        ncc = self.ee_set.cnt.numpy()[0]
-        nss = self.p_static_set.cnt.numpy()[0]
-        nsc = self.p_static_set_cone.cnt.numpy()[0]
+        # npt = self.pt_set.cnt.numpy()[0]
+        # ncc = self.ee_set.cnt.numpy()[0]
+        # nss = self.p_static_set.cnt.numpy()[0]
+        # nsc = self.p_static_set_cone.cnt.numpy()[0]
         
-        print(f"npt = {npt}, ncc = {ncc}, nss = {nss}, nsc = {nsc}")
+        # print(f"npt = {npt}, ncc = {ncc}, nss = {nss}, nsc = {nsc}")
         return ret
 
 
@@ -523,6 +524,7 @@ class MedialCollisionDetector:
         cols = []
         blocks = []
         self.indices_set.clear()
+        self.body_indices.clear()
 
         nss = self.pt_set.cnt.numpy()[0]
         ss_id = self.pt_set.a.numpy()[:nss]
@@ -788,7 +790,19 @@ class MedialCollisionDetector:
             bsr_set_from_triplets(hh, wp.array(rows, dtype = int, device = "cpu"), wp.array(cols, dtype = int, device = "cpu"), wp.array(blocks, dtype = wp.mat33, device= "cpu"))
             H = bsr_matrix((hh.values.numpy(), hh.columns.numpy(), hh.offsets.numpy()), shape = hh.shape, blocksize=(3, 3))
             # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
-            return b, H, None 
+
+
+            rc = np.array([rows, cols])
+            bij = rc // per_mesh_verts
+            # minbij = np.min(bij, axis = 0)
+            # maxbij = np.max(bij, axis = 0)
+            # bij = np.array([minbij, maxbij])
+            self.body_indices.update(zip(bij[0], bij[1]))
+
+            idx = np.array(sorted(self.body_indices), int).reshape(-1)
+            print(f"idx shape = {idx.shape}")
+            # idx = None
+            return b, H, idx
         
         else:
             idx = sorted(self.indices_set)

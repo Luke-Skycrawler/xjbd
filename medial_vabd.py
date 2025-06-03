@@ -737,7 +737,7 @@ class MedialVABD(MedialRodComplex):
             # rotations = [self.get_F(i) for i in range(self.n_meshes)]
             rotations = self.get_F_batch()
             self.direct_solver.compute_Um_tilde(rotations)
-            self.direct_solver.compute_Ab_sys_col(H, g, term)
+            self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx)
             
         if not cpp_only:
             with wp.ScopedTimer("Um tildeT"):
@@ -989,7 +989,7 @@ def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
     model = "squishy"
     # model = "bug"
-    n_meshes = 1
+    n_meshes = 20
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1013,17 +1013,17 @@ def staggered_bug():
     scale[3, 3] = 1.0
 
     # bouncy box
-    static_meshes_file = ["assets/bouncybox.obj"]
-    box_size = 4
-    scale = np.identity(4) * box_size
-    scale[3, 3] = 1.0
-    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    for i in range(n_meshes):
-        transforms[i][1, 3] += box_size * 1.5
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
         
     
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     
     viewer = MedialViewer(rods, static_bars)
@@ -1097,12 +1097,12 @@ def bug_rain():
 
 if __name__ == "__main__":
     ps.init()
-    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    # staggered_bug()
-    pyramid(686)
+    staggered_bug()
+    # pyramid(686)
     # windmill()
     # bug_rain()
