@@ -121,7 +121,21 @@ def to_hash_np(x, y, n_vertices):
 
 @wp.kernel
 def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList, body: wp.array(dtype = int)):
-    i, j = wp.tid()
+    ii, jj = wp.tid()
+    n = geo.edges.shape[0] - 1
+    i = int(0)
+    j = int(0)
+    if ii < jj:
+        i = ii 
+        j = jj
+    else:
+        # jj >= ii
+        i = n - jj
+        # i <= j
+        # make j > n // 2
+        if j == n // 2:
+            i = j # skip if j == n // 2
+
     if i < j:
         ex = geo.edges[i]
         ey = geo.edges[j]
@@ -520,18 +534,18 @@ class MedialCollisionDetector:
             ret += self.pt_set.E.numpy()[0]
 
         if cc_collision:
-            
-            # update bvh 
-            wp.launch(cone_aabbs, (self.n_edges, ), inputs = [self.medial_geo, self.cone_bvh_lowers, self.cone_bvh_uppers])
-            # refit 
-            self.cone_bvh.refit()
-            
+            with wp.ScopedTimer("cone cone collision"):
+                self.ee_set.cnt.zero_()
+                self.ee_set.E.zero_()
+                # # update bvh 
+                # wp.launch(cone_aabbs, (self.n_edges, ), inputs = [self.medial_geo, self.cone_bvh_lowers, self.cone_bvh_uppers])
+                # # refit 
+                # self.cone_bvh.refit()
+                # wp.launch(cone_cone_collision_set_bvh, (self.n_edges, ), inputs = [self.cone_bvh.id, self.medial_geo, self.ee_set, self.body])
+                
 
-            self.ee_set.cnt.zero_()
-            self.ee_set.E.zero_()
-            wp.launch(cone_cone_collision_set_bvh, (self.n_edges, ), inputs = [self.cone_bvh.id, self.medial_geo, self.ee_set, self.body])
-            # wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
-            ret += self.ee_set.E.numpy()[0]
+                wp.launch(cone_cone_collision_set, (self.n_edges, (self.n_edges - 1) // 2 +1), inputs = [self.medial_geo, self.ee_set, self.body])
+                ret += self.ee_set.E.numpy()[0]
 
 
         if self.ground is not None and sg_collision:
@@ -542,15 +556,18 @@ class MedialCollisionDetector:
 
         if hasattr(self, "static_soup"):
             if sg_collision:
-                self.p_static_set.cnt.zero_()
-                self.p_static_set.E.zero_()
-                wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
-                ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
+                
+                with wp.ScopedTimer("sphere static collision"):
+                    self.p_static_set.cnt.zero_()
+                    self.p_static_set.E.zero_()
+                    wp.launch(sphere_static_collision, self.n_vertices, inputs = [self.medial_geo, self.static_soup, self.p_static_set, self.static_neighbors])
+                    ret += self.p_static_set.E.numpy()[0] * ground_rel_stiffness
 
-                self.p_static_set_cone.cnt.zero_()
-                self.p_static_set_cone.E.zero_()
-                wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
-                ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
+                with wp.ScopedTimer("cone static collision"):
+                    self.p_static_set_cone.cnt.zero_()
+                    self.p_static_set_cone.E.zero_()
+                    wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
+                    ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
 
             if self.static_objects.has_medials and cc_static_collision:
                 # only cone-cone collision

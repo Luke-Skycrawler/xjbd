@@ -44,3 +44,19 @@ Implements unconstrained "Fast Complementary Dynamics via Skinning Eigenmodes" w
 ```
 python fast_cd.py
 ```
+
+
+make sure you have the following dlls in the binary folder
+
+```
+cublas64_12.dll
+cublasLt64_12.dll
+cudart64_12.dll
+cudss64_0.dll
+cusparse64_12.dll
+libiomp5md.dll
+mkl_core.2.dll
+mkl_intel_thread.2.dll
+nvJitLink_120_0.dll
+python310.dll
+```

@@ -1102,7 +1102,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    staggered_bug()
-    # pyramid(686)
+    # staggered_bug()
+    pyramid()
     # windmill()
     # bug_rain()
