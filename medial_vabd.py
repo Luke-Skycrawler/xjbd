@@ -954,9 +954,9 @@ def windmill():
 
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "squishy"
-    # model = "bug"
-    n_meshes = 20
+    # model = "squishy"
+    model = "bug"
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -966,8 +966,8 @@ def staggered_bug():
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    for i in range(5):
-        for j in range(4):
+    for i in range(1):
+        for j in range(1):
             idx = j + i * 4
             transforms[idx][:3, :3] = np.identity(3) * 0.9
             transforms[idx][0, 3] = i * 1.5 - 3
