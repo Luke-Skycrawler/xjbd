@@ -44,3 +44,10 @@ Implements unconstrained "Fast Complementary Dynamics via Skinning Eigenmodes" w
 ```
 python fast_cd.py
 ```
+
+#### Projective Dynamics
+
+Implements basic PD simulator described in Quasi-Newton Methods for Real-time Simulation of Hyperelastic Materials. command: 
+```
+python admm-pd.py
+```

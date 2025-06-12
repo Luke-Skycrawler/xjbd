@@ -109,7 +109,7 @@ def compute_pi(geo: FEMMesh, states: ADMMState, Bm: wp.array(dtype = wp.mat33), 
         mid[2, 2] = -1.0
 
     pp = U @ mid @  wp.transpose(V)
-    # try transposed first
+    # must transpose
     p[e] = wp.transpose(pp)
     Fi[e] = F
 
@@ -184,7 +184,7 @@ class ADMM_PD(TOBJLoader):
 
     def get_constraint_size(self):
         '''
-        mark vertices with x coord < eps for constraint set
+        mark vertices with x coord < -0.5 + eps for constraint set
         '''
         # return 0
         eps = 1e-3
