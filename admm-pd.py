@@ -215,13 +215,13 @@ class ADMM_PD(TOBJLoader):
         self.D = bsr_zeros(self.n_tets * 3 + n_constraints, self.n_nodes, wp.mat33)
 
         W = self.W.numpy()
-        S_diag = np.repeat(np.sqrt(W)* (lam + mu * 2.0 / 3.0), 9)
+        S_diag = np.repeat(np.sqrt(W * (lam + mu * 2.0 / 3.0)), 9)
         self.S_sparse = diags(S_diag)
         
-        # J = D^T S, which happens to be identity
-        self.J = self.to_scipy_bsr(self.D).T @ self.S_sparse
         wp.launch(assemble_D, (n_tets, ), inputs=[self.geo, self.triplets, self.Bm, self.W])
         bsr_set_from_triplets(self.D, self.triplets.rows, self.triplets.cols, self.triplets.vals)
+        # J = D^T S, which happens to be identity
+        self.J = self.to_scipy_bsr(self.D).T @ self.S_sparse
         self.L = bsr_mm(bsr_transposed(self.D, ), self.D)
         self.L_scipy = self.to_scipy_bsr(self.L)
 
@@ -270,8 +270,8 @@ class ADMM_PD(TOBJLoader):
         # p = wp.zeros((n_voxel_constraints,), dtype=wp.mat33)
         # F = wp.zeros_like(p)
         wp.launch(compute_pi, (n_voxel_constraints,), inputs = [self.geo, self.states, self.Bm, self.p, self.def_grad])
-        pnp = self.p.numpy()
-        print("pnp sample : ", pnp[0])
+        # pnp = self.p.numpy()
+        # print("pnp sample : ", pnp[0])
         
     def compute_y(self):
         y = self.states.x0.numpy() + self.h * self.states.xdot.numpy()
@@ -288,14 +288,14 @@ class ADMM_PD(TOBJLoader):
         x = self.states.x.numpy().reshape(-1)
         p = np.concatenate([self.p.numpy().reshape(-1), self.p_pinned])
         term = 1.0 / (self.h * self.h)
-        # self.b[:] = term * self.M_sparse @ (x - y) + self.L_scipy @ x - self.J @ p
+        self.b[:] = term * self.M_sparse @ (x - y) + self.L_scipy @ x - self.J @ p
         # self.b[:] = self.J @ p + self.M_sparse @ y * term
-        self.b[:] = self.M_sparse @ y * term + self.L_scipy @ y
+        # self.b[:] = self.M_sparse @ y * term + self.L_scipy @ y
         
     def update_x(self):
         dx = self.solver.solve(self.b)
-        # self.states.dx.assign(dx)
-        self.states.x.assign(dx)
+        self.states.dx.assign(dx)
+        # self.states.x.assign(dx)
         wp.launch(add_dx, (self.n_nodes,), inputs = [self.states, 1.0])
 
     def step(self):
