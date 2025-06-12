@@ -192,8 +192,8 @@ class ADMM_PD(TOBJLoader):
         v_rst = self.xcs.numpy()
 
         x_rst = v_rst[:, 0]
-        # select = np.abs(x_rst) < eps
-        select = np.abs(x_rst) < -eps
+        select = np.abs(x_rst + 0.5) < eps
+        # select = np.abs(x_rst) < -eps
         n_constraints = np.sum(select)
         self.constraints = wp.zeros((n_constraints,), dtype = int)
         self.constraints.assign(np.arange(n_nodes)[select])
@@ -215,12 +215,14 @@ class ADMM_PD(TOBJLoader):
         self.D = bsr_zeros(self.n_tets * 3 + n_constraints, self.n_nodes, wp.mat33)
 
         W = self.W.numpy()
-        S_diag = np.repeat(np.sqrt(W * (lam + mu * 2.0 / 3.0)), 9)
-        self.S_sparse = diags(S_diag)
         
         wp.launch(assemble_D, (n_tets, ), inputs=[self.geo, self.triplets, self.Bm, self.W])
         bsr_set_from_triplets(self.D, self.triplets.rows, self.triplets.cols, self.triplets.vals)
         # J = D^T S, which happens to be identity
+        S_diag = np.repeat(np.sqrt(W * (lam + mu * 2.0 / 3.0)), 9)
+        S_diag = np.concatenate([S_diag, np.sqrt(stiffness) * np.ones(self.n_pinned_constraints * 3)])
+        self.S_sparse = diags(S_diag)
+
         self.J = self.to_scipy_bsr(self.D).T @ self.S_sparse
         self.L = bsr_mm(bsr_transposed(self.D, ), self.D)
         self.L_scipy = self.to_scipy_bsr(self.L)
@@ -228,7 +230,7 @@ class ADMM_PD(TOBJLoader):
     def add_constraints(self):
         # return
         offset = self.n_tets * 4 * 3
-        wp.launch(pin_constraints, (self.n_pinned_constraints, ),inputs = [self.triplets, self.constraints, offset])
+        wp.launch(pin_constraints, (self.n_pinned_constraints, ),inputs = [self.triplets, self.constraints, n_tets])
     
 
     def eigs_sparse(self):
@@ -299,7 +301,7 @@ class ADMM_PD(TOBJLoader):
         wp.launch(add_dx, (self.n_nodes,), inputs = [self.states, 1.0])
 
     def step(self):
-        n_iters = 1
+        n_iters = 10
         y = self.compute_y()
         
         for iter in range(n_iters):
