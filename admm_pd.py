@@ -159,6 +159,8 @@ class ADMM_PD(TOBJLoader):
         x0 = self.xcs.numpy()
         self.p_pinned = x0[self.constraints.numpy()].reshape(-1)
         self.def_grad = wp.zeros_like(self.p)
+        self.iter = 0
+        self.n_iters = 10
 
     def prefactor(self):
         self.A = self.to_scipy_bsr(self.L) + self.M_sparse / (self.h * self.h)
@@ -298,17 +300,19 @@ class ADMM_PD(TOBJLoader):
         dx = self.solver.solve(self.b)
         self.states.dx.assign(dx)
         # self.states.x.assign(dx)
+        self.line_search()
+
+    def line_search(self):
         wp.launch(add_dx, (self.n_nodes,), inputs = [self.states, 1.0])
 
     def step(self):
-        n_iters = 10
         y = self.compute_y()
         
-        for iter in range(n_iters):
+        for self.iter in range(self.n_iters):
+            # print(f"iter {self.iter}")
             self.local_project()
             self.compute_gradient(y)
             self.update_x()
-            iter += 1
             
         self.update_x0_xdot()
         self.frame += 1
