@@ -58,6 +58,7 @@ def assemble_D(geo: FEMMesh, triplets: Triplets, Bm: wp.array(dtype = wp.mat33),
 
     Di = wp.transpose(Bm[e]) @ mat34
     w = wp.sqrt(W[e] * (lam + mu * 2.0 / 3.0))
+    # w = 1.0
     for ii in range(3):
         for jj in range(4):
             c = geo.T[e, jj]
@@ -185,12 +186,14 @@ class ADMM_PD(TOBJLoader):
         '''
         mark vertices with x coord < eps for constraint set
         '''
+        # return 0
         eps = 1e-3
         
         v_rst = self.xcs.numpy()
 
         x_rst = v_rst[:, 0]
-        select = np.abs(x_rst < eps)
+        # select = np.abs(x_rst) < eps
+        select = np.abs(x_rst) < -eps
         n_constraints = np.sum(select)
         self.constraints = wp.zeros((n_constraints,), dtype = int)
         self.constraints.assign(np.arange(n_nodes)[select])
@@ -210,14 +213,20 @@ class ADMM_PD(TOBJLoader):
 
 
         self.D = bsr_zeros(self.n_tets * 3 + n_constraints, self.n_nodes, wp.mat33)
+
+        W = self.W.numpy()
+        S_diag = np.repeat(np.sqrt(W)* (lam + mu * 2.0 / 3.0), 9)
+        self.S_sparse = diags(S_diag)
+        
         # J = D^T S, which happens to be identity
-        self.J = self.to_scipy_bsr(bsr_transposed(self.D))
+        self.J = self.to_scipy_bsr(self.D).T @ self.S_sparse
         wp.launch(assemble_D, (n_tets, ), inputs=[self.geo, self.triplets, self.Bm, self.W])
         bsr_set_from_triplets(self.D, self.triplets.rows, self.triplets.cols, self.triplets.vals)
         self.L = bsr_mm(bsr_transposed(self.D, ), self.D)
         self.L_scipy = self.to_scipy_bsr(self.L)
 
     def add_constraints(self):
+        # return
         offset = self.n_tets * 4 * 3
         wp.launch(pin_constraints, (self.n_pinned_constraints, ),inputs = [self.triplets, self.constraints, offset])
     
@@ -261,12 +270,14 @@ class ADMM_PD(TOBJLoader):
         # p = wp.zeros((n_voxel_constraints,), dtype=wp.mat33)
         # F = wp.zeros_like(p)
         wp.launch(compute_pi, (n_voxel_constraints,), inputs = [self.geo, self.states, self.Bm, self.p, self.def_grad])
+        pnp = self.p.numpy()
+        print("pnp sample : ", pnp[0])
         
     def compute_y(self):
         y = self.states.x0.numpy() + self.h * self.states.xdot.numpy()
-        gravity = np.zeros_like(y)
-        gravity[:, 1] = -g 
-        y += gravity * (self.h * self.h)
+        # gravity = np.zeros_like(y)
+        # gravity[:, 1] = -g 
+        y += gravity_np * (self.h * self.h)
         return y.reshape(-1)
 
     def compute_gradient(self, y):
@@ -276,15 +287,19 @@ class ADMM_PD(TOBJLoader):
         '''
         x = self.states.x.numpy().reshape(-1)
         p = np.concatenate([self.p.numpy().reshape(-1), self.p_pinned])
-        self.b[:] = self.M_sparse @ (x - y) + self.L_scipy @ x - self.J @ p
+        term = 1.0 / (self.h * self.h)
+        # self.b[:] = term * self.M_sparse @ (x - y) + self.L_scipy @ x - self.J @ p
+        # self.b[:] = self.J @ p + self.M_sparse @ y * term
+        self.b[:] = self.M_sparse @ y * term + self.L_scipy @ y
         
     def update_x(self):
         dx = self.solver.solve(self.b)
-        self.states.dx.assign(dx)
+        # self.states.dx.assign(dx)
+        self.states.x.assign(dx)
         wp.launch(add_dx, (self.n_nodes,), inputs = [self.states, 1.0])
 
     def step(self):
-        n_iters = 20
+        n_iters = 1
         y = self.compute_y()
         
         for iter in range(n_iters):
