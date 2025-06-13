@@ -306,11 +306,17 @@ class ADMM_PD(TOBJComplex):
     def line_search(self):
         wp.launch(add_dx, (self.n_nodes,), inputs = [self.states, 1.0])
 
+    def process_collision(self):
+        # placeholder
+        pass
+
     def step(self):
         y = self.compute_y()
         
         for self.iter in range(self.n_iters):
             # print(f"iter {self.iter}")
+            self.process_collision()
+
             self.local_project()
             self.compute_gradient(y)
             self.update_x()

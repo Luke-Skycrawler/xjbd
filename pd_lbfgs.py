@@ -4,7 +4,14 @@ from admm_pd import ADMM_PD, ADMMState
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from stretch import PSViewer
 import polyscope as ps
-from mesh_complex import set_vx_kernel, init_velocities
+
+
+@wp.kernel
+def set_velocity_kernel(states: ADMMState, thres: int):
+    i = wp.tid()
+    states.xdot[i] = wp.vec3(0.0, -1.0, 0.0)
+    if i >= thres:
+        states.xdot[i] = wp.vec3(0.0, 0.0, -3.0)
 class LBFGS_PD(ADMM_PD):
     def __init__(self, meshes = ["assets/bar2.tobj"], transforms = [np.identity(4)], h = 1e-2):
         super().__init__(meshes, transforms, h)
@@ -22,10 +29,24 @@ class LBFGS_PD(ADMM_PD):
         self.n_pt = 0
         self.n_ee = 0
         self.n_ground = 0
+        self.col_b = wp.zeros((self.n_nodes, ), dtype = wp.vec3)
         
+    def compute_gradient(self, y):
+        super().compute_gradient(y)
+        col_b = self.col_b.numpy().reshape(-1)
+        # try neg sign first 
+        self.b[:] -= col_b
+
+    def process_collision(self):
+        self.col_b.zero_()
+        with wp.ScopedTimer("collision"):
+            with wp.ScopedTimer("detection"):
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+            with wp.ScopedTimer("hess & grad"):
+                triplets = self.collider.analyze(self.col_b, self.n_pt, self.n_ee, self.n_ground)
+    
     def reset(self):
         n_verts = 4
-        self.theta = 0.0
         self.frame = 0
         model = self.meshes_filename[0].split("/")[1].split(".")[0]
         model_ntets = {
@@ -40,15 +61,7 @@ class LBFGS_PD(ADMM_PD):
         n_verts = model_ntets[model]
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
-        if "assets/tet.tobj" in self.meshes_filename:
-            wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif model in["bar2", "bug", "squishy", "bunny", "windmill"]: 
-            # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-            pass
-        else: 
-            pos = self.transforms[:, :3, 3]
-            positions = wp.array(pos, dtype = wp.vec3)
-            wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
+        wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
 
     def get_constraint_size(self):
         self.constraints = wp.zeros(0, int)
