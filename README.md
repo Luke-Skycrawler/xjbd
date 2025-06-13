@@ -49,5 +49,5 @@ python fast_cd.py
 
 Implements basic PD simulator described in Quasi-Newton Methods for Real-time Simulation of Hyperelastic Materials. command: 
 ```
-python admm-pd.py
+python admm_pd.py
 ```

@@ -1,7 +1,7 @@
 import warp as wp
 import numpy as np
 from fem.params import *
-from fem.geometry import TOBJLoader
+from fem.geometry import TOBJLoader, TOBJComplex
 from fem.fem import Triplets, compute_Dm
 from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, BsrMatrix
 from scipy.sparse import bsr_matrix, diags
@@ -126,21 +126,22 @@ def add_dx(state: ADMMState, alpha :float):
     state.x[i] -= state.dx[i] * alpha
 
 
-class ADMM_PD(TOBJLoader):
+class ADMM_PD(TOBJComplex):
     '''
     base class for ADMM-PD solvers, 
     notations in accordance to [1]
     '''
 
-    def __init__(self, filename = "assets/bar2.tobj", h = 1e-2):
-        self.filename = filename
+    def __init__(self, meshes = ["assets/bar2.tobj"], transforms = [np.identity(4)], h = 1e-2):
+        self.meshes_filename = meshes
+        self.transforms = transforms
         super().__init__()
         self.geo = FEMMesh()
         self.geo.n_nodes = self.n_nodes
         self.geo.n_tets = self.n_tets
         self.geo.xcs = self.xcs
         self.geo.T = self.T
-        self.F = self.indices.numpy()
+        self.F = self.indices.numpy().reshape((-1, 3))
 
         self.Bm = wp.zeros((self.n_tets, ), dtype=wp.mat33)
         self.W = wp.zeros((self.n_tets,), dtype=float)
@@ -198,7 +199,7 @@ class ADMM_PD(TOBJLoader):
         # select = np.abs(x_rst) < -eps
         n_constraints = np.sum(select)
         self.constraints = wp.zeros((n_constraints,), dtype = int)
-        self.constraints.assign(np.arange(n_nodes)[select])
+        self.constraints.assign(np.arange(self.n_nodes)[select])
         self.n_pinned_constraints = n_constraints
         return n_constraints
         
