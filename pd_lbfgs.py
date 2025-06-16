@@ -1,6 +1,6 @@
 import warp as wp
 import numpy as np 
-from admm_pd import ADMM_PD, ADMMState
+from admm_pd import ADMM_PD, ADMMState, add_dx
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from stretch import PSViewer
 import polyscope as ps
@@ -38,13 +38,14 @@ class LBFGS_PD(ADMM_PD):
         self.b[:] -= col_b
 
     def process_collision(self):
-        self.col_b.zero_()
-        with wp.ScopedTimer("collision"):
-            with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
-            with wp.ScopedTimer("hess & grad"):
-                triplets = self.collider.analyze(self.col_b, self.n_pt, self.n_ee, self.n_ground)
-    
+        # self.col_b.zero_()
+        # with wp.ScopedTimer("collision"):
+        #     with wp.ScopedTimer("detection"):
+        #         self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+        #     with wp.ScopedTimer("hess & grad"):
+        #         triplets = self.collider.analyze(self.col_b, self.n_pt, self.n_ee, self.n_ground)
+        pass 
+
     def reset(self):
         n_verts = 4
         self.frame = 0
@@ -63,13 +64,60 @@ class LBFGS_PD(ADMM_PD):
         wp.copy(self.states.x0, self.xcs)
         wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
 
-    def get_constraint_size(self):
-        self.constraints = wp.zeros(0, int)
-        self.n_pinned_constraints = 0
-        return 0
+    # def get_constraint_size(self):
+    #     self.constraints = wp.zeros(0, int)
+    #     self.n_pinned_constraints = 0
+    #     return 0
     
-    def add_constraints(self):
-        pass
+    # def add_constraints(self):
+    #     pass
+    
+        
+    def compute_energy(self, xwp, y):
+        '''
+        eq. 5 from [2]
+        g(x, p) = 1/2(x - y)^T (M / h^2) (x - y) + 1 / 2 x^TLx - x^T J p 
+        '''
+        x = xwp.numpy().reshape(-1)
+        term = 1.0 / (self.h * self.h)
+        # Lx_Jp = self.compute_Lx_Jp(x)
+        self.local_project()
+        p = np.concatenate([self.p.numpy().reshape(-1), self.p_pinned])
+        Gx_Sp = self.G @ x - self.S_sparse @ p
+        term2 = np.dot(Gx_Sp, Gx_Sp) * 0.5
+        E = term * np.dot(x - y, self.M_sparse @ (x - y)) * 0.5 + term2# + 0.5 * np.dot(x, self.L_scipy @ x) - np.dot(x, self.J @ p)
+        return E
+
+    def compute_collision_energy(self):
+        return 0.0
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
+
+    def line_search(self):
+        x_tmp = wp.clone(self.states.x)
+        y = self.compute_y()
+        e00 = self.compute_energy(self.states.x, y)
+        e0c = self.compute_collision_energy()
+        E0 = e00 + e0c
+        alpha  = 1.0
+        while True:
+            wp.copy(self.states.x, x_tmp)
+            wp.launch(add_dx, (self.n_nodes,), inputs =[self.states, alpha])
+            # break
+            # E1 = self.compute_energy(self.states.x, y) + self.compute_collision_energy()
+            e10 = self.compute_energy(self.states.x, y)
+            e1c = self.compute_collision_energy()
+            E1 = e10 + e1c
+            # print(f"alpha = {alpha}, E1 = {E1} ({e10:.2e} + {e1c:.2e})")
+            if E1 < E0:
+                break
+            if alpha < 1e-3:
+                wp.copy(self.states.x, x_tmp)
+                alpha = 0.0
+                break 
+            alpha *= 0.5
+        
+        return alpha 
 
     def update_x(self):
         '''
@@ -126,19 +174,19 @@ def test_pd():
     ps.set_user_callback(viewer.callback)
 
 def staggered_bars():
-    n_meshes = 2 
+    n_meshes = 1
     meshes = ["assets/bar2.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
 
-    for i in range(n_meshes):
-        # transforms[i][0, 3] = i * 0.5
-        transforms[i][1, 3] = 1.2 + i * 0.2
-        transforms[i][2, 3] = i * 1.0
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 1.2 + i * 0.2
+    #     transforms[i][2, 3] = i * 1.0
     
     rods = LBFGS_PD(meshes, transforms)
     viewer = PSViewer(rods)

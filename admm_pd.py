@@ -226,7 +226,8 @@ class ADMM_PD(TOBJComplex):
         S_diag = np.concatenate([S_diag, np.sqrt(stiffness) * np.ones(self.n_pinned_constraints * 3)])
         self.S_sparse = diags(S_diag)
 
-        self.J = self.to_scipy_bsr(self.D).T @ self.S_sparse
+        self.G = self.to_scipy_bsr(self.D)
+        self.J = self.G.T @ self.S_sparse
         self.L = bsr_mm(bsr_transposed(self.D, ), self.D)
         self.L_scipy = self.to_scipy_bsr(self.L)
 
