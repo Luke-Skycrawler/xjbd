@@ -123,7 +123,7 @@ class LBFGS_PD(ADMM_PD):
         '''
         Algorithm 2 in [2]
         '''
-        q = -self.b
+        q = self.b
         xk = self.states.x.numpy().reshape(-1)
         gk = self.b
 
@@ -142,14 +142,14 @@ class LBFGS_PD(ADMM_PD):
             
             gi = self.stashed_gradients[i % self.m]
             gip1 = self.stashed_gradients[(i + 1) % self.m]
-            ti = gip1 - gi
+            yi = gip1 - gi
             
-            rhoi = np.dot(ti, si)
-            zetai = np.dot(q, si) / rhoi
-            q -= zetai * ti
+            rhoi = 1.0 / np.dot(yi, si)
+            alphai = np.dot(q, si) * rhoi
+            q -= alphai * yi
 
         
-        r = self.solver.solve(q)
+        z = self.solver.solve(q)
         for i in range(start, self.iter):
             xip1 = self.stashed_states[(i + 1) % self.m]
             xi = self.stashed_states[i % self.m]
@@ -157,15 +157,15 @@ class LBFGS_PD(ADMM_PD):
             
             gi = self.stashed_gradients[i % self.m]
             gip1 = self.stashed_gradients[(i + 1) % self.m]
-            ti = gip1 - gi
+            yi = gip1 - gi
             
-            rhoi = np.dot(ti, si)
-            zetai = np.dot(q, si) / rhoi
+            rhoi = 1.0 / np.dot(yi, si)
+            betai = np.dot(z, yi) * rhoi
+            alphai = np.dot(q, si) * rhoi
 
-            eta = np.dot(ti, r) / rhoi
-            r += si * (zetai - eta)
+            z += si * (alphai - betai)
 
-        self.states.dx.assign(-r)
+        self.states.dx.assign(z)
         self.line_search()
 
 def test_pd():

@@ -217,6 +217,7 @@ class RodBCBase:
         wp.copy(self.states.x0, self.xcs)
 
         self.theta = 0.0
+        self.frame = 0
 
     def define_M(self):
         V = self.xcs.numpy()
@@ -235,7 +236,7 @@ class RodBCBase:
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 8
+        max_iter = 1
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()
@@ -252,11 +253,12 @@ class RodBCBase:
 
             dxnp = self.states.dx.numpy()
             norm_dx = np.linalg.norm(dxnp)
+            n_iter += 1
             newton_iter = norm_dx > 1e-3 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
-            n_iter += 1
         self.update_x0_xdot()
         self.theta += self.h * omega
+        self.frame += 1
 
     def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
