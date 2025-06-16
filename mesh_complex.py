@@ -111,11 +111,11 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.frame += 1
         with wp.ScopedTimer("step"):
             newton_iter = True
-            n_iter = 0
+            self.n_iter = 0
             max_iter = 8
             # while n_iter < max_iter:
             while newton_iter:
-                with wp.ScopedTimer(f"newton #{n_iter}"):
+                with wp.ScopedTimer(f"newton #{self.n_iter}"):
                     with wp.ScopedTimer("compute A"):
                         self.compute_A()
                     with wp.ScopedTimer("collision"):
@@ -126,7 +126,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                         self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
                     
-                    newton_iter = not (self.converged() or n_iter >= max_iter)
+                    newton_iter = not (self.converged() or self.n_iter >= max_iter)
                     if not newton_iter:
                         break
                     # line search stuff, not converged yet
@@ -136,8 +136,8 @@ class RodComplexBC(RodBCBase, RodComplex):
                         print("\nline search failed")
                         break
 
-                    print(f"iter = {n_iter}, alpha = {alpha}")
-                    n_iter += 1
+                    print(f"iter = {self.n_iter}, alpha = {alpha}")
+                    self.n_iter += 1
             self.update_x0_xdot()
 
 

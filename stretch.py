@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 1e-2
+h = 2e-3
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -236,7 +236,7 @@ class RodBCBase:
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 1
+        max_iter = 8
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()

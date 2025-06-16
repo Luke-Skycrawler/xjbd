@@ -23,8 +23,8 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "woodbury"  # default for medial proxy
-# solver_choice = "direct"  # default for medial proxy
+# solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
@@ -364,7 +364,7 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        if self.frame % 4 == 0:
+        if self.frame % 1 == 0:
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -502,6 +502,7 @@ class MedialVABD(MedialRodComplex):
         return norm_dz < 2e-3
         
     def line_search(self):
+        self.z_last = np.copy(self.z)
         z_tilde_tmp = np.copy(self.z_tilde)
         z_tmp = np.copy(self.z)
 
@@ -725,9 +726,25 @@ class MedialVABD(MedialRodComplex):
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
+            
             self.b_sys_col = Um_sys @ (g * term)
-            if solver_choice == "direct":
-                self.A_sys_col = step1 @ Um_sys.T
+            if solver_choice == "direct" :
+                # if self.n_iter % 2 == 0:
+                if self.n_iter == 0:
+                    self.A_sys_col = step1 @ Um_sys.T
+                    self.b_sys_col_last = np.copy(self.b_sys_col)
+                else :
+                    # BFGS 
+                    yk = self.b_sys_col - self.b_sys_col_last
+                    sk = self.z - self.z_last
+                    # Bk = self.A_sys_col 
+                    v = self.A_sys_col @ sk
+                    eps = 1e-8
+                    term1 = np.outer(yk, yk) / (np.dot(yk, sk) + eps)
+                    term2 = -np.outer(v, v) / (np.dot(sk, self.A_sys_col @ sk) + eps)
+                    self.A_sys_col += term2 + term1
+                    self.b_sys_col_last[:] = self.b_sys_col
+                    # self.A_sys_col += term1
         
         self.U_col = Um_sys
         self.C_col = H * term
