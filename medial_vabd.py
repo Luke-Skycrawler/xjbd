@@ -452,7 +452,25 @@ class MedialVABD(MedialRodComplex):
 
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
-                dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                bb = b_sys + self.b_sys_col
+                if self.n_iter == 0:
+                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                    self.AA = A_sys + self.A_sys_col
+                else: 
+                    yk = bb - self.bb_last
+                    sk = self.z - self.z_last
+                    v = self.AA @ sk
+                    ykdotsk = np.dot(yk, sk)
+                    vdotsk = np.dot(v, sk)
+                    if ykdotsk > 0.0 and vdotsk > 0.0:
+                        term1 = np.outer(yk, yk)
+                        term2 = np.outer(v, v)
+                        self.A_sys_col += term1 / ykdotsk - term2 / vdotsk
+
+                    dz_sys = solve(self.AA, bb, assume_a="sym")
+
+
+                self.bb_last = bb
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -736,20 +754,20 @@ class MedialVABD(MedialRodComplex):
                     self.b_sys_col_last = np.copy(self.b_sys_col)
                 else :
                     # BFGS 
-                    yk = self.b_sys_col - self.b_sys_col_last
-                    sk = self.z - self.z_last
-                    # Bk = self.A_sys_col 
-                    v = self.A_sys_col @ sk
-                    eps = 1e-8
-                    ykdotsk = np.dot(yk, sk)
-                    vdotsk = np.dot(v, sk)
-                    if ykdotsk > 0.0 and vdotsk > 0.0:
-                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
-                        term2 = -np.outer(v, v) / (np.dot(sk, v))
-                        self.A_sys_col += term2 + term1
+                    pass
+                    # yk = self.b_sys_col - self.b_sys_col_last
+                    # sk = self.z - self.z_last
+                    # # Bk = self.A_sys_col 
+                    # v = self.A_sys_col @ sk
+                    # eps = 1e-8
+                    # ykdotsk = np.dot(yk, sk)
+                    # vdotsk = np.dot(v, sk)
+                    # if ykdotsk > 0.0 and vdotsk > 0.0:
+                    #     term1 = np.outer(yk, yk) / (np.dot(yk, sk))
+                    #     term2 = -np.outer(v, v) / (np.dot(sk, v))
+                    #     self.A_sys_col += term2 + term1
 
-                    self.b_sys_col_last[:] = self.b_sys_col
-                    # self.A_sys_col += term1
+                    # self.b_sys_col_last[:] = self.b_sys_col
         
         self.U_col = Um_sys
         self.C_col = H * term
