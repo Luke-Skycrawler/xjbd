@@ -478,6 +478,7 @@ class MedialVABD(MedialRodComplex):
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
             print("warning: dz is in the opposite direction of gradient")
+            quit()
         # if cos_dz_b < 0.2:
         #     dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(dz_sys)
         dz0 = dz_sys[:self.n_meshes * 12]
@@ -499,7 +500,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 2e-3
+        return norm_dz < 1e-4
         
     def line_search(self):
         self.z_last = np.copy(self.z)
@@ -740,9 +741,13 @@ class MedialVABD(MedialRodComplex):
                     # Bk = self.A_sys_col 
                     v = self.A_sys_col @ sk
                     eps = 1e-8
-                    term1 = np.outer(yk, yk) / (np.dot(yk, sk) + eps)
-                    term2 = -np.outer(v, v) / (np.dot(sk, self.A_sys_col @ sk) + eps)
-                    self.A_sys_col += term2 + term1
+                    ykdotsk = np.dot(yk, sk)
+                    vdotsk = np.dot(v, sk)
+                    if ykdotsk > 0.0 and vdotsk > 0.0:
+                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
+                        term2 = -np.outer(v, v) / (np.dot(sk, v))
+                        self.A_sys_col += term2 + term1
+
                     self.b_sys_col_last[:] = self.b_sys_col
                     # self.A_sys_col += term1
         
@@ -971,9 +976,9 @@ def windmill():
 
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    # model = "squishy"
-    model = "bug"
-    n_meshes = 1
+    model = "squishy"
+    # model = "bug"
+    n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -984,11 +989,11 @@ def staggered_bug():
     # transforms[-1][2, 2] = 1.5
 
     for i in range(1):
-        for j in range(1):
+        for j in range(2):
             idx = j + i * 4
             transforms[idx][:3, :3] = np.identity(3) * 0.9
             transforms[idx][0, 3] = i * 1.5 - 3
-            transforms[idx][1, 3] = 1.2 + j * 2.5
+            transforms[idx][1, 3] = 1.2 + j * 1.5
             transforms[idx][2, 3] = - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
