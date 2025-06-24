@@ -918,6 +918,39 @@ class PinnedVABD(MedialVABD):
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
 
+def stacked_bug():
+    n_meshes = 2
+    model = "squishy"
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    # transforms[-1][:3, :3] = np.zeros((3, 3))
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
+
+    n_heights = 2
+    n_rows = 1
+    n_cols = 1
+    gap = 1.5
+    hgap = 2.0
+
+    idx = 0
+    for hh in range(n_heights):
+        for ii in range(n_rows):
+            for jj in range(n_cols):
+                ti = np.array([ii * gap, hh * hgap + 1.0, jj * gap], float)
+                
+                transforms[idx][:3, 3] = ti 
+                idx += 1
+
+    static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
 def windmill():
     # model = "bunny"
     model = "windmill"
@@ -1086,12 +1119,12 @@ def bug_rain():
 
 if __name__ == "__main__":
     ps.init()
-    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    staggered_bug()
+    stacked_bug()
     # pyramid()
     # windmill()
     # bug_rain()
