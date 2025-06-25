@@ -413,6 +413,10 @@ class MedialVABD(MedialRodComplex):
     #     self.dz[:] = dz
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
+    def use_newton(self):
+        return self.n_iter == 0
+        # return True
+
     def solve(self):
         self.A0[:] = 0.
         self.b0[:] = 0.
@@ -471,8 +475,8 @@ class MedialVABD(MedialRodComplex):
             with wp.ScopedTimer("linalg system"): 
                 bh = self.bfgs_history
                 m = bh.m_history
-                if self.n_iter == 0:
-                    
+                # if self.n_iter == 0:
+                if self.use_newton():
                     dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
                 else: 
                     # split L-BFGS 
@@ -511,7 +515,7 @@ class MedialVABD(MedialRodComplex):
                     for i in reversed(range(start, end)):
                         ii = i % m        
                         si = bh.s[ii]
-                        yi = bh.y[ii] + AA @ si   
+                        yi = bh.y[ii] + A_sys @ si   
 
                         bh.rho[ii] = 1.0 / np.dot(yi, si)
 
@@ -521,11 +525,11 @@ class MedialVABD(MedialRodComplex):
                     for i in range(start, end):
                         ii = i % m
                         si = bh.s[ii]
-                        yi = bh.y[ii] + AA @ si   
+                        yi = bh.y[ii] + A_sys @ si   
 
                         bh.beta[ii ] = bh.rho[ii] * np.dot(yi, z)
                         z += si * (bh.alpha[ii] - bh.beta[ii])
-                        
+
                     dz_sys = z
 
 
@@ -810,8 +814,7 @@ class MedialVABD(MedialRodComplex):
             
             self.b_sys_col = Um_sys @ (g * term)
             if solver_choice == "direct" :
-                # if self.n_iter % 2 == 0:
-                if self.n_iter == 0:
+                if self.use_newton(): 
                     self.A_sys_col = step1 @ Um_sys.T
                     self.b_sys_col_last = np.copy(self.b_sys_col)
                 else :

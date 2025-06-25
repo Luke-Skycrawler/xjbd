@@ -125,6 +125,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                     with wp.ScopedTimer("solve"):
                         self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+                    self.n_iter += 1
                     
                     newton_iter = not (self.converged() or self.n_iter >= max_iter)
                     if not newton_iter:
@@ -137,7 +138,6 @@ class RodComplexBC(RodBCBase, RodComplex):
                         break
 
                     print(f"iter = {self.n_iter}, alpha = {alpha}")
-                    self.n_iter += 1
             self.update_x0_xdot()
 
 
