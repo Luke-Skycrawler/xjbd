@@ -486,30 +486,51 @@ class MedialVABD(MedialRodComplex):
                     # BFGS w/ history 
                     start = max(1, self.n_iter - m + 1)
                     end = self.n_iter + 1
-                    # for i in reversed(range(start, end)):
-                    #     ii = i % m        
-                    #     bh.alpha[ii] = bh.rho[ii] * np.dot(q, bh.s[ii])
-                    AA = self.A_sys_col + A_sys
-                    for i in range(start, end):
-                        # synthetic yi 
-                        ii = i % m 
-                        yi = bh.y[ii] 
-                        si = bh.s[ii]
-                        yip = yi + A_sys  @ si
+
+                    # AA = self.A_sys_col + A_sys
+                    # for i in range(start, end):
+                    #     # synthetic yi 
+                    #     ii = i % m 
+                    #     yi = bh.y[ii] 
+                    #     si = bh.s[ii]
+                    #     yip = yi + A_sys  @ si
                         
-                        si = bh.s[ii]
-                        v = AA @ si
-                        yidotsi = np.dot(yip, si)
-                        vdotsi = np.dot(v, si)
-                        if yidotsi > 0.0 and vdotsi > 0.0:
-                            term1 = np.outer(yip, yip) 
-                            term2 = np.outer(v, v) 
-                            AA += term1 / yidotsi - term2 / vdotsi 
+                    #     si = bh.s[ii]
+                    #     v = AA @ si
+                    #     yidotsi = np.dot(yip, si)
+                    #     vdotsi = np.dot(v, si)
+                    #     if yidotsi > 0.0 and vdotsi > 0.0:
+                    #         term1 = np.outer(yip, yip) 
+                    #         term2 = np.outer(v, v) 
+                    #         AA += term1 / yidotsi - term2 / vdotsi 
                         
+                    # L-BFGS 
+                    q = b_sys + self.b_sys_col
+                    AA = A_sys + self.A_sys_col 
                     
+                    for i in reversed(range(start, end)):
+                        ii = i % m        
+                        si = bh.s[ii]
+                        yi = bh.y[ii] + AA @ si   
+
+                        bh.rho[ii] = 1.0 / np.dot(yi, si)
+
+                        bh.alpha[ii] = bh.rho[ii] * np.dot(q, si)
+                        q -=  bh.alpha[ii] * yi
+                    z = solve(AA, q, assume_a = "sym")
+                    for i in range(start, end):
+                        ii = i % m
+                        si = bh.s[ii]
+                        yi = bh.y[ii] + AA @ si   
+
+                        bh.beta[ii ] = bh.rho[ii] * np.dot(yi, z)
+                        z += si * (bh.alpha[ii] - bh.beta[ii])
+                        
+                    dz_sys = z
+
 
                     self.b_sys_col_last[:] = self.b_sys_col
-                    dz_sys = solve(AA, b_sys + self.b_sys_col, assume_a="sym")
+                    # dz_sys = solve(AA, b_sys + self.b_sys_col, assume_a="sym")
                         
                         
 
