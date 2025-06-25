@@ -176,7 +176,7 @@ class MedialVABD(MedialRodComplex):
         # self.collider_medial.get_rest_collision_set()
         if use_nullspace:
             self.compute_nullspace()
-
+        self.bfgs_history = BFGSHistory(self.n_reduced, m_history= 8)
     def define_collider(self):
         if collision_handler == "triangle":
             super().define_collider()
@@ -469,6 +469,8 @@ class MedialVABD(MedialRodComplex):
 
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
+                bh = self.bfgs_history
+                m = bh.m_history
                 if self.n_iter == 0:
                     
                     dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
@@ -478,19 +480,38 @@ class MedialVABD(MedialRodComplex):
                     # try BFGS first 
                     yk = self.b_sys_col - self.b_sys_col_last
                     sk = self.z - self.z_last
-                    # Bk = self.A_sys_col 
-                    v = self.A_sys_col @ sk
-                    ykdotsk = np.dot(yk, sk)
-                    vdotsk = np.dot(v, sk)
-                    if ykdotsk > 0.0 and vdotsk > 0.0:
-                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
-                        term2 = -np.outer(v, v) / (np.dot(sk, v))
-                        self.A_sys_col += term2 + term1
+                    
+                    bh.append(yk, sk, self.n_iter)
+                    
+                    # BFGS w/ history 
+                    start = max(1, self.n_iter - m + 1)
+                    end = self.n_iter + 1
+                    # for i in reversed(range(start, end)):
+                    #     ii = i % m        
+                    #     bh.alpha[ii] = bh.rho[ii] * np.dot(q, bh.s[ii])
+                    AA = self.A_sys_col + A_sys
+                    for i in range(start, end):
+                        # synthetic yi 
+                        ii = i % m 
+                        yi = bh.y[ii] 
+                        si = bh.s[ii]
+                        yip = yi + A_sys  @ si
+                        
+                        si = bh.s[ii]
+                        v = AA @ si
+                        yidotsi = np.dot(yip, si)
+                        vdotsi = np.dot(v, si)
+                        if yidotsi > 0.0 and vdotsi > 0.0:
+                            term1 = np.outer(yip, yip) 
+                            term2 = np.outer(v, v) 
+                            AA += term1 / yidotsi - term2 / vdotsi 
+                        
+                    
 
                     self.b_sys_col_last[:] = self.b_sys_col
-                    # self.A_sys_col += term1
-                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
-        
+                    dz_sys = solve(AA, b_sys + self.b_sys_col, assume_a="sym")
+                        
+                        
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -788,7 +809,7 @@ class MedialVABD(MedialRodComplex):
                     #     self.A_sys_col += term2 + term1
 
                     # self.b_sys_col_last[:] = self.b_sys_col
-        
+
         self.U_col = Um_sys
         self.C_col = H * term
 
