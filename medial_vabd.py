@@ -48,6 +48,23 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
         c = xcs[xid][k]
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
 
+class BFGSHistory: 
+    def __init__(self, n_reduced, m_history = 4):
+        self.m_history = m_history
+        self.rho = np.zeros(m_history)
+        self.y = np.zeros((m_history, n_reduced))
+        self.s = np.zeros((m_history, n_reduced))
+        self.alpha = np.zeros(m_history)
+        self.beta = np.zeros(m_history)
+        self.b_last = np.zeros(n_reduced)
+    
+    def append(self, yk, sk, n_iter):
+        i = n_iter % self.m_history
+        self.y[i] = yk
+        self.s[i] = sk
+
+    # def factorize(self, A):
+    #     self.solver = splu(A)
 
 class WoodburySolver:
     def __init__(self, A0_dim, A_tilde):
@@ -452,7 +469,28 @@ class MedialVABD(MedialRodComplex):
 
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
-                dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                if self.n_iter == 0:
+                    
+                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                else: 
+                    # split L-BFGS 
+
+                    # try BFGS first 
+                    yk = self.b_sys_col - self.b_sys_col_last
+                    sk = self.z - self.z_last
+                    # Bk = self.A_sys_col 
+                    v = self.A_sys_col @ sk
+                    ykdotsk = np.dot(yk, sk)
+                    vdotsk = np.dot(v, sk)
+                    if ykdotsk > 0.0 and vdotsk > 0.0:
+                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
+                        term2 = -np.outer(v, v) / (np.dot(sk, v))
+                        self.A_sys_col += term2 + term1
+
+                    self.b_sys_col_last[:] = self.b_sys_col
+                    # self.A_sys_col += term1
+                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+        
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -736,20 +774,20 @@ class MedialVABD(MedialRodComplex):
                     self.b_sys_col_last = np.copy(self.b_sys_col)
                 else :
                     # BFGS 
-                    yk = self.b_sys_col - self.b_sys_col_last
-                    sk = self.z - self.z_last
-                    # Bk = self.A_sys_col 
-                    v = self.A_sys_col @ sk
-                    eps = 1e-8
-                    ykdotsk = np.dot(yk, sk)
-                    vdotsk = np.dot(v, sk)
-                    if ykdotsk > 0.0 and vdotsk > 0.0:
-                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
-                        term2 = -np.outer(v, v) / (np.dot(sk, v))
-                        self.A_sys_col += term2 + term1
+                    pass
+                    # yk = self.b_sys_col - self.b_sys_col_last
+                    # sk = self.z - self.z_last
+                    # # Bk = self.A_sys_col 
+                    # v = self.A_sys_col @ sk
+                    # eps = 1e-8
+                    # ykdotsk = np.dot(yk, sk)
+                    # vdotsk = np.dot(v, sk)
+                    # if ykdotsk > 0.0 and vdotsk > 0.0:
+                    #     term1 = np.outer(yk, yk) / (np.dot(yk, sk))
+                    #     term2 = -np.outer(v, v) / (np.dot(sk, v))
+                    #     self.A_sys_col += term2 + term1
 
-                    self.b_sys_col_last[:] = self.b_sys_col
-                    # self.A_sys_col += term1
+                    # self.b_sys_col_last[:] = self.b_sys_col
         
         self.U_col = Um_sys
         self.C_col = H * term
