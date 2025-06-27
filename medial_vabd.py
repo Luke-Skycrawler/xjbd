@@ -421,8 +421,8 @@ class MedialVABD(MedialRodComplex):
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def use_newton(self):
-        # return self.n_iter == 0
-        return True
+        return self.n_iter == 0
+        # return True
 
     def solve(self):
         self.A0[:] = 0.
@@ -1231,8 +1231,8 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    # stacked_bug(75)
-    staggered_bug()
+    stacked_bug()
+    # staggered_bug()
     # pyramid()
     # windmill()
     # bug_rain()
