@@ -183,6 +183,7 @@ class MedialVABD(MedialRodComplex):
             self.z_sys[i * 12: i * 12 + 9] = vec(np.identity(3))
         
 
+        self.bfgs_history = BFGSHistory(self.n_reduced, m_history= 8)
     def define_collider(self):
         if collision_handler == "triangle":
             super().define_collider()
@@ -419,6 +420,10 @@ class MedialVABD(MedialRodComplex):
     #     self.dz[:] = dz
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
+    def use_newton(self):
+        # return self.n_iter == 0
+        return True
+
     def solve(self):
         self.A0[:] = 0.
         self.b0[:] = 0.
@@ -469,34 +474,76 @@ class MedialVABD(MedialRodComplex):
             if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
 
-        b_sys = np.zeros(self.n_reduced)
-        b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
-        b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
+        self.b_sys = np.zeros(self.n_reduced)
+        self.b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
+        self.b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
-                if self.n_iter == 0:
-                    
-                    self.dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                bh = self.bfgs_history
+                m = bh.m_history
+                # if self.n_iter == 0:
+                if self.use_newton():
+                    self.dz_sys = solve(A_sys + self.A_sys_col, self.b_sys + self.b_sys_col, assume_a="sym")
                 else: 
                     # split L-BFGS 
 
                     # try BFGS first 
                     yk = self.b_sys_col - self.b_sys_col_last
                     sk = self.z_sys - self.z_sys_last
-                    # Bk = self.A_sys_col 
-                    v = self.A_sys_col @ sk
-                    ykdotsk = np.dot(yk, sk)
-                    vdotsk = np.dot(v, sk)
-                    if ykdotsk > 0.0 and vdotsk > 0.0:
-                        term1 = np.outer(yk, yk) / (np.dot(yk, sk))
-                        term2 = -np.outer(v, v) / (np.dot(sk, v))
-                        self.A_sys_col += term2 + term1
+                   
+                    bh.append(yk, sk, self.n_iter)
+                    
+                    # BFGS w/ history 
+                    start = max(1, self.n_iter - m + 1)
+                    end = self.n_iter + 1
+
+                    # AA = self.A_sys_col + A_sys
+                    # for i in range(start, end):
+                    #     # synthetic yi 
+                    #     ii = i % m 
+                    #     yi = bh.y[ii] 
+                    #     si = bh.s[ii]
+                    #     yip = yi + A_sys  @ si
+                        
+                    #     si = bh.s[ii]
+                    #     v = AA @ si
+                    #     yidotsi = np.dot(yip, si)
+                    #     vdotsi = np.dot(v, si)
+                    #     if yidotsi > 0.0 and vdotsi > 0.0:
+                    #         term1 = np.outer(yip, yip) 
+                    #         term2 = np.outer(v, v) 
+                    #         AA += term1 / yidotsi - term2 / vdotsi 
+                        
+                    # L-BFGS 
+                    q = self.b_sys + self.b_sys_col
+                    AA = A_sys + self.A_sys_col 
+                    
+                    for i in reversed(range(start, end)):
+                        ii = i % m        
+                        si = bh.s[ii]
+                        yi = bh.y[ii] + A_sys @ si   
+
+                        bh.rho[ii] = 1.0 / np.dot(yi, si)
+
+                        bh.alpha[ii] = bh.rho[ii] * np.dot(q, si)
+                        q -=  bh.alpha[ii] * yi
+                    z = solve(AA, q, assume_a = "sym")
+                    for i in range(start, end):
+                        ii = i % m
+                        si = bh.s[ii]
+                        yi = bh.y[ii] + A_sys @ si   
+
+                        bh.beta[ii ] = bh.rho[ii] * np.dot(yi, z)
+                        z += si * (bh.alpha[ii] - bh.beta[ii])
+
+                    self.dz_sys = z
+
 
                     self.b_sys_col_last[:] = self.b_sys_col
-                    # self.A_sys_col += term1
-                    self.dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
-        
+                    # dz_sys = solve(AA, b_sys + self.b_sys_col, assume_a="sym")
+                        
+                        
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -518,8 +565,8 @@ class MedialVABD(MedialRodComplex):
             dz00 = self.dz_sys[:12]
             dz00_ns = self.ns @ self.ns.T @ dz00
             self.dz_sys[:12] = dz00_ns
-        cos_dz_b = np.dot(self.dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(self.dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
-        print(f"dz dot gradient cos = {cos_dz_b}")
+        cos_dz_b = np.dot(self.dz_sys, self.b_sys + self.b_sys_col) / np.linalg.norm(self.dz_sys) / np.linalg.norm(self.b_sys + self.b_sys_col)
+        # print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
             print("warning: dz is in the opposite direction of gradient")
             quit()
@@ -542,10 +589,19 @@ class MedialVABD(MedialRodComplex):
 
     def converged(self):
         # norm_dz = np.linalg.norm(self.dz)
-        norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
-        print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-4
+        self.norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
+        dz_b = np.dot(self.dz, self.b_sys + self.b_sys_col)
+        return self.norm_dz < 1e-7 or 0 < dz_b < 1e-10
         
+    def line_search_fixed(self):
+        self.z_last = np.copy(self.z)
+        z_tilde_tmp = np.copy(self.z_tilde)
+        z_tmp = np.copy(self.z)
+        alpha = 1.0
+        self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
+        self.z[:] = z_tmp - alpha * self.dz
+        return alpha
+
     def line_search(self):
         self.z_last = np.copy(self.z)
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -592,11 +648,10 @@ class MedialVABD(MedialRodComplex):
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 
-                self.z_sys[: ] = self.z_sys_last
+                self.z_sys[:] = self.z_sys_last
                 alpha = 0.0
                 break
             alpha *= 0.5
-        print(f"line search alpha = {alpha}")
         return alpha
     
     def compute_psi(self):
@@ -780,8 +835,7 @@ class MedialVABD(MedialRodComplex):
             
             self.b_sys_col = Um_sys @ (g * term)
             if solver_choice == "direct" :
-                # if self.n_iter % 2 == 0:
-                if self.n_iter == 0:
+                if self.use_newton(): 
                     self.A_sys_col = step1 @ Um_sys.T
                     self.b_sys_col_last = np.copy(self.b_sys_col)
                 else :
@@ -800,7 +854,7 @@ class MedialVABD(MedialRodComplex):
                     #     self.A_sys_col += term2 + term1
 
                     # self.b_sys_col_last[:] = self.b_sys_col
-        
+
         self.U_col = Um_sys
         self.C_col = H * term
 
@@ -968,7 +1022,7 @@ class PinnedVABD(MedialVABD):
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
 
-def stacked_bug():
+def stacked_bug(from_frame = 0):
     n_meshes = 2
     model = "squishy"
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
@@ -997,10 +1051,13 @@ def stacked_bug():
 
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
+    if from_frame > 0:
+        rods.reset_z(from_frame)
     
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
+    
 def windmill():
     # model = "bunny"
     model = "windmill"
@@ -1174,7 +1231,8 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    stacked_bug()
+    # stacked_bug(75)
+    staggered_bug()
     # pyramid()
     # windmill()
     # bug_rain()

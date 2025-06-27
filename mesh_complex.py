@@ -106,13 +106,17 @@ class RodComplexBC(RodBCBase, RodComplex):
                 # triplets = self.collider.analyze(self.b)
             with wp.ScopedTimer("build_from_triplets"):
                 self.add_collision_to_sys_matrix(triplets)
+    
+    def line_search_fixed(self):
+        return 1.0
+
     def step(self):
         self.theta += omega * self.h
         self.frame += 1
         with wp.ScopedTimer("step"):
             newton_iter = True
             self.n_iter = 0
-            max_iter = 8
+            max_iter = 20
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{self.n_iter}"):
@@ -125,9 +129,12 @@ class RodComplexBC(RodBCBase, RodComplex):
                     with wp.ScopedTimer("solve"):
                         self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
+                    self.n_iter += 1
                     
                     newton_iter = not (self.converged() or self.n_iter >= max_iter)
                     if not newton_iter:
+                        alpha = self.line_search_fixed()
+                        print(f"\niter = {self.n_iter}, alpha = {alpha}, dz norm = {self.norm_dz:.2e}\n")
                         break
                     # line search stuff, not converged yet
                     with wp.ScopedTimer("line search"):
@@ -136,8 +143,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                         print("\nline search failed")
                         break
 
-                    print(f"iter = {self.n_iter}, alpha = {alpha}")
-                    self.n_iter += 1
+                    print(f"\niter = {self.n_iter}, alpha = {alpha}, dz norm = {self.norm_dz:.2e}\n")
             self.update_x0_xdot()
 
 
