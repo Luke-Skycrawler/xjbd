@@ -176,6 +176,12 @@ class MedialVABD(MedialRodComplex):
         # self.collider_medial.get_rest_collision_set()
         if use_nullspace:
             self.compute_nullspace()
+            
+        self.z_sys = np.zeros(self.n_reduced)
+        self.z_sys_last = np.zeros(self.n_reduced)
+        for i in range(self.n_meshes):
+            self.z_sys[i * 12: i * 12 + 9] = vec(np.identity(3))
+        
 
     def define_collider(self):
         if collision_handler == "triangle":
@@ -471,13 +477,13 @@ class MedialVABD(MedialRodComplex):
             with wp.ScopedTimer("linalg system"): 
                 if self.n_iter == 0:
                     
-                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                    self.dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
                 else: 
                     # split L-BFGS 
 
                     # try BFGS first 
                     yk = self.b_sys_col - self.b_sys_col_last
-                    sk = self.z - self.z_last
+                    sk = self.z_sys - self.z_sys_last
                     # Bk = self.A_sys_col 
                     v = self.A_sys_col @ sk
                     ykdotsk = np.dot(yk, sk)
@@ -489,7 +495,7 @@ class MedialVABD(MedialRodComplex):
 
                     self.b_sys_col_last[:] = self.b_sys_col
                     # self.A_sys_col += term1
-                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                    self.dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
         
 
         if solver_choice in ["woodbury", "compare"]:
@@ -498,29 +504,29 @@ class MedialVABD(MedialRodComplex):
                 dz_sys_wb = self.solver.solve(b_sys + self.b_sys_col)
         
             if solver_choice == "compare":
-                nd = np.linalg.norm(dz_sys - dz_sys_wb)
-                ndz = np.linalg.norm(dz_sys)
+                nd = np.linalg.norm(self.dz_sys - dz_sys_wb)
+                ndz = np.linalg.norm(self.dz_sys)
                 print(f"diff from solvers = {nd}, norm = {ndz}")
                 if nd / ndz > 1e-2:
                     print("error: solvers are not consistent")
                     quit()
             elif solver_choice == "woodbury":
-                dz_sys = dz_sys_wb
+                self.dz_sys = dz_sys_wb
 
-        # dz_sys = solve(A_sys, b_sys, assume_a="sym")
+        # self.dz_sys = solve(A_sys, b_sys, assume_a="sym")
         if use_nullspace:
-            dz00 = dz_sys[:12]
+            dz00 = self.dz_sys[:12]
             dz00_ns = self.ns @ self.ns.T @ dz00
-            dz_sys[:12] = dz00_ns
-        cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
+            self.dz_sys[:12] = dz00_ns
+        cos_dz_b = np.dot(self.dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(self.dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
         print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
             print("warning: dz is in the opposite direction of gradient")
             quit()
         # if cos_dz_b < 0.2:
-        #     dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(dz_sys)
-        dz0 = dz_sys[:self.n_meshes * 12]
-        self.dz_tilde[:] = dz_sys[self.n_meshes * 12:]
+        #     self.dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(self.dz_sys)
+        dz0 = self.dz_sys[:self.n_meshes * 12]
+        self.dz_tilde[:] = self.dz_sys[self.n_meshes * 12:]
 
         dz = np.zeros_like(self.z)
         dz_from_zt = self.dz_tiled2dz(self.dz_tilde, dz0)
@@ -545,6 +551,8 @@ class MedialVABD(MedialRodComplex):
         z_tilde_tmp = np.copy(self.z_tilde)
         z_tmp = np.copy(self.z)
 
+        self.z_sys_last[:] = self.z_sys
+
         alpha = 1.0
         # self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
         # self.z[:] = z_tmp - alpha * self.dz
@@ -565,6 +573,8 @@ class MedialVABD(MedialRodComplex):
             self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
             self.z[:] = z_tmp - alpha * self.dz
 
+            self.z_sys[:] = self.z_sys_last - alpha * self.dz_sys
+
             if collision_handler == "triangle":
                 zwp.assign(self.z.reshape((-1, 3)))
                 bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -581,6 +591,8 @@ class MedialVABD(MedialRodComplex):
             if alpha < 1e-2:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
+                
+                self.z_sys[: ] = self.z_sys_last
                 alpha = 0.0
                 break
             alpha *= 0.5
