@@ -116,7 +116,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         with wp.ScopedTimer("step"):
             newton_iter = True
             self.n_iter = 0
-            max_iter = 20
+            max_iter = 3
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{self.n_iter}"):

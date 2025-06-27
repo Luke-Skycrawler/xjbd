@@ -591,7 +591,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         self.norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         dz_b = np.dot(self.dz, self.b_sys + self.b_sys_col)
-        return self.norm_dz < 1e-7 or 0 < dz_b < 1e-10
+        return self.norm_dz < 1e-4 or 0 < dz_b < 1e-10
         
     def line_search_fixed(self):
         self.z_last = np.copy(self.z)

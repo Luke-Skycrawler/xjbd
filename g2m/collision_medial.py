@@ -523,11 +523,13 @@ class MedialCollisionDetector:
                     for jj in range(4):
                         H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
             else:
-                for ii in range(4):
-                    for jj in range(4):
-                        rows.append(E[ii])
-                        cols.append(E[jj])
-                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+                # ijl = [(ii, jj) for ii in range(3) for jj in range(3)] + [(ii, jj) for ii in range(3, 4) for jj in range(3, 4)]
+                ijl = [(ii, jj) for ii in range(3) for jj in range(4)]
+
+                for (ii, jj) in ijl:
+                    rows.append(E[ii])
+                    cols.append(E[jj])
+                    blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
 
         for cc, ccid in zip(self.cc_set, self.cc_id):
             # i, j = ccid
@@ -557,11 +559,12 @@ class MedialCollisionDetector:
                     for jj in range(4):
                         H[E[ii] * 3: (E[ii] + 1) * 3, E[jj] * 3: (E[jj] + 1) * 3] += h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3]
             else:
-                for ii in range(4):
-                    for jj in range(4):
-                        rows.append(E[ii])
-                        cols.append(E[jj])
-                        blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
+                ijl = [(ii, jj) for ii in range(4) for jj in range(4)]
+                # ijl = [(ii, jj) for ii in range(2) for jj in range(2)] + [(ii, jj) for ii in range(2, 4) for jj in range(2, 4)]
+                for (ii, jj) in ijl:
+                    rows.append(E[ii])
+                    cols.append(E[jj])
+                    blocks.append(h[ii * 3: (ii + 1) * 3, jj * 3: (jj + 1) * 3])
 
         if self.ground is not None and sg_collision:
             
