@@ -467,9 +467,9 @@ class MedialVABD(MedialRodComplex):
             if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
 
-        b_sys = np.zeros(self.n_reduced)
-        b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
-        b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
+        self.b_sys = np.zeros(self.n_reduced)
+        self.b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
+        self.b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
@@ -477,7 +477,7 @@ class MedialVABD(MedialRodComplex):
                 m = bh.m_history
                 # if self.n_iter == 0:
                 if self.use_newton():
-                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                    dz_sys = solve(A_sys + self.A_sys_col, self.b_sys + self.b_sys_col, assume_a="sym")
                 else: 
                     # split L-BFGS 
 
@@ -509,7 +509,7 @@ class MedialVABD(MedialRodComplex):
                     #         AA += term1 / yidotsi - term2 / vdotsi 
                         
                     # L-BFGS 
-                    q = b_sys + self.b_sys_col
+                    q = self.b_sys + self.b_sys_col
                     AA = A_sys + self.A_sys_col 
                     
                     for i in reversed(range(start, end)):
@@ -558,8 +558,8 @@ class MedialVABD(MedialRodComplex):
             dz00 = dz_sys[:12]
             dz00_ns = self.ns @ self.ns.T @ dz00
             dz_sys[:12] = dz00_ns
-        cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
-        print(f"dz dot gradient cos = {cos_dz_b}")
+        cos_dz_b = np.dot(dz_sys, self.b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(self.b_sys + self.b_sys_col)
+        # print(f"dz dot gradient cos = {cos_dz_b}")
         if cos_dz_b < 0.0:
             print("warning: dz is in the opposite direction of gradient")
             quit()
@@ -582,10 +582,19 @@ class MedialVABD(MedialRodComplex):
 
     def converged(self):
         # norm_dz = np.linalg.norm(self.dz)
-        norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
-        print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-4
+        self.norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
+        dz_b = np.dot(self.dz, self.b_sys + self.b_sys_col)
+        return self.norm_dz < 1e-7 or 0 < dz_b < 1e-10
         
+    def line_search_fixed(self):
+        self.z_last = np.copy(self.z)
+        z_tilde_tmp = np.copy(self.z_tilde)
+        z_tmp = np.copy(self.z)
+        alpha = 1.0
+        self.z_tilde[:] = z_tilde_tmp - alpha * self.dz_tilde
+        self.z[:] = z_tmp - alpha * self.dz
+        return alpha
+
     def line_search(self):
         self.z_last = np.copy(self.z)
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -630,7 +639,6 @@ class MedialVABD(MedialRodComplex):
                 alpha = 0.0
                 break
             alpha *= 0.5
-        print(f"line search alpha = {alpha}")
         return alpha
     
     def compute_psi(self):
@@ -1001,7 +1009,7 @@ class PinnedVABD(MedialVABD):
 #     ps.set_user_callback(viewer.callback)
 #     ps.show()
 
-def stacked_bug():
+def stacked_bug(from_frame = 0):
     n_meshes = 2
     model = "squishy"
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
@@ -1030,10 +1038,13 @@ def stacked_bug():
 
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
+    if from_frame > 0:
+        rods.reset_z(from_frame)
     
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
+    
 def windmill():
     # model = "bunny"
     model = "windmill"
@@ -1207,7 +1218,8 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    stacked_bug()
+    # stacked_bug(75)
+    staggered_bug()
     # pyramid()
     # windmill()
     # bug_rain()
