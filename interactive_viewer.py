@@ -13,13 +13,29 @@ class MouseInteractionInterface:
         self.selected_handle: int = -1
         
         self.ps_handle = None
+        self.ps_target = None
+        self.plane = None
+        self.ray = None
+        self.is_dragging = False
+
     def mouse_interact(self):
         # do mouse interactions
         io = gui.GetIO()
         cam_params = ps.get_view_camera_parameters()
         cam_pos = cam_params.get_position()
+        cam_dir = cam_params.get_look_dir()
+        
 
-        if io.MouseClicked[0]:
+        # if io.MouseClicked[0]:
+        self.is_dragging = gui.IsMouseDragging(0)
+        if self.is_dragging and self.selected_handle != -1:
+            screen_coords = io.MousePos
+            world_ray = ps.screen_coords_to_world_ray(screen_coords)
+            handle_pos = self.handle_pos[self.selected_handle]
+            self.plane = (handle_pos, cam_dir)
+            self.ray = (cam_pos, world_ray)
+        
+        if gui.IsMouseClicked(0):
             screen_coords = io.MousePos
             world_ray = ps.screen_coords_to_world_ray(screen_coords)
             
@@ -38,12 +54,34 @@ class MouseInteractionInterface:
                 self.selected_handle = np.arange(n_handles)[cand][icand]
             else:
                 self.selected_handle = -1
-
+            if self.selected_handle != -1: 
+                ps.set_do_default_mouse_interaction(False)
+            else: 
+                ps.set_do_default_mouse_interaction(True)
+            
+            # set mouse plane 
+            handle_pos = self.handle_pos[self.selected_handle]
+            self.plane = (handle_pos, cam_dir)
+            self.ray = (cam_pos, world_ray)
+                
+        # else: 
+        #     self.selected_handle = -1  
         # self.visualize_updated_handles()
-
     # def update_handle_pos(self):
         
     #     self.handle_pos
+
+    def compute_ray_plane_intersection(self, ray_origin, ray_dir, plane_point, plane_normal):
+        dist = np.dot(plane_normal, plane_point - ray_origin)
+        costheta = np.dot(ray_dir, plane_normal)
+        return ray_origin + ray_dir * dist / costheta
+
+    def draw_point(self, point, radius = None, color = (1, 0, 0)):
+        ps_point_cloud = ps.register_point_cloud("target", np.array([point]), enabled= True, color = color)
+        if radius is not None: 
+            ps_point_cloud.add_scalar_quantity("radius", np.array([selected_handle_radius]))
+            ps_point_cloud.set_point_radius_quantity("radius", autoscale=False)
+        return ps_point_cloud
 
     def visualize_updated_handles(self):
         if self.selected_handle != -1:
@@ -54,9 +92,28 @@ class MouseInteractionInterface:
                 self.ps_handle.add_scalar_quantity("radius", np.array([selected_handle_radius]))
                 self.ps_handle.set_point_radius_quantity("radius", autoscale=False)
             else:
+                self.ps_handle.set_enabled(True)
                 self.ps_handle.update_point_positions(np.array([selected_handle_pos]))
-        else:
-            self.ps_handle = None
+        elif self.ps_handle is not None:
+            self.ps_handle.set_enabled(False)
+            
+        # if gui.IsMouseDragging(0):
+        if self.is_dragging:
+            
+            # print(f"Dragging handle {self.selected_handle} at {self.ray[0]}")
+            if self.plane is None or self.ray is None: 
+                return
+            ray_plane_intersection = self.compute_ray_plane_intersection(*self.ray, *self.plane)
+            # print(f"Ray-plane intersection at {ray_plane_intersection}")
+            if self.ps_target is None:
+                # self.ps_target = ps.register_point_cloud("target", np.array([ray_plane_intersection]), enabled= True, color = (0, 1, 0))
+                self.ps_target = self.draw_point(ray_plane_intersection, color = (0, 1, 0))
+            else:
+                self.ps_target.update_point_positions(np.array([ray_plane_intersection]))
+                self.ps_target.set_enabled(True)
+        elif self.ps_target is not None:
+            self.ps_target.set_enabled(False)
+
 
 
 class MouseInteractionSocket(MedialViewer):
