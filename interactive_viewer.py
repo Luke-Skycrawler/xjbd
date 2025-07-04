@@ -34,7 +34,11 @@ class MouseInteractionInterface:
             handle_pos = self.handle_pos[self.selected_handle]
             self.plane = (handle_pos, cam_dir)
             self.ray = (cam_pos, world_ray)
-        
+            ray_plane_intersection = self.compute_ray_plane_intersection(*self.ray, *self.plane)
+            self.rod.pick_info.id = self.selected_handle
+            self.rod.pick_info.target_pos = ray_plane_intersection
+        else:
+            self.rod.pick_info.id = -1
         if gui.IsMouseClicked(0):
             screen_coords = io.MousePos
             world_ray = ps.screen_coords_to_world_ray(screen_coords)

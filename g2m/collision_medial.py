@@ -434,7 +434,7 @@ class MedialCollisionDetector:
         s0 = MedialSphere(ve0, v_rst_0, r0, e0)
         return s0
 
-    def analyze(self):
+    def analyze(self, extra_indices = []):
 
         b = np.zeros(self.n_vertices * 3)
         # if self.dense:
@@ -444,6 +444,7 @@ class MedialCollisionDetector:
         cols = []
         blocks = []
         self.indices_set.clear()
+        self.indices_set.update(extra_indices)
 
         nss = self.pt_set.cnt.numpy()[0]
         ss_id = self.pt_set.a.numpy()[:nss]

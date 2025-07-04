@@ -11,6 +11,8 @@ from scipy.sparse import *
 from scipy.sparse.linalg import splu, norm
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
+from interactive_viewer import InteractiveMedialViewer
+
 from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
@@ -19,12 +21,13 @@ from geometry.static_scene import StaticScene
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
+drag_stiffness = 1e5
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-# solver_choice = "woodbury"  # default for medial proxy
-solver_choice = "direct"  # default for medial proxy
+solver_choice = "woodbury"  # default for medial proxy
+# solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
@@ -47,6 +50,10 @@ def fill_U_triplets(mesh_id: int, xcs: wp.array(dtype = wp.vec3), W: wp.array2d(
     if k < 3:
         c = xcs[xid][k]
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
+
+class PickInfo:
+    id: int = -1
+    target_pos: np.ndarray = None
 
 class BFGSHistory: 
     def __init__(self, n_reduced, m_history = 4):
@@ -184,6 +191,9 @@ class MedialVABD(MedialRodComplex):
         
 
         self.bfgs_history = BFGSHistory(self.n_reduced, m_history= 8)
+        
+        self.pick_info = PickInfo()
+
     def define_collider(self):
         if collision_handler == "triangle":
             super().define_collider()
@@ -421,8 +431,8 @@ class MedialVABD(MedialRodComplex):
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def use_newton(self):
-        return self.n_iter == 0
-        # return True
+        # return self.n_iter == 0
+        return True
 
     def solve(self):
         self.A0[:] = 0.
@@ -548,7 +558,7 @@ class MedialVABD(MedialRodComplex):
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
                 self.solver.update(self.A0, self.U_col, self.C_col, self.U_col.T)
-                dz_sys_wb = self.solver.solve(b_sys + self.b_sys_col)
+                dz_sys_wb = self.solver.solve(self.b_sys + self.b_sys_col)
         
             if solver_choice == "compare":
                 nd = np.linalg.norm(self.dz_sys - dz_sys_wb)
@@ -603,6 +613,7 @@ class MedialVABD(MedialRodComplex):
         return alpha
 
     def line_search(self):
+        return self.line_search_fixed()
         self.z_last = np.copy(self.z)
         z_tilde_tmp = np.copy(self.z_tilde)
         z_tmp = np.copy(self.z)
@@ -803,8 +814,13 @@ class MedialVABD(MedialRodComplex):
         V, R = self.get_VR()
         with wp.ScopedTimer("detect"):
             self.collider_medial.collision_set(V, R)
+            
+        if self.pick_info.id != -1:
+            extra_indices = [self.pick_info.id]
+        else:
+            extra_indices = []
         with wp.ScopedTimer("analyze"):
-            g, H, idx = self.collider_medial.analyze()
+            g, H, idx = self.collider_medial.analyze(extra_indices)
             
         # with wp.ScopedTimer("U prime"):
         #     U_prime = self.compute_U_prime()
@@ -830,10 +846,26 @@ class MedialVABD(MedialRodComplex):
 
             Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")[:, idx]
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
-            step1 = Um_sys @ (H * term)
+            H *= term
+            g *= term
+            if self.pick_info.id != -1:
+                print(f"pick info: {self.pick_info.id}, target pos = {self.pick_info.target_pos}")
+                pid = self.pick_info.id
+                
+                vi = V[pid]
+
+                pp = np.searchsorted(idx, pid * 3)
+                diff = vi - self.pick_info.target_pos
+                dist2 = np.dot(diff, diff)
+                term_drag = drag_stiffness * self.h * self.h
+                # drag_block = np.outer(diff, diff) * term_drag
+                drag_block = np.eye(3) * term_drag
+                H[pp: pp + 3, pp: pp + 3] += drag_block
+                g[pp: pp + 3] += term_drag * diff
+            step1 = Um_sys @ H
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
             
-            self.b_sys_col = Um_sys @ (g * term)
+            self.b_sys_col = Um_sys @ g
             if solver_choice == "direct" :
                 if self.use_newton(): 
                     self.A_sys_col = step1 @ Um_sys.T
@@ -856,7 +888,7 @@ class MedialVABD(MedialRodComplex):
                     # self.b_sys_col_last[:] = self.b_sys_col
 
         self.U_col = Um_sys
-        self.C_col = H * term
+        self.C_col = H
 
 
 
@@ -1023,7 +1055,7 @@ class PinnedVABD(MedialVABD):
 #     ps.show()
 
 def stacked_bug(from_frame = 0):
-    n_meshes = 2
+    n_meshes = 1
     model = "squishy"
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
@@ -1034,7 +1066,7 @@ def stacked_bug(from_frame = 0):
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    n_heights = 2
+    n_heights = 1
     n_rows = 1
     n_cols = 1
     gap = 1.5
@@ -1054,7 +1086,7 @@ def stacked_bug(from_frame = 0):
     if from_frame > 0:
         rods.reset_z(from_frame)
     
-    viewer = MedialViewer(rods, static_bars)
+    viewer = InteractiveMedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
     
@@ -1157,7 +1189,7 @@ def staggered_bug():
     # static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     
-    viewer = MedialViewer(rods, static_bars)
+    viewer = InteractiveMedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
 
@@ -1230,9 +1262,9 @@ if __name__ == "__main__":
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
-    ps.look_at((0, 6, 15), (0, 6, 0))
-    stacked_bug()
-    # staggered_bug()
+    # ps.look_at((0, 6, 15), (0, 6, 0))
+    # stacked_bug()
+    staggered_bug()
     # pyramid()
     # windmill()
     # bug_rain()
