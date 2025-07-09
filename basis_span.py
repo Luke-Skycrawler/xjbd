@@ -7,7 +7,7 @@ import polyscope as ps
 from scipy.spatial.transform import Rotation as R
 import polyscope.imgui as gui
 from modal_warping import ModalWarpingRod, MWViewer
-model = "squishy_ball_lowlow"
+model = "squishy"
 
 
 def lbs_matrix(V, W):
@@ -18,7 +18,7 @@ def lbs_matrix(V, W):
     return np.kron(lhs, np.identity(3))
 
 class WarpedRod(ModalWarpingRod):
-    def __init__(self, filename = f"assets/squishyball/{model}.tobj"):
+    def __init__(self, filename = f"assets/squishy/squishy.tobj"):
         super().__init__(filename)
 
     def compute_Q(self):
@@ -31,8 +31,8 @@ class WarpedRod(ModalWarpingRod):
 
 class PSViewer:
     def __init__(self, x, v, F, x_target, U, z):
-        self.target = ps.register_surface_mesh("x_target", x_target, F)
-        self.target.add_scalar_quantity("indices", v[:, 0], enabled=True)
+        # self.target = ps.register_surface_mesh("x_target", x_target, F)
+        # self.target.add_scalar_quantity("indices", v[:, 0], enabled=True)
         self.fit = ps.register_surface_mesh("best fit", x, F)
         self.fit.add_scalar_quantity("indices", v[:, 0], enabled=True)
         self.ui_magnitude = 1.0
@@ -75,6 +75,9 @@ class PSViewer:
 
         self.fit.update_vertex_positions(x)
 
+def vec(t):
+    return (t.T).reshape(-1)
+
 def compute_ortho_loss():
     Q = np.load(f"data/W_{model}.npy")
     Q[:, 0] = 1.0
@@ -87,7 +90,7 @@ def compute_ortho_loss():
     # x_target = x_target @ rot_matrix.T
     t = np.mean(x_target, axis = 0, keepdims= True)
 
-    v, T = import_tobj(f"assets/squishyball/{model}.tobj")
+    v, T = import_tobj(f"assets/{model}/{model}.tobj")
     F = igl.boundary_facets(T)
     u = x_target - v
 
@@ -95,7 +98,20 @@ def compute_ortho_loss():
     
     A = U.T @ U
     b = U.T @ u.reshape(-1)
-    z = solve(A, b, assume_a="sym")
+    # z = solve(A, b, assume_a="sym")
+    zs0 = vec(np.array(
+        [[0.0, 0.5, 0.0], 
+         [0.5, 0.0, 0.0], 
+         [0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0]]))
+    za0 = vec(np.array(
+        [[0.0, -0.5, 0.0], 
+         [0.5, 0.0, 0.0], 
+         [0.0, 0.0, 0.0],
+         [0.0, 0.0, 0.0]]))
+    z = np.zeros_like(b)
+    z[24:36] = zs0 * 1e-2
+    
     x = (U @ z).reshape((-1, 3)) + v
 
     translated = v + t

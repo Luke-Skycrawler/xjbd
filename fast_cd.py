@@ -16,7 +16,7 @@ import igl
 import os
 
 # model = "bunny"
-model = "windmill"
+model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -34,6 +34,7 @@ class PSViewer:
         # self.T[:3, :] = np.eye(3)
         
         self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
+        self.V_deform = np.zeros_like(self.V0)
 
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -42,8 +43,11 @@ class PSViewer:
         j = idx % 3
         return i, j
 
+    def compute_V_deform(self):
+        self.V_deform[:] = self.B @ self.T + self.V0
+        
     def callback(self):
-        self.V_deform = self.B @ self.T + self.V0
+        self.compute_V_deform()
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
 
@@ -319,8 +323,8 @@ def vis_weights():
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
-    # rod = RodLBSWeight()
-    rod = RodLBSWeightBC()
+    rod = RodLBSWeight()
+    # rod = RodLBSWeightBC()
     lam, Q = None, None
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:

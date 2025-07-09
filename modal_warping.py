@@ -72,72 +72,23 @@ def shape_func(geo: FEMMesh, e: int):
     inv_Dm = wp.inverse(Dm)
     return inv_Dm
     
-@wp.func 
-def W_e(geo: FEMMesh, e:int, modal_w: ModalWarpingData): 
 
-    # same as nabla_bf_tet, use either 
-    # inv_Dm = shape_func(geo, e)
-    # grad_t0 = inv_Dm[0]
-    # grad_t1 = inv_Dm[1]
-    # grad_t2 = inv_Dm[2]
-    # grad_t3 = -inv_Dm[0] - inv_Dm[1] - inv_Dm[2]
-    
-    grad_t0 = nabla_bf_tet(geo, e, 0)
-    grad_t1 = nabla_bf_tet(geo, e, 1)
-    grad_t2 = nabla_bf_tet(geo, e, 2)
-    grad_t3 = nabla_bf_tet(geo, e, 3)
-
-
-    i0 = geo.T[e, 0]
-    i1 = geo.T[e, 1]
-    i2 = geo.T[e, 2]
-    i3 = geo.T[e, 3]
-
-
-    wp.atomic_add(modal_w.W, i0, grad_t0 * 0.5)
-    wp.atomic_add(modal_w.W, i1, grad_t1 * 0.5)
-    wp.atomic_add(modal_w.W, i2, grad_t2 * 0.5)
-    wp.atomic_add(modal_w.W, i3, grad_t3 * 0.5)
-
-    wp.atomic_add(modal_w.cnt, i0, 1)
-    wp.atomic_add(modal_w.cnt, i1, 1)   
-    wp.atomic_add(modal_w.cnt, i2, 1)
-    wp.atomic_add(modal_w.cnt, i3, 1)
-
-@wp.func
-def select(i: int, a: wp.vec3, b: wp.vec3, c: wp.vec3, d: wp.vec3) -> wp.vec3:
-    ret = a
-    if i == 1:
-        ret = b
-    elif i == 2:
-        ret = c
-    else:
-        ret = d
-    return ret
-
-@wp.func
-def skew(w: wp.vec3) -> wp.mat33:
-    return wp.mat33(
-        0.0, -w[2], w[1], 
-        w[2], 0.0, -w[0], 
-        -w[1], w[0], 0.0
-    )
 @wp.kernel
 def compute_sparse_W(geo: FEMMesh, modal_w: ModalWarpingData, triplets: Triplet):
     tid = wp.tid()
     e = tid // 4
     j = tid % 4
 
-    # grad_t0 = nabla_bf_tet(geo, e, 0) * 0.5
-    # grad_t1 = nabla_bf_tet(geo, e, 1) * 0.5
-    # grad_t2 = nabla_bf_tet(geo, e, 2) * 0.5
-    # grad_t3 = nabla_bf_tet(geo, e, 3) * 0.5
-
     jj = geo.T[e, j]
-    # w = select(j, grad_t0, grad_t1, grad_t2, grad_t3) / float(icnt)
+
+    # same as nabla_bf_tet, use either 
+    # inv_Dm = shape_func(geo, e)
+    # grad_t0 = inv_Dm[0]
+    # grad_t1 = inv_Dm[1]
+    # grad_t2 = inv_Dm[2]
+    # grad_t3 = -inv_Dm[0] - inv_Dm[1] - inv_Dm[2]    
+
     w = nabla_bf_tet(geo, e, j) * 0.5
-    # w = grad_t3
-    # w = wp.select(j == 0, wp.select(j == 1, wp.select(j == 2, grad_t3, grad_t2), grad_t1), grad_t0) / float(icnt)
 
     for i in range(4):
         ii = geo.T[e, i]
@@ -145,7 +96,6 @@ def compute_sparse_W(geo: FEMMesh, modal_w: ModalWarpingData, triplets: Triplet)
         value = wp.skew(w) / float(icnt)
         row = ii
         col = jj
-        # value = wp.skew(select(j, grad_t0, grad_t1, grad_t2, grad_t3)) / float(icnt)
 
         triplet_id = 16 * e + j * 4 + i
         triplets.row[triplet_id] = row
@@ -153,30 +103,17 @@ def compute_sparse_W(geo: FEMMesh, modal_w: ModalWarpingData, triplets: Triplet)
         triplets.values[triplet_id] = value
 
 @wp.kernel
-def compute_W(geo: FEMMesh, modal_w: ModalWarpingData):
-    e = wp.tid()
-    W_e(geo, e, modal_w)
-        
-@wp.kernel
-def average_W(modal_w : ModalWarpingData):
-    i = wp.tid()
-    if modal_w.cnt[i] > 0:
-        modal_w.W[i] /= float(modal_w.cnt[i])
-
-@wp.kernel
-def compute_Psi(geo: FEMMesh, modal_w: ModalWarpingData, Phi: wp.array(dtype = wp.vec3), q_k: float):
+def compute_cnt(geo: FEMMesh, modal_w: ModalWarpingData):
     e = wp.tid()
     i0 = geo.T[e, 0]
     i1 = geo.T[e, 1]
     i2 = geo.T[e, 2]
     i3 = geo.T[e, 3]
 
-    dw = wp.cross(modal_w.W[i0], Phi[i0]) + wp.cross(modal_w.W[i1], Phi[i1]) + wp.cross(modal_w.W[i2], Phi[i2]) + wp.cross(modal_w.W[i3], Phi[i3])
-
-    wp.atomic_add(modal_w.psi, i0, dw * q_k)
-    wp.atomic_add(modal_w.psi, i1, dw * q_k)
-    wp.atomic_add(modal_w.psi, i2, dw * q_k)
-    wp.atomic_add(modal_w.psi, i3, dw * q_k)
+    wp.atomic_add(modal_w.cnt, i0, 1)
+    wp.atomic_add(modal_w.cnt, i1, 1)
+    wp.atomic_add(modal_w.cnt, i2, 1)
+    wp.atomic_add(modal_w.cnt, i3, 1)
 
 @wp.kernel
 def displace_u(modal_w: ModalWarpingData, Phi: wp.array(dtype = wp.vec3)):
@@ -214,7 +151,7 @@ class ModalWarpingRod(Rod):
 
 
 
-        self.compute_W()
+        self.compute_cnt()
         self.compute_Q()
 
         self.W = warp.sparse.bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
@@ -226,6 +163,8 @@ class ModalWarpingRod(Rod):
         self.triplets.col = cols
         self.triplets.values = vals
 
+        self.compute_sparse_W()
+
     def compute_Q(self):
         self.lam, self.Q = self.eigs_sparse()
 
@@ -234,26 +173,19 @@ class ModalWarpingRod(Rod):
         warp.sparse.bsr_set_zero(self.W)
         warp.sparse.bsr_set_from_triplets(self.W, self.triplets.row, self.triplets.col, self.triplets.values)
 
-    def compute_W(self):
-        wp.launch(compute_W, dim = (self.n_tets,), inputs = [self.geo, self.modal_w])
-        wp.launch(average_W, dim = (self.n_nodes,), inputs = [self.modal_w])
-        # cnt = np.min(self.modal_w.cnt.numpy())
-        # print("cnt min = ", cnt)
-        # assert cnt > 0
+    def compute_cnt(self):
+        wp.launch(compute_cnt, dim = (self.n_tets, ), inputs = [self.geo, self.modal_w])
 
-    def compute_Psi(self, Qi, q_k):
-        # Qi = self.Q[:, mode]
+    def compute_Psi(self, mode, q_k):
+        Qi = self.Q[:, mode]
 
         disp = Qi.reshape((-1, 3)) * q_k
 
         self.Phi.assign(disp)
 
         # return self.Phi.numpy() * q_k
-        self.modal_w.psi.zero_()
         
-        self.compute_sparse_W()
-        w = warp.sparse.bsr_mv(self.W, self.Phi)
-        wp.copy(self.modal_w.psi, w)        
+        warp.sparse.bsr_mv(self.W, self.Phi, self.modal_w.psi)
         wp.launch(displace_u, dim = (self.n_nodes, ), inputs = [self.modal_w, self.Phi])
         uprime = self.modal_w.u.numpy()
         return uprime
