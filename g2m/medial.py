@@ -1,20 +1,20 @@
 import numpy as np
 import igl
 class SlabMesh:
-    def __init__(self, filename = ""): 
+    def __init__(self, filename = "", scale = 1.0): 
         self.V = None
         self.E  = None
         self.F = None
         self.R = None
 
         if filename != "":
-            self.load(filename)
+            self.load(filename, scale = scale)
 
         self.nv = self.V.shape[0]
         self.ne = self.E.shape[0]
         self.nf = self.F.shape[0]
             
-    def load(self, filename): 
+    def load(self, filename, scale = 1.0): 
         vertices = []
         edges = []
         faces = []
@@ -37,7 +37,7 @@ class SlabMesh:
                 elif parts[0] == "f":
                     faces.append(np.array([int(idx) for idx in parts[1:]]))
 
-        vertices = np.array(vertices)
+        vertices = np.array(vertices) * scale
         self.V = vertices[:, : 3]
         self.R = vertices[:, 3]
         
@@ -108,7 +108,11 @@ def slabmesh_default() -> SlabMesh:
 
 
 if __name__ == "__main__":
-    mesh = SlabMesh("data/test.ma")
-    mesh.export_ply("output/test.ply")
-    mesh.export_ma("output/test.ma")
+    # mesh = SlabMesh("data/test.ma")
+    # mesh.export_ply("output/test.ply")
+    # mesh.export_ma("output/test.ma")
     
+
+    model = "armadilo"
+    mesh = SlabMesh(f"assets/{model}/ma/{model}.ma", scale = 1e-3)
+    mesh.export_ma(f"assets/{model}/ma/{model}_small.ma")
