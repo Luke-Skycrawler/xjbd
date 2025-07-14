@@ -26,8 +26,8 @@ drag_stiffness = 1e5
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 
-solver_choice = "woodbury"  # default for medial proxy
-# solver_choice = "direct"  # default for medial proxy
+# solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
@@ -601,7 +601,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         self.norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         dz_b = np.dot(self.dz, self.b_sys + self.b_sys_col)
-        return self.norm_dz < 1e-4 or 0 < dz_b < 1e-10
+        return self.norm_dz < 1e-4# or 0 < dz_b < 1e-10
         
     def line_search_fixed(self):
         self.z_last = np.copy(self.z)
@@ -1055,8 +1055,8 @@ class PinnedVABD(MedialVABD):
 #     ps.show()
 
 def stacked_bug(from_frame = 0):
-    n_meshes = 1
-    model = "squishy"
+    n_meshes = 2
+    model = "aramadilo"
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1086,7 +1086,7 @@ def stacked_bug(from_frame = 0):
     if from_frame > 0:
         rods.reset_z(from_frame)
     
-    viewer = InteractiveMedialViewer(rods, static_bars)
+    viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
     
@@ -1148,9 +1148,10 @@ def windmill():
 
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "squishy"
+    model = "armadilo"
+    # model = "bunny"
     # model = "bug"
-    n_meshes = 2
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1161,9 +1162,9 @@ def staggered_bug():
     # transforms[-1][2, 2] = 1.5
 
     for i in range(1):
-        for j in range(2):
+        for j in range(1):
             idx = j + i * 4
-            transforms[idx][:3, :3] = np.identity(3) * 0.9
+            transforms[idx][:3, :3] = np.identity(3) * 1.5
             transforms[idx][0, 3] = i * 1.5 - 3
             transforms[idx][1, 3] = 1.2 + j * 1.5
             transforms[idx][2, 3] = - 0.8
