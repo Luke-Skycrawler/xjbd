@@ -29,7 +29,7 @@ if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = True
-n_windmills = 2
+n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -365,7 +365,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        if self.frame % 4 == 0:
+        # if self.frame % 4 == 0:
+        if True:
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -678,7 +679,8 @@ class MedialVABD(MedialRodComplex):
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def save_states(self):
-        np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
+        pass
+        # np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
         # for alias, field in zip(self.fields_alias, self.z_fields):
         #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
             
@@ -814,254 +816,78 @@ class MedialVABD(MedialRodComplex):
 
     def compute_nullspace(self):
 
-        p0_rest = np.array([0.0, 0.0, 0.0, 1.0], float)
-        v0_rest = np.array([0.0, 1.0, 0.0, 0.0], float)
-        # axis
-        n_nodes_per_windmill = 1350
+        # p0_rest = np.array([0.0, 0.0, 0.0, 1.0], float)
+        # v0_rest = np.array([0.0, 1.0, 0.0, 0.0], float)
+        # # axis
+        # n_nodes_per_windmill = 1350
 
         self.ns = np.zeros((n_windmills, 12, 6))
         for i in range(n_windmills):
-            v_rst = self.V[i * n_nodes_per_windmill: (i + 1) * n_nodes_per_windmill]
+            # v_rst = self.V[i * n_nodes_per_windmill: (i + 1) * n_nodes_per_windmill]
             
-            p0 = (self.transforms[i] @ p0_rest)[:3]
-            v0 = (self.transforms[i] @ v0_rest)[:3].reshape((-1, 1))
-            v0 = v0 / np.linalg.norm(v0)
-            dx = v_rst - p0 
-            dx_projected = (v_rst - p0) @ v0 @ v0.T
-            dist = np.linalg.norm(dx - dx_projected, axis = 1)
-            pinned = dist < eps
+            # p0 = (self.transforms[i] @ p0_rest)[:3]
+            # v0 = (self.transforms[i] @ v0_rest)[:3].reshape((-1, 1))
+            # v0 = v0 / np.linalg.norm(v0)
+            # dx = v_rst - p0 
+            # dx_projected = (v_rst - p0) @ v0 @ v0.T
+            # dist = np.linalg.norm(dx - dx_projected, axis = 1)
+            # pinned = dist < eps
 
-            pi = np.arange(n_nodes_per_windmill)[pinned]
-            assert len(pi) == 2
+            # pi = np.arange(n_nodes_per_windmill)[pinned]
+            # assert len(pi) == 2
             
-            y = v_rst[pi]
+            # y = v_rst[pi]
+            y = np.array([
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0]
+            ])
 
             lhs = np.ones((2, 4), float)
-            lhs[0, : 3] = y[0]
-            lhs[1, : 3] = y[1]
+            lhs[: 2, : 3] = y
             C = np.kron(lhs, np.identity(3))
             ns= null_space(C)
             self.ns[i] = ns
             assert ns.shape == (12, 6)
 
-
-        # v_rst = self.V
-        # x_rst = v_rst[:, 0]
-        # y_rst = v_rst[:, 1]
-        # pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
-
-        # self.pinned = np.arange(self.n_nodes)[pinned]
-        # assert len(self.pinned) == 2
-
-        # y = v_rst[self.pinned]
-        # # pinned positions
-
-        # lhs = np.ones((2, 4), float)
-        # lhs[0, : 3] = y[0]
-        # lhs[1, : 3] = y[1]
-        # C = np.kron(lhs, np.identity(3))
-        # ns= null_space(C)
-        # self.ns = ns
-        # assert ns.shape == (12, 6)
-        # self.U0_prime = np.zeros((self.n_meshes * 12, self.n_meshes * 12 - 6))
-        # self.U0_prime[:12, :6]= self.ns
-        # self.U0_prime[12:, 6:] = np.identity(self.n_meshes * 12 - 12)
-
-# def staggered_bug():
-    
-#     n_meshes = 2 
-#     meshes = ["assets/bug.tobj"] * n_meshes
-#     # meshes = ["assets/bunny_5.tobj"] * n_meshes
-#     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-#     transforms[1][:3, :3] = np.zeros((3, 3))
-#     transforms[1][0, 1] = 1
-#     transforms[1][1, 0] = 1
-#     transforms[1][2, 2] = 1
-
-#     for i in range(n_meshes):
-#         # transforms[i][0, 3] = i * 0.5
-#         transforms[i][1, 3] = 1.2 + i * 0.2
-#         transforms[i][2, 3] = i * 1.0
-    
-#     # rods = MedialRodComplex(h, meshes, transforms)
-#     rods = MedialVABD(h, meshes, transforms)
-#     viewer = MedialViewer(rods)
-#     ps.set_user_callback(viewer.callback)
-#     ps.show()
-
 def windmill():
     # model = "bunny"
-    model = "windmill"
+    # model = "windmill"
+    model = "wheel"
     drop = "bunny"
     # model = "bug"
-    n_meshes = 9
+    n_heights = 4
+    n_meshes = 4 * n_heights + n_windmills
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    meshes = [f"assets/{model}/{model}.tobj"] * n_windmills + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - n_windmills)
-    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
+    transforms = np.array([np.identity(4, dtype = float) for _ in range(n_meshes)])
 
     transforms[0][:3, :3] = np.zeros((3, 3))
-    transforms[0][0, 0] = 0.5
-    transforms[0][2, 1] = 0.5
-    transforms[0][1, 2] = 0.5
-
-    transforms[1][:3, 3] = np.array([0.0, -3.4, 0.0])
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 0] = 0.5
-    transforms[1][2, 1] = 0.5
-    transforms[1][1, 2] = 0.5
-
-    c = np.cos(np.pi / 4)
-    s = np.sin(np.pi / 4)
-    transforms[1][:3, :3] = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], float) @ transforms[1][:3, :3]
-
-    # transforms[-1][0, 1] = 1.5
-    # transforms[-1][1, 0] = 1.5
-    # transforms[-1][2, 2] = 1.5
-
-    for i in range(n_windmills, n_meshes):
-        if i // 10 == 0:
-        # if True:
-            transforms[i][0, 3] = 1.0 + i * 0.05
-        else:
-            transforms[i][0, 3] = -(2 + i * 0.05)
-        transforms[i][1, 3] = i * 2.0
-        transforms[i][2, 3] = -0.05
-    
-    # rods = MedialRodComplex(h, meshes, transforms)
-
-    # scale params for teapot
-    static_meshes_file = ["assets/teapotContainer.obj"]
-    scale = np.identity(4) * 3
-    scale[3, 3] = 1.0
-
-    # bouncy box
-    # static_meshes_file = ["assets/bouncybox.obj"]
-    # box_size = 4
-    # scale = np.identity(4) * box_size
-    # scale[3, 3] = 1.0
-    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    # for i in range(n_meshes):
-    #     transforms[i][1, 3] += box_size * 1.5
-        
+    transforms[0][:3, :3] = np.identity(3) * 10
+    transforms[0][:3, 3] = np.array([-5.0, -5.0, 0.0])
     
 
-    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    pos = [] 
+    t = np.array([3.- 1, 15. - 9, .75])
+
+    for i in range(n_heights):
+        for j in range(2):
+            p = t + 2 * np.array([j, i, 0])
+            pos.append(p)
+            pos.append(p)
+    pos = np.array(pos)
+    # transforms = np.zeros((len(pos), 4, 4), float)
+
+    for i in range(len(pos)):
+        flip = i % 2 == 1
+        transforms[i + n_windmills] = np.eye(4)
+        if flip:
+            transforms[i + n_windmills, 0, 0] = -1
+            transforms[i + n_windmills, 2, 2] = -1
+        transforms[i + n_windmills, :3, 3] = pos[i]    
+
     static_bars = None
-    # rods = MedialRodComplex(h, meshes, transforms, static_bars)
-    # rods = PinnedVABD(h, meshes, transforms, static_bars)
-    rods = MedialVABD(h, meshes, transforms, static_bars)
-    # rods.reset_z(1279)
-    
-    viewer = MedialViewer(rods, static_bars)
-    ps.set_user_callback(viewer.callback)
-    ps.show()
-
-def staggered_bug():
-    ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "squishy"
-    # model = "bug"
-    n_meshes = 20
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
-    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-
-    # transforms[-1][:3, :3] = np.zeros((3, 3))
-    # transforms[-1][0, 1] = 1.5
-    # transforms[-1][1, 0] = 1.5
-    # transforms[-1][2, 2] = 1.5
-
-    for i in range(5):
-        for j in range(4):
-            idx = j + i * 4
-            transforms[idx][:3, :3] = np.identity(3) * 0.9
-            transforms[idx][0, 3] = i * 1.5 - 3
-            transforms[idx][1, 3] = 1.2 + j * 2.5
-            transforms[idx][2, 3] = - 0.8
-    
-    # rods = MedialRodComplex(h, meshes, transforms)
-
-    # scale params for teapot
-    static_meshes_file = ["assets/teapotContainer.obj"]
-    scale = np.identity(4) * 3
-    scale[3, 3] = 1.0
-
-    # bouncy box
-    static_meshes_file = ["assets/bouncyclosed.obj"]
-    box_size = 4
-    scale = np.identity(4) * box_size
-    scale[3, 3] = 1.0
-    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    for i in range(n_meshes):
-        transforms[i][1, 3] += box_size * 1.5
-        
-    
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     
-    viewer = MedialViewer(rods, static_bars)
-    ps.set_user_callback(viewer.callback)
-    ps.show()
-
-def pyramid(from_frame = 0):
-    model = "squishy"
-    # model = "bug"
-    n_meshes = 136
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
-    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-
-    positions = np.load("data/init_pos.npy")
-    for i in range(n_meshes):
-        transforms[i][:3, 3] = positions[i]
-    
-    # stacked bowls
-    static_meshes_file = ["assets/bowl stack.obj"]
-    scale = np.identity(4)
-          
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # static_bars = None
-    rods = MedialVABD(h, meshes, transforms, static_bars)
-    
-    if from_frame > 0:
-        rods.reset_z(from_frame)
-    viewer = MedialViewer(rods, static_bars)
-    ps.set_user_callback(viewer.callback)
-    ps.show()
-
-def bug_rain():
-    model = "squishy"
-    # model = "bug"
-    n_meshes = 2
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-
-    transforms = wp.zeros((n_meshes, ), dtype = wp.mat44)
-    # v, _ = import_tobj(meshes[0])
-    # bb_size = np.max(v, axis = 0) - np.min(v, axis = 0)
-    bb_size = np.ones(3, float)
-    # wp.launch(init_transforms, (n_meshes,), inputs = [transforms, bb_size[0], bb_size[1], bb_size[2]])
-    tt = np.zeros((n_meshes, 4, 4), float)
-    for i in range(n_meshes):
-        gap = 2.0
-        tt[i] = np.identity(4)
-        x = i % 5
-        y = i // 25
-        z = (i // 5) % 5
-
-        x = (x - 2) * gap 
-        y = y * gap + 1.5
-        z = (z - 2) * gap
-
-        tt[i, :3, 3] = np.array([x, y, z], float)
-
-    print(f"bb_size = {bb_size}")
-
-    static_meshes_file = ["assets/teapotContainer.obj"]
-    scale = np.identity(4) * 15
-    scale[3, 3] = 1.0
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    # rods = MedialVABD(h, meshes, transforms.numpy(), static_bars)
-    rods = MedialVABD(h, meshes, tt, static_bars)
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
@@ -1073,7 +899,4 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    # staggered_bug()
-    # pyramid()
     windmill()
-    # bug_rain()

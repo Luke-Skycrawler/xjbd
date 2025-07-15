@@ -73,14 +73,15 @@ class RodComplexBC(RodBCBase, RodComplex):
             "bug": 2471,
             "squishy": 4778,
             "bunny": 3679, 
-            "windmill": 1350
+            "windmill": 1350,
+            "wheel": 7136,
         }
         n_verts = model_ntets[model]
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if "assets/tet.tobj" in self.meshes_filename:
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif model in["bar2", "bug", "squishy", "bunny", "windmill"]: 
+        elif model in["bar2", "bug", "squishy", "bunny", "windmill", "wheel"]: 
             # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
             pass
         else: 
