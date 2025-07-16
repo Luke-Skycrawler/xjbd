@@ -802,7 +802,7 @@ class MedialCollisionDetector:
             idx = np.array(sorted(self.body_indices), int).reshape(-1)
             print(f"idx shape = {idx.shape}")
             # idx = None
-            return b, H, idx
+            return b, H, idx, rows, cols, blocks
         
         else:
             idx = sorted(self.indices_set)
@@ -816,7 +816,7 @@ class MedialCollisionDetector:
             
             idx = np.array(idx, int).reshape((-1, 1))
             ret_idx = np.hstack([idx * 3, idx * 3 + 1, idx * 3 + 2]).reshape(-1)
-            return b, H, ret_idx
+            return b, H, ret_idx, rows, cols, blocks
 
     def energy(self, V, R = None):
         return self.collision_set(V, R, energy_only = True)

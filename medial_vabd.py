@@ -314,7 +314,7 @@ class MedialVABD(MedialRodComplex):
         # self.c, self.low = lu_factor(self.A_tilde)
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
         n_medials = self.V_medial.shape[0]
-        self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes)
+        self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
         self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial["squishy"])
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
@@ -469,6 +469,7 @@ class MedialVABD(MedialRodComplex):
                     dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
             
             with wp.ScopedTimer("cpp direct solver"):
+                self.direct_solver.compute_A_sys_plus_A_col()
                 dz_sys_cpp = self.direct_solver.solve(b_sys)
 
             if not cpp_only:
@@ -724,7 +725,7 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("detect"):
             self.collider_medial.collision_set(V, R)
         with wp.ScopedTimer("analyze"):
-            g, H, idx = self.collider_medial.analyze()
+            g, H, idx, rows, cols, values = self.collider_medial.analyze()
             
         # with wp.ScopedTimer("U prime"):
         #     U_prime = self.compute_U_prime()
@@ -740,7 +741,7 @@ class MedialVABD(MedialRodComplex):
             # rotations = [self.get_F(i) for i in range(self.n_meshes)]
             rotations = self.get_F_batch()
             self.direct_solver.compute_Um_tilde(rotations)
-            self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx)
+            self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx, rows, cols, values)
             
         if not cpp_only:
             with wp.ScopedTimer("Um tildeT"):
@@ -755,8 +756,9 @@ class MedialVABD(MedialRodComplex):
             if solver_choice == "direct":
                 self.A_sys_col = step1 @ Um_sys.T
         
-        self.U_col = Um_sys
-        self.C_col = H * term
+        if solver_choice == "woodbury":
+            self.U_col = Um_sys
+            self.C_col = H * term
 
 
 
@@ -912,6 +914,50 @@ def windmill():
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
+def staggered_bug():
+    ps.look_at((0, 4, 10), (0, 4, 0))
+    model = "squishy"
+    # model = "bug"
+    n_meshes = 2
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    # transforms[-1][:3, :3] = np.zeros((3, 3))
+    # transforms[-1][0, 1] = 1.5
+    # transforms[-1][1, 0] = 1.5
+    # transforms[-1][2, 2] = 1.5
+
+    for i in range(n_meshes):
+        transforms[i][:3, :3] = np.identity(3) * 0.9
+        transforms[i][0, 3] = i * 1.5 - 3
+        transforms[i][1, 3] = 1.2
+        transforms[i][2, 3] = - 0.8
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/teapotContainer.obj"]
+    scale = np.identity(4) * 3
+    scale[3, 3] = 1.0
+
+    # bouncy box
+    # static_meshes_file = ["assets/bouncybox.obj"]
+    # box_size = 4
+    # scale = np.identity(4) * box_size
+    # scale[3, 3] = 1.0
+    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    # for i in range(n_meshes):
+    #     transforms[i][1, 3] += box_size * 1.5
+        
+    
+    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
 
 if __name__ == "__main__":
     ps.init()
@@ -920,4 +966,5 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill()
+    # windmill()
+    staggered_bug()
