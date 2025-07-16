@@ -135,6 +135,9 @@ class RodComplexBC(RodBCBase, RodComplex):
                         alpha = self.line_search()
                     if alpha == 0.0:
                         print("\nline search failed")
+                        if n_iter == 0:
+                            print("quitting: line search fails on the first iteration")
+                            quit()
                         break
 
                     print(f"iter = {n_iter}, alpha = {alpha}")

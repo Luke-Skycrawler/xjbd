@@ -15,15 +15,16 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
-
+from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
+cpp_only = True
 
-solver_choice = "woodbury"  # default for medial proxy
+solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
@@ -312,6 +313,11 @@ class MedialVABD(MedialRodComplex):
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
+        n_medials = self.V_medial.shape[0]
+        self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes)
+        self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial["squishy"])
+        self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
+
 
     def define_z(self, transforms):
         self.n_modes = self.Q[self.models[0]].shape[1] * 12 
@@ -405,6 +411,7 @@ class MedialVABD(MedialRodComplex):
         h2 = self.h * self.h
         
         # set A0, b0
+        aa = []
         with wp.ScopedTimer("compute A0"):
             Fs = [self.get_F(i) for i in range(self.n_meshes)]
             gg, HH = self.ortho.analyze(np.array(Fs))
@@ -414,10 +421,14 @@ class MedialVABD(MedialRodComplex):
                 # g, H = self.ortho.analyze(fi)
                 g = gg[i]
                 H = HH[i]
+
                 mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
-                self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = H * h2 * self.sum_W[i] + mmi
+                aai = H * h2 * self.sum_W[i] + mmi
+                self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
+                aa.append(aai)
                 self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
 
+        self.direct_solver.update_A0(aa)
         # set b_tilde
         self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
 
@@ -427,7 +438,7 @@ class MedialVABD(MedialRodComplex):
         
         # self.dz_tilde = lu_solve((self.c, self.low), self.b_tilde)
 
-        if solver_choice in ["direct", "compare"]:
+        if not cpp_only and solver_choice in ["direct", "compare"]:
             
             A_sys = np.zeros((self.n_reduced, self.n_reduced))
             
@@ -447,14 +458,25 @@ class MedialVABD(MedialRodComplex):
             # np.save("A_tilde_K0.npy", self.A_tilde)
             if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
-
+            
         b_sys = np.zeros(self.n_reduced)
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
         if solver_choice in ["direct", "compare"]:
-            with wp.ScopedTimer("linalg system"): 
-                dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+            if not cpp_only:
+                with wp.ScopedTimer("linalg system"): 
+                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+            
+            with wp.ScopedTimer("cpp direct solver"):
+                dz_sys_cpp = self.direct_solver.solve(b_sys)
+
+            if not cpp_only:
+                cond = np.isclose(dz_sys, dz_sys_cpp, rtol = 1e-2).all()
+                print(f"cpp diff = {np.linalg.norm(dz_sys - dz_sys_cpp)}, cond = {cond}, norm  = {np.linalg.norm(dz_sys_cpp)}, norm ref = {np.linalg.norm(dz_sys)}")
+            else :
+                dz_sys = dz_sys_cpp
+
 
         if solver_choice in ["woodbury", "compare"]:
             with wp.ScopedTimer("woodbury solver"): 
@@ -473,15 +495,15 @@ class MedialVABD(MedialRodComplex):
 
         # dz_sys = solve(A_sys, b_sys, assume_a="sym")
         if use_nullspace:
-            for i in range(n_windmills):
-                dz00 = dz_sys[i * 12:i * 12 + 12]
-                ns = self.ns[i]
-                dz00_ns = ns @ ns.T @ dz00
-                dz_sys[i * 12: i * 12 + 12] = dz00_ns
-        cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
-        print(f"dz dot gradient cos = {cos_dz_b}")
-        if cos_dz_b < 0.0:
-            print("warning: dz is in the opposite direction of gradient")
+            dz00 = dz_sys[:12]
+            dz00_ns = self.ns @ self.ns.T @ dz00
+            dz_sys[:12] = dz00_ns
+            
+        if not cpp_only:
+            cos_dz_b = np.dot(dz_sys, b_sys + self.b_sys_col) / np.linalg.norm(dz_sys) / np.linalg.norm(b_sys + self.b_sys_col)
+            print(f"dz dot gradient cos = {cos_dz_b}")
+            if cos_dz_b < 0.0:
+                print("warning: dz is in the opposite direction of gradient")
         # if cos_dz_b < 0.2:
         #     dz_sys[:] = (b_sys + self.b_sys_col) / np.linalg.norm(b_sys + self.b_sys_col) * np.linalg.norm(dz_sys)
         dz0 = dz_sys[:self.n_meshes * 12]
@@ -709,22 +731,21 @@ class MedialVABD(MedialRodComplex):
         
         # with wp.ScopedTimer("prod 1"):
         #     Um_tildeT = U_prime @ self.Um_tilde.T
-
-        with wp.ScopedTimer("Um tildeT"):
-            Um_tildeT = self.compute_Um_tildeT()
-
+        
         # print(f"diff Um = {norm(Um_tildeT - Um_tildeT1)}, Um norm = {norm(Um_tildeT)}")
 
         term = self.h * self.h * medial_collision_stiffness
-        with wp.ScopedTimer("collision linalg system"):
-            # rhs = Um_tildeT @ g
-            # A = Um_tildeT @ H @ Um_tildeT.T 
 
-            # self.b_col_tilde = rhs * term
-            # self.A_col_tilde = A * term
+        with wp.ScopedTimer("cpp collision"):
+            # rotations = [self.get_F(i) for i in range(self.n_meshes)]
+            rotations = self.get_F_batch()
+            self.direct_solver.compute_Um_tilde(rotations)
+            self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx)
+            
+        if not cpp_only:
+            with wp.ScopedTimer("Um tildeT"):
+                Um_tildeT = self.compute_Um_tildeT()
 
-            # self.A0_col = self.Um0.T @ H @ self.Um0 * term
-            # self.b0_col = self.Um0.T @ g * term
 
             Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")[:, idx]
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
@@ -894,7 +915,7 @@ def windmill():
 
 if __name__ == "__main__":
     ps.init()
-    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
