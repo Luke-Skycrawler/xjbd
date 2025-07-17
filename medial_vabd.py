@@ -315,7 +315,7 @@ class MedialVABD(MedialRodComplex):
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
         n_medials = self.V_medial.shape[0]
         self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
-        self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial["squishy"])
+        self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial[self.models[0]])
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
 
@@ -917,22 +917,21 @@ def windmill():
     ps.show()
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "squishy"
+    model = "boat"
     # model = "bug"
-    n_meshes = 2
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-
     # transforms[-1][:3, :3] = np.zeros((3, 3))
     # transforms[-1][0, 1] = 1.5
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
     for i in range(n_meshes):
-        transforms[i][:3, :3] = np.identity(3) * 0.9
+        # transforms[i][:3, :3] = np.identity(3) * 0.9
         transforms[i][0, 3] = i * 1.5 - 3
-        transforms[i][1, 3] = 1.2
+        transforms[i][1, 3] = 3.0
         transforms[i][2, 3] = - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)

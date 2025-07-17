@@ -16,7 +16,8 @@ import igl
 import os
 
 # model = "bunny"
-model = "windmill"
+# model = "windmill"
+model = "boat"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
