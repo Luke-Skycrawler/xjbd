@@ -29,7 +29,7 @@ solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = True
+use_nullspace = False
 n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
@@ -741,6 +741,7 @@ class MedialVABD(MedialRodComplex):
             # rotations = [self.get_F(i) for i in range(self.n_meshes)]
             rotations = self.get_F_batch()
             self.direct_solver.compute_Um_tilde(rotations)
+            self.direct_solver.ensure_copied(rows, cols, values)
             self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx, rows, cols, values)
             
         if not cpp_only:
