@@ -2,7 +2,7 @@ import warp as wp
 import numpy as np
 import polyscope as ps
 import polyscope.imgui as gui
-
+import os
 from stretch import h, add_dx, PSViewer, Triplets
 from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
 from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
@@ -22,7 +22,8 @@ from g2m.bary_centric import TetBaryCentricCompute
 from g2m.nn import WarpEncoder
 # from g2m.encoder import Encoder
 # import torch
-
+save_weight_only = False
+# if enabled, only save the medial weights and quit
 eps = 3e-3
 def vec(t):
     return (t.T).reshape(-1)
@@ -248,11 +249,25 @@ class MedialRodComplex(RodComplexBC):
     def define_encoder(self):
         W_medial_list = []
         for model in self.model_set:
-            intp = TetBaryCentricCompute(model)
             Q = self.Q[model]
-            W_medial_list.append((model, intp.compute_weight(Q)))
+            if os.path.exists(f"data/W_medial_{model}.npy") and Q.shape[0] > 300:
+                weight = np.load(f"data/W_medial_{model}.npy")
+            else: 
+                with wp.ScopedTimer(f"define_encoder_{model}"):
+                    intp = TetBaryCentricCompute(model)
+                with wp.ScopedTimer(f"compute_weight_{model}"):
+                    weight = intp.compute_weight(Q)
+            W_medial_list.append((model, weight))
+            if save_weight_only:
+                np.save(f"data/W_medial_{model}.npy", weight)
+                quit()
         self.W_medial = dict(W_medial_list)
 
+    def define_K_sparse(self):
+        if save_weight_only: 
+            return
+        else: 
+            super().define_K_sparse()
     def get_VR(self):
         V = (self.Um @ self.z).reshape((-1, 3))# + self.V_medial_rest
         # V = self.V_medial_rest
