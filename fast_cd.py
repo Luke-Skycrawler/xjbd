@@ -277,7 +277,18 @@ class RodLBSWeightBC(RodLBSWeight):
                     Hw -= 0.5 * A[j, i].T @ H @ A[i, j]
                     Mw -= 0.5 * A[j, i].T @ M @ A[i, j]
         K = Hw
-        
+        '''
+        we used a covariance matrix that accounts for shear and translation,
+        and applied the same aggregation on the inertia matrix
+
+        p = vec([A, b])
+        c_ij = covariance(p_i, p_j), i, j < 12
+        define ix(i, j) = 3 * i + j
+
+        c_ij = 1 if i == j 
+        -1 if i == ix(a, b), j = ix(b, a) where b < 3
+        0 otherwise
+        '''
 
 
         
