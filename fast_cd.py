@@ -15,8 +15,8 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-# model = "bunny"
-model = "windmill"
+model = "bar2"
+# model = "windmill"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -85,7 +85,7 @@ class RodLBSWeight(Rod):
         V = self.xcs.numpy()
         T = self.T.numpy()
         # self.M is a vector composed of diagonal elements 
-        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal() * rho
         M_diag = np.repeat(self.Mnp, 3)
         self.M_sparse = diags(M_diag)
         self.Mw = diags(self.Mnp * 3.0)
@@ -117,8 +117,8 @@ class RodLBSWeight(Rod):
             with wp.ScopedTimer("weight space eigs"):
                 lam, Q = eigsh(K, k = 10, M = self.Mw, which = "SM")
                 # lam, Q = eigsh(K, k = 10, which = "SM")
-                # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-                # Q /= Q_norm
+                Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+                Q /= Q_norm
         return lam, Q
         
     def to_scipy_csr(self):
@@ -146,8 +146,7 @@ class RodLBSWeight(Rod):
 class RodLBSWeightBC(RodLBSWeight):
     def __init__(self):
         super().__init__()
-        self.define_M()
-        self.define_Jw()
+        # self.define_Jw()
 
     def define_sys_dim(self):
         n_handles = 1
@@ -204,14 +203,6 @@ class RodLBSWeightBC(RodLBSWeight):
         # w[:, 1] = 1.
         return w
 
-    def define_M(self):
-        V = self.xcs.numpy()
-        T = self.T.numpy()
-        # self.M is a vector composed of diagonal elements 
-        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal() * rho
-        M_diag = np.repeat(self.Mnp, 3)
-        self.M_sparse = diags(M_diag)
-        self.Mw = diags(self.Mnp * 3.0)
 
     def compute_J(self):
         w = self.get_contraint_weight()
@@ -253,9 +244,43 @@ class RodLBSWeightBC(RodLBSWeight):
         savemat(f, {"K": K, "M": M})
         print(f"exported matrices to {f}")
 
+    def permute(self, K):
+        n = K.shape[0] // 3  # number of nodes
+        old_indices = np.arange(3 * n)
+        
+        # New index: x components first, then y, then z
+        new_order = np.concatenate([
+            3 * np.arange(n) + 0,  # x components
+            3 * np.arange(n) + 1,  # y components
+            3 * np.arange(n) + 2   # z components
+        ])
+        K_permuted = K[new_order, :][:, new_order]
+        return K_permuted
+
     def eigs(self):
-        K = self.to_scipy_csr()
-        M = self.Mw
+        # K = self.to_scipy_csr()
+
+        K_sparse = self.to_scipy_bsr()
+        H = self.permute(K_sparse.tocsr())
+        A = self.compute_Aw()
+        Hw = np.zeros((self.n_nodes, self.n_nodes))
+        Mw = np.zeros_like(Hw)
+        M = self.M_sparse
+        for i in range(3):
+            for j in range(0, 4):
+                if i!= j:
+                    Hw += A[i, j].T @ H @ A[i, j]
+                    Mw += A[i, j].T @ M @ A[i, j]
+                if j < 3:
+                    # Hw -= A[i, j].T @ H @ A[j, i]
+                    # Mw -= A[i, j].T @ M @ A[j, i]
+                    Hw -= 0.5 * A[j, i].T @ H @ A[i, j]
+                    Mw -= 0.5 * A[j, i].T @ M @ A[i, j]
+        K = Hw
+        
+
+
+        
         dim = K.shape[0]
         if dim >= 3000:
             self.eigs_export()
@@ -269,60 +294,64 @@ class RodLBSWeightBC(RodLBSWeight):
                 # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
                 # Q /= Q_norm
         else: 
-            na1 = null_space(self.Jw)
-            print(f"na1 dim = {na1.shape}")
-            tilde_K = na1.T @ K @ na1 
-            tilde_M = na1.T @ M @ na1
+            # na1 = null_space(self.Jw)
+            # print(f"na1 dim = {na1.shape}")
+            # tilde_K = na1.T @ K @ na1 
+            # tilde_M = na1.T @ M @ na1
+
+            tilde_K = K
+            tilde_M = Mw
+
             with wp.ScopedTimer("constrained weight space eigs"):
                 lam, Ql = eigsh(tilde_K, k = 10, M = tilde_M, which = "SM")
-                Ql = na1 @ Ql
+                # Ql = na1 @ Ql
                 Q = Ql[:self.n_nodes]
                 Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
                 Q /= Q_norm
 
 
 
+        # # v_rst = self.xcs.numpy()        
+        # # w = np.zeros((self.n_nodes, 1), float)
+        # # x_rst = v_rst[:, 0]
+        # # w[x_rst < -0.5 + eps, 0] = 1.0
+        # # w[x_rst > 0.5 - eps, 0] = 1.0
+        # # w = 1.0 - w
+
+        # # w = 1.0 - np.abs(self.get_contraint_weight())
+        # w = self.xcs.numpy()[:, 0:1]
+        # w1 = np.ones_like(w)
         # v_rst = self.xcs.numpy()        
-        # w = np.zeros((self.n_nodes, 1), float)
         # x_rst = v_rst[:, 0]
-        # w[x_rst < -0.5 + eps, 0] = 1.0
-        # w[x_rst > 0.5 - eps, 0] = 1.0
-        # w = 1.0 - w
+        # w[x_rst < -0.5 + eps, 0] = 0.0
+        # w[x_rst > 0.5 - eps, 0] = 0.0
 
-        # w = 1.0 - np.abs(self.get_contraint_weight())
-        w = self.xcs.numpy()[:, 0:1]
-        w1 = np.ones_like(w)
-        v_rst = self.xcs.numpy()        
-        x_rst = v_rst[:, 0]
-        w[x_rst < -0.5 + eps, 0] = 0.0
-        w[x_rst > 0.5 - eps, 0] = 0.0
+        # w1[x_rst < -0.5 + eps, 0] = 0.0
+        # w1[x_rst > 0.5 - eps, 0] = 0.0
+        # Q = np.hstack([w, w1, Q])
+        # # Q = np.hstack([w, Q])
+        # return lam, Q
 
-        w1[x_rst < -0.5 + eps, 0] = 0.0
-        w1[x_rst > 0.5 - eps, 0] = 0.0
-        Q = np.hstack([w, w1, Q])
-        # Q = np.hstack([w, Q])
-        return lam, Q
-
-        addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
-        K += addon
-        B_diags = np.zeros(self.sys_dim)
-        B_diags[:self.n_nodes] = 1
-        B_diags += 1e-7
-        B = diags(B_diags)
-        # print("start weight space eigs")
-        with wp.ScopedTimer("constrained weight space eigs"):
-            lam, Ql = eigsh(K, k = 10, M = B, which = "SM", tol = 1e-4)
-            Q = Ql[:self.n_nodes]
-            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-            Q /= Q_norm
+        # addon = block_array([[None, self.Jw.T], [self.Jw, None]], format = "csr")
+        # K += addon
+        # B_diags = np.zeros(self.sys_dim)
+        # B_diags[:self.n_nodes] = 1
+        # B_diags += 1e-7
+        # B = diags(B_diags)
+        # # print("start weight space eigs")
+        # with wp.ScopedTimer("constrained weight space eigs"):
+        #     lam, Ql = eigsh(K, k = 10, M = B, which = "SM", tol = 1e-4)
+        #     Q = Ql[:self.n_nodes]
+        #     Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+        #     Q /= Q_norm
         return lam, Q
 
 def vis_weights(): 
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
-    rod = RodLBSWeight()
-    # rod = RodLBSWeightBC()
+    # rod = RodLBSWeight()
+    rod = RodLBSWeightBC()
     lam, Q = None, None
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:
