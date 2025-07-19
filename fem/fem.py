@@ -227,7 +227,7 @@ class SifakisFEM:
         
         M1 = igl.massmatrix(self.xcs.numpy(), self.T.numpy(), igl.MASSMATRIX_TYPE_BARYCENTRIC)
         M1 = M1.toarray()
-        print(M1.shape)
+        print("defining M: shape = ", M1.shape)
         mdiag = np.diag(M1)
         mdiag3 = np.repeat(mdiag, 3)
         self.M = np.diag(mdiag3)

@@ -325,8 +325,8 @@ def vis_weights():
     rod = RodLBSWeight()
     # rod = RodLBSWeightBC()
     lam, Q = None, None
-    # if not os.path.exists(f"data/W_{model}.npy"):
-    if True:
+    if not os.path.exists(f"data/W_{model}.npy"):
+    # if True:
         lam, Q = rod.eigs()
         np.save(f"data/W_{model}.npy", Q)
     else:

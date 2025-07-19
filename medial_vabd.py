@@ -371,8 +371,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        # if self.frame % 4 == 0:
-        if True:
+        if self.frame % 4 == 0:
+        # if False:
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -959,6 +959,34 @@ def staggered_bug():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def C2():
+    ps.look_at((0, 4, 10), (0, 4, 0))
+    model = "boat"
+    # model = "squishy"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    for i in range(n_meshes):
+        # transforms[i][:3, :3] = np.identity(3) * 0.9
+        transforms[i][:3, :3] *= 0.1
+        transforms[i][:3, 3] = np.array([-0.2, 5.3, -0.6])
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/stairs.obj"]
+    scale = np.identity(4)
+
+    
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+
 if __name__ == "__main__":
     ps.init()
     # ps.set_ground_plane_mode("none")
@@ -967,4 +995,5 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # windmill()
-    staggered_bug()
+    # staggered_bug()
+    C2()

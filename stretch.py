@@ -160,6 +160,7 @@ class PSViewer:
         # ps.screenshot(f"output/{self.frame:04d}.jpg")
         self.frame = self.rod.frame
         if self.frame % 4 == 0:
+        # if False:
             igl.write_obj(f"output/obj/{self.frame:04d}.obj", self.V, self.F)
         if hasattr(self.rod, "save_states"):
             self.rod.save_states()

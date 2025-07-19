@@ -14,7 +14,7 @@ G_SET_SIZE = 8192
 
 ground_rel_stiffness = 10
 
-per_mesh_verts = 211
+# per_mesh_verts = 211
 COLLISION_DEBUG = False
 
 cc_collision = True
@@ -308,6 +308,7 @@ class MedialCollisionDetector:
         self.F = F
         self.B = body_medial
         self.body = wp.array(body_medial, dtype = int) 
+        self.body_medial = body_medial
 
         self.cc_set = []
         self.ss_set = []
@@ -478,7 +479,7 @@ class MedialCollisionDetector:
 
                 self.p_static_set_cone.cnt.zero_()
                 self.p_static_set_cone.E.zero_()
-                wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
+                # wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
                 ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
 
             if self.static_objects.has_medials and cc_static_collision:
@@ -792,15 +793,16 @@ class MedialCollisionDetector:
             # H = bsr_array((blocks, (rows, cols)), shape = (self.n_vertices * 3, self.n_vertices * 3), blocksize=(3, 3))
 
 
-            rc = np.array([rows, cols])
-            bij = rc // per_mesh_verts
+            rc = np.array([rows, cols], dtype = int)
+            # bij = rc // per_mesh_verts
+            bij = self.body_medial[rc]
             # minbij = np.min(bij, axis = 0)
             # maxbij = np.max(bij, axis = 0)
             # bij = np.array([minbij, maxbij])
             self.body_indices.update(zip(bij[0], bij[1]))
 
             idx = np.array(sorted(self.body_indices), int).reshape(-1)
-            print(f"idx shape = {idx.shape}")
+            # print(f"idx shape = {idx.shape}")
             # idx = None
             return b, H, idx, rows, cols, blocks
         

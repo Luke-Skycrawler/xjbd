@@ -180,7 +180,7 @@ class MedialRodComplex(RodComplexBC):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.F_medial, self.body_medial, ground = 0.0, static_objects = self.static_meshes)
+            self.V_medial, self.R_rest, self.E_medial, self.F_medial, self.body_medial, dense = False, ground = 0.0, static_objects = self.static_meshes)
 
         self.n_medial = self.V_medial.shape[0]
 
