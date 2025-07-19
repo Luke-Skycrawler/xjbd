@@ -4,7 +4,7 @@ import numpy as np
 import warp as wp 
 from warp.sparse import BsrMatrix
 from fem.interface import Rod
-from scipy.sparse import bsr_matrix, csr_matrix, bmat, diags
+from scipy.sparse import bsr_matrix, csr_matrix, bmat, diags, identity, vstack
 from scipy.sparse.linalg import eigsh
 from scipy.linalg import null_space
 from scipy.io import savemat, loadmat
@@ -15,7 +15,7 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-model = "bar2"
+model = "rowboat"
 # model = "windmill"
 from stretch import eps
 class PSViewer:
@@ -157,29 +157,43 @@ class RodLBSWeightBC(RodLBSWeight):
     def compute_Aw(self):
         n = self.n_nodes
 
-        A = np.zeros((3, 4, 3 * n, n))
+        # A = np.zeros((3, 4, 3 * n, n))
         x_rst = self.xcs.numpy()
         xx = x_rst[:, 0]
         yy = x_rst[:, 1]
         zz = x_rst[:, 2]
-        X = np.diag(xx)
-        Y = np.diag(yy)
-        Z = np.diag(zz)
-        I = np.identity(n)
+        # X = np.diag(xx)
+        # Y = np.diag(yy)
+        # Z = np.diag(zz)
+        # I = np.identity(n)
+        X = diags(xx)
+        Y = diags(yy)
+        Z = diags(zz)
+        I = identity(n)
 
-        Px = np.zeros((n * 3, n))
-        Py = np.zeros_like(Px)
-        Pz = np.zeros_like(Px)
+        
+        Px = vstack([I, csr_matrix((2 * n, n))])
+        Py = vstack([csr_matrix((n, n)), I, csr_matrix((n, n))])
+        Pz = vstack([csr_matrix((2 * n, n)), I])
+        # Px = np.zeros((n * 3, n))
+        # Py = np.zeros_like(Px)
+        # Pz = np.zeros_like(Px)
 
-        Px[:n, :] = np.identity(n, float)
-        Py[n: 2 * n, :] = np.identity(n, float)
-        Pz[2 * n: , :] = np.identity(n, float)
+        # Px[:n, :] = np.identity(n, float)
+        # Py[n: 2 * n, :] = np.identity(n, float)
+        # Pz[2 * n: , :] = np.identity(n, float)
 
         Rs = [X, Y, Z, I]
         Ls = [Px, Py, Pz]
+        A = []
         for ii in range(3):
+            aii = []
             for jj in range(4):
-                A[ii, jj] = Ls[ii] @ Rs[jj]
+                aii.append(Ls[ii] @ Rs[jj])
+
+                # A[ii, jj] = Ls[ii] @ Rs[jj]
+            A.append(aii)
+        
         return A
 
     def get_contraint_weight(self):
@@ -239,10 +253,10 @@ class RodLBSWeightBC(RodLBSWeight):
         # w[x_rst < -0.5 + eps] = 1.0
         # self.Jw = w.reshape(self.n_nodes, 1)
     
-    def eigs_export(self, K, M):
-        f = f"data/eigs/{self.filename}.mat"
-        savemat(f, {"K": K, "M": M})
-        print(f"exported matrices to {f}")
+    # def eigs_export(self, K, M):
+    #     f = f"data/eigs/{self.filename}.mat"
+    #     savemat(f, {"K": K, "M": M})
+    #     print(f"exported matrices to {f}")
 
     def permute(self, K):
         n = K.shape[0] // 3  # number of nodes
@@ -263,19 +277,20 @@ class RodLBSWeightBC(RodLBSWeight):
         K_sparse = self.to_scipy_bsr()
         H = self.permute(K_sparse.tocsr())
         A = self.compute_Aw()
-        Hw = np.zeros((self.n_nodes, self.n_nodes))
-        Mw = np.zeros_like(Hw)
+        Hw = csr_matrix((self.n_nodes, self.n_nodes))
+        # Mw = np.zeros_like(Hw)
+        Mw = self.Mw
         M = self.M_sparse
         for i in range(3):
             for j in range(0, 4):
                 if i!= j:
-                    Hw += A[i, j].T @ H @ A[i, j]
-                    Mw += A[i, j].T @ M @ A[i, j]
+                    Hw += A[i][j].T @ H @ A[i][j]
+                    # Mw += A[i][j].T @ M @ A[i][j]
                 if j < 3:
-                    # Hw -= A[i, j].T @ H @ A[j, i]
-                    # Mw -= A[i, j].T @ M @ A[j, i]
-                    Hw -= 0.5 * A[j, i].T @ H @ A[i, j]
-                    Mw -= 0.5 * A[j, i].T @ M @ A[i, j]
+                    # Hw -= A[i][j].T @ H @ A[j][i]
+                    # Mw -= A[i][j].T @ M @ A[j][i]
+                    Hw -= 0.5 * A[j][i].T @ H @ A[i][j]
+                    # Mw -= 0.5 * A[j][i].T @ M @ A[i][j]
         K = Hw
         '''
         we used a covariance matrix that accounts for shear and translation,
@@ -294,16 +309,16 @@ class RodLBSWeightBC(RodLBSWeight):
         
         dim = K.shape[0]
         if dim >= 3000:
-            self.eigs_export()
+            self.eigs_export(K, self.Mw)
             print("dimension exceeds scipy capability, switching to matlab")
             with wp.ScopedTimer("matlab eigs"):
                 import matlab.engine
                 eng = matlab.engine.start_matlab()
                 eng.nullspace()
-                Q = loadmat(f"data/eigs/Q_{self.filename}.mat")["V"].astype(np.float64)
-                lam = loadmat(f"data/eigs/Q_{self.filename}.mat")["D"].astype(np.float64)
-                # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-                # Q /= Q_norm
+                Q = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)
+                lam = loadmat(f"data/eigs/Q_{model}.mat")["D"].astype(np.float64)
+                Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+                Q /= Q_norm
         else: 
             # na1 = null_space(self.Jw)
             # print(f"na1 dim = {na1.shape}")
