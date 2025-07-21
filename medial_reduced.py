@@ -251,7 +251,8 @@ class MedialRodComplex(RodComplexBC):
         for model in self.model_set:
             Q = self.Q[model]
             if os.path.exists(f"data/W_medial_{model}.npy") and Q.shape[0] > 300:
-                weight = np.load(f"data/W_medial_{model}.npy")
+                nc = Q.shape[1]
+                weight = np.load(f"data/W_medial_{model}.npy")[:, :nc]
             else: 
                 with wp.ScopedTimer(f"define_encoder_{model}"):
                     intp = TetBaryCentricCompute(model)

@@ -961,7 +961,7 @@ def staggered_bug():
 
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "boat"
+    model = "rowboat"
     # model = "squishy"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes

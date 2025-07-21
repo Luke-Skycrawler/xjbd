@@ -82,7 +82,7 @@ class RodComplexBC(RodBCBase, RodComplex):
             }
             n_verts = model_ntets[model]
             wp.launch(set_vx_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
-        elif model in ["bar2", "bug", "squishy", "bunny", "windmill", "wheel", "boat"]: 
+        elif model in ["bar2", "bug", "squishy", "bunny", "windmill", "wheel", "boat", "rowboat"]: 
             # wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
             pass
         else: 
