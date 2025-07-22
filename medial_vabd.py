@@ -927,8 +927,8 @@ def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
     model = "squishy"
     # model = "bug"
-    n_meshes = 1
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    n_meshes = 2
+    meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes // 2) + [f"assets/bug/bug.tobj"] * (n_meshes - n_meshes // 2)
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     # transforms[-1][:3, :3] = np.zeros((3, 3))

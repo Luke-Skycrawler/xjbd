@@ -25,6 +25,7 @@ from g2m.nn import WarpEncoder
 save_weight_only = False
 # if enabled, only save the medial weights and quit
 eps = 3e-3
+padding = True
 def vec(t):
     return (t.T).reshape(-1)
 
@@ -145,6 +146,11 @@ class MedialRodComplex(RodComplexBC):
         body = []
 
         cnt = 0
+        if padding: 
+            v_cnt = [self.slabmeshes[model].nv for model in self.model_set]
+            self.v_cnt_max = np.max(np.array(v_cnt))
+            print(f"\npadding : max v cnt = {self.v_cnt_max}\n") 
+
         for i in range(self.n_meshes):
             slabmesh = self.slabmeshes[self.models[i]]
             V0 = np.copy(slabmesh.V)
@@ -155,17 +161,30 @@ class MedialRodComplex(RodComplexBC):
             F0 = slabmesh.F
 
             Vi = (v4 @ self.transforms[i].T)[:, : 3]
-            V = np.vstack([V, Vi])
             J3 = np.abs(np.linalg.det(self.transforms[i][:3, :3]))
             J = J3 ** (1./3.)
+            Ri = np.copy(R0) * J
+            if padding:
+                Vii = np.zeros((self.v_cnt_max, 3), float)
+                Vii[:Vi.shape[0], :] = Vi
+                Vi = Vii 
+
+                Rii = np.zeros((self.v_cnt_max, ), float)
+                Rii[:Ri.shape[0]] = Ri
+                Ri = Rii 
+                
+            V = np.vstack([V, Vi])
             # R = np.concatenate([R, np.copy(R0) * J])
-            R = np.concatenate([R, np.copy(R0) * J])
+            R = np.concatenate([R, Ri])
             E = np.vstack((E, E0 + cnt))
             F = np.vstack((F, F0 + cnt))
 
-            body += [i] * slabmesh.nv
-
-            cnt += slabmesh.nv
+            if not padding:
+                body += [i] * slabmesh.nv
+                cnt += slabmesh.nv
+            else:
+                body += [i] * self.v_cnt_max
+                cnt += self.v_cnt_max
         
 
         self.F_medial = F
@@ -209,8 +228,14 @@ class MedialRodComplex(RodComplexBC):
 
             Vmi = self.V_medial_rest[start: start + nv]
             jaci = self.lbs_matrix(Vmi, self.W_medial[model])
+            if padding: 
+                start += self.v_cnt_max
+                jacii = np.zeros((self.v_cnt_max * 3, self.n_modes), float)
+                jacii[:nv * 3, :] = jaci
+                jaci = jacii 
+            else:
+                start += nv
             diags.append(jaci)
-            start += nv
         self.Um = block_diag(diags, "csr")
 
 
