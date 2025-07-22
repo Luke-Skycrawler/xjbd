@@ -15,7 +15,7 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
-from mtk_solver import DirectSolver
+from mtk_solver import DirectSolver, LHSArgs
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -315,7 +315,15 @@ class MedialVABD(MedialRodComplex):
         self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
         n_medials = self.V_medial.shape[0]
         self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
-        self.direct_solver.set_lhs(self.V_medial_rest, self.W_medial[self.models[0]])
+        lhs_args = []
+        for model in self.model_set:
+            Vm, Wm = self.V_medial_rest, self.W_medial[model]
+            # n_repeats = self.n_meshes
+            n_repeats = self.models.count(model)
+            arg = LHSArgs(n_repeats, Vm, Wm)
+            lhs_args.append(arg)
+        self.direct_solver.set_multi_lhs(lhs_args)
+        # self.direct_solver.set_lhs(Vm, Wm)
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
 
@@ -917,7 +925,7 @@ def windmill():
     ps.show()
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "boat"
+    model = "squishy"
     # model = "bug"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
@@ -995,5 +1003,5 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # windmill()
-    # staggered_bug()
-    C2()
+    staggered_bug()
+    # C2()
