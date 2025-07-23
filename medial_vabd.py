@@ -29,7 +29,7 @@ solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = False
+use_nullspace = True
 n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
@@ -316,14 +316,20 @@ class MedialVABD(MedialRodComplex):
         n_medials = self.V_medial.shape[0]
         self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
         lhs_args = []
-        for model in self.model_set:
-            Vm, Wm = self.V_medial_rest, self.W_medial[model]
-            # n_repeats = self.n_meshes
-            n_repeats = self.models.count(model)
-            # arg = LHSArgs(n_repeats, Vm, Wm)
-            # lhs_args.append(arg)
+        # for model in self.model_set:
+        #     Vm, Wm = self.V_medial_rest, self.W_medial[model]
+        #     # n_repeats = self.n_meshes
+        #     n_repeats = self.models.count(model)
+        #     # arg = LHSArgs(n_repeats, Vm, Wm)
+        #     # lhs_args.append(arg)
+
         # self.direct_solver.set_multi_lhs(lhs_args)
+
+        Vm = self.V_medial_rest
+        Wm = self.W_medial[self.models[-1]]
         self.direct_solver.set_lhs(Vm, Wm)
+        Wm0 = self.W_medial[self.models[0]]
+        self.direct_solver.set_lhs2(Vm, Wm0)
         self.direct_solver.compute_Um() 
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
@@ -854,7 +860,7 @@ class MedialVABD(MedialRodComplex):
         # # axis
         # n_nodes_per_windmill = 1350
 
-        self.ns = np.zeros((n_windmills, 12, 6))
+        self.ns = np.zeros((12, 6))
         for i in range(n_windmills):
             # v_rst = self.V[i * n_nodes_per_windmill: (i + 1) * n_nodes_per_windmill]
             
@@ -879,7 +885,7 @@ class MedialVABD(MedialRodComplex):
             lhs[: 2, : 3] = y
             C = np.kron(lhs, np.identity(3))
             ns= null_space(C)
-            self.ns[i] = ns
+            self.ns = ns
             assert ns.shape == (12, 6)
 
 def windmill():
@@ -888,7 +894,7 @@ def windmill():
     model = "wheel"
     drop = "bunny"
     # model = "bug"
-    n_heights = 4
+    n_heights = 1
     n_meshes = 4 * n_heights + n_windmills
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
@@ -927,10 +933,9 @@ def windmill():
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "bunny"
-    model = "bunny"
+    model = "bug"
     n_meshes = 2
-    # meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes // 2) + [f"assets/bunny/bunny.tobj"] * (n_meshes // 2)
-    meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes)
+    meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes // 2) + [f"assets/squishy/squishy.tobj"] * (n_meshes // 2)
     # meshes = [f"assets/bug/bug.tobj"] * (n_meshes)
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1006,6 +1011,6 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    # windmill()
-    staggered_bug()
+    windmill()
+    # staggered_bug()
     # C2()
