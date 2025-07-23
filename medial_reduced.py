@@ -169,7 +169,7 @@ class MedialRodComplex(RodComplexBC):
                 Vii[:Vi.shape[0], :] = Vi
                 Vi = Vii 
 
-                Rii = np.zeros((self.v_cnt_max, ), float)
+                Rii = np.ones((self.v_cnt_max, ), float) * -1
                 Rii[:Ri.shape[0]] = Ri
                 Ri = Rii 
                 

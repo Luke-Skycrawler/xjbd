@@ -135,7 +135,7 @@ def cone_cone_collision_set(geo: MedialGeometry, cc_list: ConeConeCollisionList,
         r3 = geo.radius[ey[1]]
         dist, _, foo, bar = compute_distance_cone_cone(c0, c1, c2, c3, r0, r1, r2, r3)
         # hack = ex[0] // per_mesh_verts == ey[0] // per_mesh_verts
-        hack = body[ex[0]] == body[ey[0]]
+        hack = body[ex[0]] == body[ey[0]] or r0 < 0.0 or r1 < 0.0 or r2 < 0.0 or r3 < 0.0
         refuse_cond = is_1_ring(ex[0], ex[1], ey[0], ey[1]) or is_2_ring(geo, ex[0], ex[1], ey[0], ey[1]) or hack
         if dist < 0.0 and not refuse_cond:
             col = wp.vec4i(ex[0], ex[1], ey[0], ey[1])
@@ -178,7 +178,7 @@ def slab_sphere_collision_set(geo: MedialGeometry, ss_list: SlabSphereCollisionL
 
     dist, _, foo, bar = compute_distance_slab_sphere(c0, c1, c2, b, r0, r1, r2, rb)
     # hack = j // per_mesh_verts == slab[0] // per_mesh_verts
-    hack = body[j] == body[slab[0]]
+    hack = body[j] == body[slab[0]] or rb < 0.0 or r0 < 0.0 or r1 < 0.0 or r2 < 0.0
     refuse_cond = slab[0] == j or slab[1] == j or slab[2] == j or hack
     if dist < 0.0 and not refuse_cond:
         col = wp.vec4i(slab[0], slab[1], slab[2], j)
@@ -192,7 +192,7 @@ def sphere_ground_set(geo: MedialGeometry, g_list: SphereGroundCollisionList, gr
     r = geo.radius[i]
     d = (b[1] - ground_plane)
     dist = d - r
-    if dist < 0.0:
+    if dist < 0.0 and r >= 0.0:
         hr = wp.vec2(d, r)
         append(g_list, i, hr, dist * dist)
 
@@ -594,7 +594,8 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            h = 2 * dist * h + 2 * np.outer(g, g)
+            # h = 2 * dist * h + 2 * np.outer(g, g)
+            h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
@@ -628,7 +629,8 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            h = 2 * dist * h + 2 * np.outer(g, g)
+            # h = 2 * dist * h + 2 * np.outer(g, g)
+            h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)

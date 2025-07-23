@@ -15,7 +15,7 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
-from mtk_solver import DirectSolver, LHSArgs
+from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -320,10 +320,11 @@ class MedialVABD(MedialRodComplex):
             Vm, Wm = self.V_medial_rest, self.W_medial[model]
             # n_repeats = self.n_meshes
             n_repeats = self.models.count(model)
-            arg = LHSArgs(n_repeats, Vm, Wm)
-            lhs_args.append(arg)
-        self.direct_solver.set_multi_lhs(lhs_args)
-        # self.direct_solver.set_lhs(Vm, Wm)
+            # arg = LHSArgs(n_repeats, Vm, Wm)
+            # lhs_args.append(arg)
+        # self.direct_solver.set_multi_lhs(lhs_args)
+        self.direct_solver.set_lhs(Vm, Wm)
+        self.direct_solver.compute_Um() 
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
 
@@ -925,10 +926,12 @@ def windmill():
     ps.show()
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "squishy"
-    # model = "bug"
+    # model = "bunny"
+    model = "bunny"
     n_meshes = 2
-    meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes // 2) + [f"assets/bug/bug.tobj"] * (n_meshes - n_meshes // 2)
+    # meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes // 2) + [f"assets/bunny/bunny.tobj"] * (n_meshes // 2)
+    meshes = [f"assets/{model}/{model}.tobj"] * (n_meshes)
+    # meshes = [f"assets/bug/bug.tobj"] * (n_meshes)
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     # transforms[-1][:3, :3] = np.zeros((3, 3))
@@ -938,10 +941,11 @@ def staggered_bug():
 
     for i in range(n_meshes):
         # transforms[i][:3, :3] = np.identity(3) * 0.9
-        transforms[i][0, 3] = i * 1.5 - 3
-        transforms[i][1, 3] = 3.0
+        transforms[i][0, 3] = 0 #i * 1.5 - 3
+        transforms[i][1, 3] = i * 2 + 1.0
         transforms[i][2, 3] = - 0.8
     
+    transforms = np.array(transforms, dtype = float)
     # rods = MedialRodComplex(h, meshes, transforms)
 
     # scale params for teapot
