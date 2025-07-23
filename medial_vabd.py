@@ -324,12 +324,19 @@ class MedialVABD(MedialRodComplex):
         #     # lhs_args.append(arg)
 
         # self.direct_solver.set_multi_lhs(lhs_args)
-
+        per_kind_medials = [self.W_medial[model].shape[0] for model in self.model_set]
+        max_medials = np.max(np.array(per_kind_medials))
+        q1 = self.Q[self.models[0]].shape[1]
         Vm = self.V_medial_rest
-        Wm = self.W_medial[self.models[-1]]
+        Wm = np.zeros((max_medials, q1), dtype = float)
+        Wmm = self.W_medial[self.models[-1]]
+        Wm[:Wmm.shape[0], :] = Wmm
         self.direct_solver.set_lhs(Vm, Wm)
+        
         Wm0 = self.W_medial[self.models[0]]
-        self.direct_solver.set_lhs2(Vm, Wm0)
+        Wm00 = np.zeros_like(Wm)
+        Wm00[:Wm0.shape[0], :] = Wm0
+        self.direct_solver.set_lhs2(Vm, Wm00)
         self.direct_solver.compute_Um() 
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
@@ -541,7 +548,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-4
+        return norm_dz < 1e-5
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -580,7 +587,7 @@ class MedialVABD(MedialRodComplex):
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
-            if alpha < 1e-2:
+            if alpha < 5e-3:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0
@@ -717,10 +724,10 @@ class MedialVABD(MedialRodComplex):
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def save_states(self):
-        pass
-        # np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
-        # for alias, field in zip(self.fields_alias, self.z_fields):
-        #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
+        # pass
+        np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
+        for alias, field in zip(self.fields_alias, self.z_fields):
+            np.save(f"output/states/{alias}_{self.frame}.npy", field)
             
     def compute_Um_tildeT(self):
         if self.abd_only:
@@ -888,13 +895,13 @@ class MedialVABD(MedialRodComplex):
             self.ns = ns
             assert ns.shape == (12, 6)
 
-def windmill():
+def windmill(from_frame = 0):
     # model = "bunny"
     # model = "windmill"
     model = "wheel"
     drop = "bunny"
     # model = "bug"
-    n_heights = 1
+    n_heights = 15
     n_meshes = 4 * n_heights + n_windmills
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
@@ -915,21 +922,24 @@ def windmill():
             pos.append(p)
     pos = np.array(pos)
     # transforms = np.zeros((len(pos), 4, 4), float)
-
+    scale = 1.5
     for i in range(len(pos)):
         flip = i % 2 == 1
         transforms[i + n_windmills] = np.eye(4)
+        transforms[i + n_windmills, :3, :3] = np.identity(3) * scale
         if flip:
-            transforms[i + n_windmills, 0, 0] = -1
-            transforms[i + n_windmills, 2, 2] = -1
+            transforms[i + n_windmills, 0, 0] = -scale
+            transforms[i + n_windmills, 2, 2] = -scale
         transforms[i + n_windmills, :3, 3] = pos[i]    
 
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
-    
+    if from_frame > 0:
+        rods.reset_z(from_frame)
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
+    
 def staggered_bug():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "bunny"
@@ -1011,6 +1021,6 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill()
+    windmill(191 * 4)
     # staggered_bug()
     # C2()
