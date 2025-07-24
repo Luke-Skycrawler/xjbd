@@ -901,7 +901,7 @@ def windmill(from_frame = 0):
     model = "wheel"
     drop = "bunny"
     # model = "bug"
-    n_heights = 15
+    n_heights = 20
     n_meshes = 4 * n_heights + n_windmills
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
@@ -914,15 +914,15 @@ def windmill(from_frame = 0):
 
     pos = [] 
     t = np.array([3.- 1, 15. - 9, .75])
+    scale = 1.5
 
     for i in range(n_heights):
         for j in range(2):
-            p = t + 2 * np.array([j, i, 0])
+            p = t + 2 * np.array([j, i * scale, 0])
             pos.append(p)
             pos.append(p)
     pos = np.array(pos)
     # transforms = np.zeros((len(pos), 4, 4), float)
-    scale = 1.5
     for i in range(len(pos)):
         flip = i % 2 == 1
         transforms[i + n_windmills] = np.eye(4)
@@ -1021,6 +1021,6 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill(191 * 4)
+    windmill()
     # staggered_bug()
     # C2()
