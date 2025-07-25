@@ -29,7 +29,7 @@ solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = True
+use_nullspace = False
 n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
@@ -548,7 +548,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-5
+        return norm_dz < 2e-4
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -1014,6 +1014,34 @@ def C2():
     ps.show()
 
 
+def pyramid(from_frame = 0):
+    model = "squishy"
+    # model = "bug"
+    n_meshes = 190
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    positions = np.load("data/init_pos190.npy")
+    for i in range(n_meshes):
+    # for i in range(30, 31):
+    #     transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
+        transforms[i][:3, 3] = positions[i]
+    
+    # stacked bowls
+    static_meshes_file = ["assets/bowl stack.obj"]
+    scale = np.identity(4)
+          
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    if from_frame > 0:
+        rods.reset_z(from_frame)
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     # ps.set_ground_plane_mode("none")
@@ -1021,6 +1049,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill()
+    # windmill()
+    pyramid()
     # staggered_bug()
     # C2()

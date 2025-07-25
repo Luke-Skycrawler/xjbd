@@ -19,7 +19,7 @@ COLLISION_DEBUG = False
 
 cc_collision = True
 ss_colliison = True
-sg_collision = False
+sg_collision = True
 cc_static_collision = True
 
 # @wp.kernel
