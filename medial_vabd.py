@@ -18,7 +18,7 @@ from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e7
+medial_collision_stiffness = 1e9
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -393,8 +393,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        if self.frame % 4 == 0:
-        # if False:
+        # if self.frame % 4 == 0:
+        if False:
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -1050,6 +1050,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # windmill()
-    pyramid()
+    # pyramid()
     # staggered_bug()
-    # C2()
+    C2()
