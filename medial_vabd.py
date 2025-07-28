@@ -29,7 +29,7 @@ solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = True
+use_nullspace = False
 n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
@@ -333,10 +333,11 @@ class MedialVABD(MedialRodComplex):
         Wm[:Wmm.shape[0], :] = Wmm
         self.direct_solver.set_lhs(Vm, Wm)
         
-        Wm0 = self.W_medial[self.models[0]]
-        Wm00 = np.zeros_like(Wm)
-        Wm00[:Wm0.shape[0], :] = Wm0
-        self.direct_solver.set_lhs2(Vm, Wm00)
+        # Wm0 = self.W_medial[self.models[0]]
+        # Wm00 = np.zeros_like(Wm)
+        # Wm00[:Wm0.shape[0], :] = Wm0
+        # self.direct_solver.set_lhs2(Vm, Wm00)
+
         self.direct_solver.compute_Um() 
         self.direct_solver.set_A_tilde(self.A_tilde.tocsc())
 
@@ -393,8 +394,8 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
         self.z_tilde0[:] = self.z_tilde
 
-        if self.frame % 4 == 0:
-        # if False:
+        # if self.frame % 4 == 0:
+        if False:
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
         # zwp = wp.array(self.z.reshape((-1, 3)), dtype = wp.vec3)
         # bsr_mv(self.Uwp, zwp, self.states.x, beta = 0.0)
@@ -548,7 +549,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 1e-5
+        return norm_dz < 2e-3
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -587,7 +588,7 @@ class MedialVABD(MedialRodComplex):
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
             if E1 < E0:
                 break
-            if alpha < 5e-3:
+            if alpha < 5e-2:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0
@@ -724,10 +725,10 @@ class MedialVABD(MedialRodComplex):
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def save_states(self):
-        # pass
-        np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
-        for alias, field in zip(self.fields_alias, self.z_fields):
-            np.save(f"output/states/{alias}_{self.frame}.npy", field)
+        pass
+        # np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
+        # # for alias, field in zip(self.fields_alias, self.z_fields):
+        # #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
             
     def compute_Um_tildeT(self):
         if self.abd_only:
@@ -1014,6 +1015,34 @@ def C2():
     ps.show()
 
 
+def pyramid(from_frame = 0):
+    model = "squishy"
+    # model = "bug"
+    n_meshes = 100
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+
+    positions = np.load("data/init_pos190.npy")
+    for i in range(n_meshes):
+    # for i in range(30, 31):
+    #     transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
+        transforms[i][:3, 3] = positions[i]
+    
+    # stacked bowls
+    static_meshes_file = ["assets/bowl stack.obj"]
+    scale = np.identity(4)
+          
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    # static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    if from_frame > 0:
+        rods.reset_z(from_frame)
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     # ps.set_ground_plane_mode("none")
@@ -1021,6 +1050,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill()
+    # windmill()
+    pyramid()
     # staggered_bug()
     # C2()

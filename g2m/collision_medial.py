@@ -19,7 +19,7 @@ COLLISION_DEBUG = False
 
 cc_collision = True
 ss_colliison = True
-sg_collision = False
+sg_collision = True
 cc_static_collision = True
 
 # @wp.kernel
@@ -594,8 +594,8 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            # h = 2 * dist * h + 2 * np.outer(g, g)
-            h = 2 * np.outer(g, g)
+            h = 2 * dist * h + 2 * np.outer(g, g)
+            # h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
@@ -629,8 +629,8 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            # h = 2 * dist * h + 2 * np.outer(g, g)
-            h = 2 * np.outer(g, g)
+            h = 2 * dist * h + 2 * np.outer(g, g)
+            # h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
