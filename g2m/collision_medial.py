@@ -550,7 +550,7 @@ class MedialCollisionDetector:
 
                 self.p_static_set_cone.cnt.zero_()
                 self.p_static_set_cone.E.zero_()
-                # wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
+                # wp.launch( cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
                 ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
 
             if self.static_objects.has_medials and cc_static_collision:

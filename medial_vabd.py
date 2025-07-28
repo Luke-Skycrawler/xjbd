@@ -18,7 +18,7 @@ from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e9
+medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -988,16 +988,27 @@ def staggered_bug():
 
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "rowboat"
+    model = "armadilo"
     # model = "squishy"
-    n_meshes = 1
+    n_meshes = 4
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms = np.array(transforms, dtype = float)
 
     for i in range(n_meshes):
-        # transforms[i][:3, :3] = np.identity(3) * 0.9
-        transforms[i][:3, :3] *= 0.1
-        transforms[i][:3, 3] = np.array([-0.2, 5.3, -0.6])
+        # transforms[i][:3, :3] *= 0.1
+        # transforms[i][:3, 3] = np.array([-0.2, 4.3, -0.6])
+        s = np.sin(-np.pi / 4 * (i))
+        c = np.cos(-np.pi / 4 * (i))
+        t = np.array([-0.4, 0.0, -0.8])
+        R = np.array([
+            [c, 0.0, -s],
+            [0.0, 1.0, 0.0],
+            [s, 0.0, c]
+        ])
+        transforms[i][:3, :3] = R
+        transforms[i][:3, :3] *= .6
+        transforms[i][:3, 3] = R @ t + np.array([0., 4.1 - i * 0.5, 0.])
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
