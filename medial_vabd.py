@@ -16,7 +16,7 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
-eps = 3e-3
+eps = 1e-2
 ad_hoc = True
 medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
@@ -204,7 +204,7 @@ class MedialVABD(MedialRodComplex):
             Ui = self.lbs_matrix(xi, Q)
             diags.append(Ui)
             start += nv
-        self.U = block_diag(diags)
+        # self.U = block_diag(diags)
 
         # self.wp_define_U()        
         # Uwp = self.to_scipy_bsr(self.Uwp)
@@ -725,8 +725,8 @@ class MedialVABD(MedialRodComplex):
             self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def save_states(self):
-        pass
-        # np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
+        # pass
+        np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
         # # for alias, field in zip(self.fields_alias, self.z_fields):
         # #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
             
@@ -1018,7 +1018,7 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 100
+    n_meshes = 80
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]

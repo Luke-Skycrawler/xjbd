@@ -140,9 +140,9 @@ class PSViewer:
         self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
         self.frame = 0
         self.rod = rod
-        self.ui_pause = True
+        self.ui_pause = False
         self.animate = False
-        
+        self.ui_reload_from = 0
         self.end_frame = 5000
         self.capture_interval = 1
         if static_mesh is not None:
@@ -174,9 +174,14 @@ class PSViewer:
             self.ui_pause = True
             self.animate = True
 
+        changed, self.ui_reload_from = gui.InputInt("Reload from frame", self.ui_reload_from, 1, 100)
+        if gui.Button("load"):
+            self.rod.reset_z(self.ui_reload_from)
         if gui.Button("Save"):
             np.save(f"output/x_{self.frame}.npy", self.V)
             print(f"output/x_{self.frame}.npy saved")
+
+
         if self.animate: 
             self.rod.step()
             self.V = self.rod.states.x.numpy()
