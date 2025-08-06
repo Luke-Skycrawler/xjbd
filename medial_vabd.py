@@ -548,7 +548,7 @@ class MedialVABD(MedialRodComplex):
         # norm_dz = np.linalg.norm(self.dz)
         norm_dz = np.max(np.linalg.norm(self.dz.reshape(self.n_meshes, self.n_modes), axis = 1))
         print(f"dz norm = {norm_dz}")
-        return norm_dz < 2e-4
+        return norm_dz < 1e-3
         
     def line_search(self):
         z_tilde_tmp = np.copy(self.z_tilde)
@@ -726,8 +726,8 @@ class MedialVABD(MedialRodComplex):
     def save_states(self):
         # pass
         np.savez_compressed(f"output/states/z_{self.frame}.npz", **dict(zip(self.fields_alias, self.z_fields)))
-        for alias, field in zip(self.fields_alias, self.z_fields):
-            np.save(f"output/states/{alias}_{self.frame}.npy", field)
+        # for alias, field in zip(self.fields_alias, self.z_fields):
+        #     np.save(f"output/states/{alias}_{self.frame}.npy", field)
             
     def compute_Um_tildeT(self):
         if self.abd_only:
@@ -986,35 +986,40 @@ def staggered_bug():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
-def C2():
+def C3():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "armadilo"
+    # model = "armadilo"
+    model = "rowboat_voxel"
     # model = "squishy"
-    n_meshes = 4
+    n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms[0][:3, :3] = np.identity(3, float) * 0.1
     transforms = np.array(transforms, dtype = float)
-
-    for i in range(n_meshes):
-        # transforms[i][:3, :3] *= 0.1
-        # transforms[i][:3, 3] = np.array([-0.2, 4.3, -0.6])
-        s = np.sin(-np.pi / 4 * (i))
-        c = np.cos(-np.pi / 4 * (i))
-        t = np.array([-0.4, 0.0, -0.8])
-        R = np.array([
-            [c, 0.0, -s],
-            [0.0, 1.0, 0.0],
-            [s, 0.0, c]
-        ])
-        transforms[i][:3, :3] = R
-        transforms[i][:3, :3] *= .6
-        transforms[i][:3, 3] = R @ t + np.array([0., 4.1 - i * 0.5, 0.])
+    transforms[0][:3, 3] = np.array([0, 3, -2], float)
+    
+    # for i in range(n_meshes):
+    #     # transforms[i][:3, :3] *= 0.1
+    #     # transforms[i][:3, 3] = np.array([-0.2, 4.3, -0.6])
+    #     s = np.sin(-np.pi / 4 * (i))
+    #     c = np.cos(-np.pi / 4 * (i))
+    #     t = np.array([-0.4, 0.0, -0.8])
+    #     R = np.array([
+    #         [c, 0.0, -s],
+    #         [0.0, 1.0, 0.0],
+    #         [s, 0.0, c]
+    #     ])
+    #     transforms[i][:3, :3] = R
+    #     transforms[i][:3, :3] *= .6
+    #     transforms[i][:3, 3] = R @ t + np.array([0., 4.1 - i * 0.5, 0.])
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
     # scale params for teapot
-    static_meshes_file = ["assets/stairs.obj"]
+    # static_meshes_file = ["assets/stairs.obj"]
+    static_meshes_file = ["assets/slope.obj"]
     scale = np.identity(4)
+    scale[:3, :3] *= 1.0
 
     
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
@@ -1063,4 +1068,4 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    C2()
+    C3()

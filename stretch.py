@@ -137,7 +137,7 @@ class PSViewer:
         self.V = rod.xcs.numpy()
         self.F = rod.F
 
-        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
+        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F, enabled = False)
         self.frame = 0
         self.rod = rod
         self.ui_pause = True

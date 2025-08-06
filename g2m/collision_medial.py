@@ -17,11 +17,12 @@ ground_rel_stiffness = 10
 # per_mesh_verts = 211
 COLLISION_DEBUG = False
 
-cc_collision = True
-ss_colliison = True
+cc_collision = False
+ss_colliison = False
 sg_collision = True
 cc_static_collision = True
 
+collision_eps = 1e-2
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
@@ -240,6 +241,7 @@ def sphere_static_collision(geo: MedialGeometry, triangles_soup: TriangleSoup, c
     
     xi = geo.vertices[i]
     ri = geo.radius[i]
+    ri = wp.max(ri, collision_eps)
     low = xi - wp.vec3(ri)
     high = xi + wp.vec3(ri)
 
@@ -762,6 +764,7 @@ class MedialCollisionDetector:
 
                 h = np.dot(tn, self.V[i] - t0)
                 r = self.R[i]
+                r = max(r, collision_eps)
 
                 hh = np.zeros((3, 3))
                 # h11 = 4 * (3 * h * h - r * r)

@@ -13,7 +13,7 @@ class MedialViewerInterface:
         
     def register_medial(self):
 
-        self.ps_medial = ps.register_curve_network("medial", self.V_medial, self.E)
+        self.ps_medial = ps.register_curve_network("medial", self.V_medial, self.E, radius = 5e-4)
         self.ps_spheres = ps.register_point_cloud("spheres", self.V_medial)
         self.ps_spheres.add_scalar_quantity("radius", self.R)   
         self.ps_spheres.set_point_radius_quantity("radius", autoscale=False)
