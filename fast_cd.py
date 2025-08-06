@@ -15,8 +15,10 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-model = "rowboat"
+# model = "rowboat"
 # model = "windmill"
+# model = "boat"
+model = "wheel"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):

@@ -1,9 +1,9 @@
 import warp as wp
 import numpy as np
-from .params import *
+# from .params import *
 
 @wp.func
-def tangent_stiffness(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
+def tangent_stiffness(F: wp.mat33, dF: wp.mat33, lam: float, mu: float) -> wp.mat33:
     '''
     neo-hookean model
     '''
@@ -14,7 +14,7 @@ def tangent_stiffness(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
     return mu * dF + (mu - lam * wp.log(det_F)) * F_inv_T @ wp.transpose(dF) @ F_inv_T + (lam * wp.trace(B)) * F_inv_T 
 
 @wp.func
-def PK1(F: wp.mat33) -> wp.mat33:
+def PK1(F: wp.mat33, lam: float, mu: float) -> wp.mat33:
     '''
     neo-hookean
     '''
@@ -23,7 +23,7 @@ def PK1(F: wp.mat33) -> wp.mat33:
     return mu * (F - F_inv_T) + lam * wp.log(J) * F_inv_T
 
 @wp.func
-def psi(F: wp.mat33) -> float:
+def psi(F: wp.mat33, lam: float, mu: float) -> float:
     I1 = wp.trace(wp.transpose(F) @ F)
     J = wp.determinant(F)
     logJ = wp.log(J)
