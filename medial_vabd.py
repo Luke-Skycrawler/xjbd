@@ -9,6 +9,7 @@ from mesh_complex import init_transforms
 from scipy.linalg import lu_factor, lu_solve, solve, polar, inv, null_space
 from scipy.sparse import *
 from scipy.sparse.linalg import splu, norm
+from scipy.spatial.transform import Rotation
 from ortho import OrthogonalEnergy
 from g2m.viewer import MedialViewer
 from vabd import per_node_forces
@@ -901,8 +902,15 @@ def windmill(from_frame = 0):
     model = "wheel"
     drop = "bunny"
     # model = "bug"
+    seed = 114514
+    
+    rng = np.random.default_rng(seed)
+    
+    bunnies_per_row = 3
     n_heights = 20
-    n_meshes = 4 * n_heights + n_windmills
+    n_meshes = bunnies_per_row * n_heights + n_windmills
+    rotations = Rotation.random(n_meshes - n_windmills, random_state = rng).as_matrix()
+    
     # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
     transforms = np.array([np.identity(4, dtype = float) for _ in range(n_meshes)])
@@ -917,20 +925,21 @@ def windmill(from_frame = 0):
     scale = 1.5
 
     for i in range(n_heights):
-        for j in range(2):
-            p = t + 2 * np.array([j, i * scale, 0])
+        for j in range(bunnies_per_row):
+            p = t + 2 * np.array([j * 2 / (bunnies_per_row - 1) - 0.5, j / bunnies_per_row + i * scale, 0])
             pos.append(p)
-            pos.append(p)
+            # pos.append(p)
     pos = np.array(pos)
     # transforms = np.zeros((len(pos), 4, 4), float)
     for i in range(len(pos)):
-        flip = i % 2 == 1
         transforms[i + n_windmills] = np.eye(4)
-        transforms[i + n_windmills, :3, :3] = np.identity(3) * scale
-        if flip:
-            transforms[i + n_windmills, 0, 0] = -scale
-            transforms[i + n_windmills, 2, 2] = -scale
-        transforms[i + n_windmills, :3, 3] = pos[i]    
+        # transforms[i + n_windmills, :3, :3] = np.identity(3) * scale
+        transforms[i + n_windmills, :3, :3] = rotations[i] * scale
+        # flip = i % 2 == 1
+        # if flip:
+        #     transforms[i + n_windmills, 0, 0] = -scale
+        #     transforms[i + n_windmills, 2, 2] = -scale
+        transforms[i + n_windmills, :3, 3] = pos[i] - rotations[i] * scale @ np.array([0.5, 0.5, 0.5])
 
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)

@@ -1,8 +1,8 @@
 import warp as wp
-from .params import *
+# from .params import *
 
 @wp.func
-def tangent_stiffness(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
+def tangent_stiffness(F: wp.mat33, dF: wp.mat33, lam: float, mu: float) -> wp.mat33:
     '''
     dP = dF (2 mu E + lam tr(E) I) + F (2 mu dE + lam tr(dE) I)
     '''
@@ -12,7 +12,7 @@ def tangent_stiffness(F: wp.mat33, dF: wp.mat33) -> wp.mat33:
     return dF @ (2.0 * mu * E + lam * wp.trace(E) * wp.identity(3, dtype = float)) + F @ (2.0 * mu * dE + lam * wp.trace(dE) * wp.identity(3, dtype = float))
 
 @wp.func
-def psi(F: wp.mat33) -> float:
+def psi(F: wp.mat33, lam: float, mu: float) -> float:
     '''
     E = (F^T F - I) / 2
     psi = mu E : E + lam/2 (tr(E))^2
@@ -24,7 +24,7 @@ def psi(F: wp.mat33) -> float:
     return mu * norm_E + lam * 0.5 * trE * trE
 
 @wp.func
-def PK1(F: wp.mat33) -> wp.mat33: 
+def PK1(F: wp.mat33, lam: float, mu: float) -> wp.mat33:
     '''
     P = F (2 mu E + lam tr(E) I)
     '''
