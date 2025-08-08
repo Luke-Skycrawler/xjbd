@@ -22,7 +22,7 @@ ss_colliison = False
 sg_collision = True
 cc_static_collision = True
 
-collision_eps = 1e-2
+collision_eps = 8e-3
 # @wp.kernel
 # def collision_medial(edges: wp.array(dtype = wp.vec2i), vertices: wp.array(dtype = wp.vec3), radius: wp.array(dtype = float), ee_set: EdgeEdgeCollisionList):
 #     i, j = wp.tid()
