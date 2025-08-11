@@ -18,7 +18,7 @@ from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e7
+medial_collision_stiffness = 1e8
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -1029,6 +1029,33 @@ def C3():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def C2():
+    ps.look_at((0, 4, 10), (0, 4, 0))
+    model = "rowboat_voxel"
+    # model = "squishy"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms = np.array(transforms, dtype = float)
+
+    for i in range(n_meshes):
+        # transforms[i][:3, :3] = np.identity(3) * 0.9
+        transforms[i][:3, :3] *= 0.1
+        transforms[i][:3, 3] = np.array([-0.2, 5.3, -0.6])
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    static_meshes_file = ["assets/stairs.obj"]
+    scale = np.identity(4)
+
+    
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
 
 def pyramid(from_frame = 0):
     model = "squishy"
@@ -1068,4 +1095,5 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    C3()
+    # C3()
+    C2()
