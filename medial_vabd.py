@@ -1031,7 +1031,8 @@ def C3():
 
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "rowboat_voxel"
+    # model = "rowboat_voxel"
+    model = "boatv4"
     # model = "squishy"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
