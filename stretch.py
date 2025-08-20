@@ -143,7 +143,7 @@ class PSViewer:
         self.ui_pause = False
         self.animate = False
         
-        self.end_frame = 5000
+        self.end_frame = 2000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
@@ -171,7 +171,7 @@ class PSViewer:
         if gui.Button("Reset"):
             self.rod.reset()
             self.frame = self.rod.frame
-            self.ui_pause = True
+            self.ui_pause = False
             self.animate = True
 
         if gui.Button("Save"):

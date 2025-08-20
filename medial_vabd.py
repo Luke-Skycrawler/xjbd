@@ -926,7 +926,7 @@ def windmill(from_frame = 0):
 
     for i in range(n_heights):
         for j in range(bunnies_per_row):
-            p = t + 2 * np.array([j * 2 / (bunnies_per_row - 1) - 0.5, j / bunnies_per_row + i * scale, 0])
+            p = t + 2 * np.array([j * 2 / (bunnies_per_row - 1) - 0.5, j / bunnies_per_row + i * 0.75 * scale, 0])
             pos.append(p)
             # pos.append(p)
     pos = np.array(pos)
@@ -941,6 +941,7 @@ def windmill(from_frame = 0):
         #     transforms[i + n_windmills, 2, 2] = -scale
         transforms[i + n_windmills, :3, 3] = pos[i] - rotations[i] * scale @ np.array([0.5, 0.5, 0.5])
 
+    np.save("output/states/initial_transforms.npy", transforms)
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
     if from_frame > 0:
