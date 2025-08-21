@@ -16,7 +16,7 @@ from .linear_elasticity import PK1, tangent_stiffness, psi
 from .params import lam, mu
 lam0, mu0 = lam, mu
 lam1, mu1 = lam * 100.0, mu * 10.0
-
+precompute = True
 @wp.struct 
 class Triplets:
     rows: wp.array(dtype = int)
@@ -100,12 +100,25 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
     mm = mu0
 
     center = (t0 + t1 + t2 + t3) / 4.0
-    xx = center[0] - 0.5
-    xy = center[1] - 0.5
-    if wp.sqrt(xx * xx + xy * xy) < 1.09 / 4.0:
-        # inside skirt of the watermill
-        ll = lam1 
-        mm = mu1
+
+    # rest shape
+    #####################################
+    if precompute:
+        xx = center[0]
+        xy = center[2]
+        if wp.sqrt(xx * xx + xy * xy) < 0.2:
+            # inside skirt of the watermill
+            ll = lam1 
+            mm = mu1
+
+    # transformed
+    #####################################
+    else: 
+        xx = center[0] - 3.
+        xy = center[2] + 2.
+        if wp.sqrt(xx * xx + xy * xy) < 0.2 * 0.1:    
+            ll = lam1
+            mm = mu1
 
     P = PK1(F, ll, mm)
     H = -W[e] * P @ wp.transpose(Bm[e])
@@ -173,12 +186,26 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
     mm = mu0
 
     center = (t0 + t1 + t2 + t3) / 4.0
-    xx = center[0] - 0.5
-    xy = center[1] - 0.5
-    if wp.sqrt(xx * xx + xy * xy) < 1.09 / 4.0:
-        # inside skirt of the watermill
-        ll = lam1 
-        mm = mu1
+
+
+    # rest shape
+    #####################################
+    if precompute:
+        xx = center[0]
+        xy = center[2]
+        if wp.sqrt(xx * xx + xy * xy) < 0.2:
+            # inside skirt of the watermill
+            ll = lam1 
+            mm = mu1
+
+    # transformed
+    #####################################
+    else: 
+        xx = center[0] - 3.
+        xy = center[2] + 2.
+        if wp.sqrt(xx * xx + xy * xy) < 0.2 * 0.1:    
+            ll = lam1
+            mm = mu1
         
     P = PK1(F, ll, mm)
     H = -W[e] * P @ wp.transpose(Bm[e])
@@ -256,7 +283,7 @@ class SifakisFEM:
         
         M1 = igl.massmatrix(self.xcs.numpy(), self.T.numpy(), igl.MASSMATRIX_TYPE_BARYCENTRIC)
         M1 = M1.toarray()
-        print(M1.shape)
+        print("defining M: shape = ", M1.shape)
         mdiag = np.diag(M1)
         mdiag3 = np.repeat(mdiag, 3)
         self.M = np.diag(mdiag3)
