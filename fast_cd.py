@@ -18,7 +18,7 @@ import os
 # model = "rowboat"
 # model = "windmill"
 # model = "boat"
-model = "boatv4"
+model = "boatv5"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
