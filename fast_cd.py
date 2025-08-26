@@ -17,7 +17,7 @@ import os
 
 # model = "bunny"
 # model = "windmill"
-model = "boat"
+model = "boatv8"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -110,6 +110,7 @@ class RodLBSWeight(Rod):
                 data = loadmat(f"data/eigs/Q_{model}.mat")
                 Q = data["Vv"].astype(np.float64)
                 lam = data["D"].astype(np.float64)
+                Q[:, 0] = 1.0
                 # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
                 # Q /= Q_norm
             # Q = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)
@@ -325,8 +326,8 @@ def vis_weights():
     rod = RodLBSWeight()
     # rod = RodLBSWeightBC()
     lam, Q = None, None
-    if not os.path.exists(f"data/W_{model}.npy"):
-    # if True:
+    # if not os.path.exists(f"data/W_{model}.npy"):
+    if True:
         lam, Q = rod.eigs()
         np.save(f"data/W_{model}.npy", Q)
     else:

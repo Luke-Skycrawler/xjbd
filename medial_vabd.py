@@ -1032,7 +1032,7 @@ def C3():
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "rowboat_voxel"
-    model = "boatv4"
+    model = "boatv8"
     # model = "squishy"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
@@ -1042,12 +1042,12 @@ def C2():
     for i in range(n_meshes):
         # transforms[i][:3, :3] = np.identity(3) * 0.9
         transforms[i][:3, :3] *= 0.1
-        transforms[i][:3, 3] = np.array([-0.2, 5.3, -0.6])
+        transforms[i][:3, 3] = np.array([-0.1, 4.5, -0.6])
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
     # scale params for teapot
-    static_meshes_file = ["assets/stairs.obj"]
+    static_meshes_file = ["assets/stairs_fenced.obj"]
     scale = np.identity(4)
 
     
