@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 2e-3
+h = 1e-2
 rho = 1e3
 omega = 3.0
 @wp.struct 
@@ -137,10 +137,10 @@ class PSViewer:
         self.V = rod.xcs.numpy()
         self.F = rod.F
 
-        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F, enabled = False)
+        self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F, enabled = True)
         self.frame = 0
         self.rod = rod
-        self.ui_pause = False
+        self.ui_pause = True
         self.animate = False
         
         self.end_frame = 5000
@@ -212,12 +212,14 @@ class RodBCBase:
         self.reset()
         self.h = h
         print(f"timestep set to {h}")
+        self.frame = 0
         
     def reset(self):
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
 
         self.theta = 0.0
+        self.frame = 0
 
     def define_M(self):
         V = self.xcs.numpy()
@@ -258,6 +260,7 @@ class RodBCBase:
             n_iter += 1
         self.update_x0_xdot()
         self.theta += self.h * omega
+        self.frame += 1
 
     def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
@@ -362,7 +365,7 @@ def twist():
 if __name__ == "__main__":
     ps.init()
     wp.init()
-    # drape()
-    twist()
+    drape()
+    # twist()
     # multiple_drape()
     
