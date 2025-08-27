@@ -118,6 +118,18 @@ def compute_inertia(state: NewtonState, M: wp.array(dtype = float), inert: wp.ar
     wp.atomic_add(inert, 0, de)
 
 @wp.kernel
+def compute_kinetic_energy(state: NewtonState, M: wp.array(dtype = float), h: float):   
+    i = wp.tid()
+    e = 0.5 * M[i] * wp.length_sq(state.xdot[i])
+    wp.atomic_add(state.Psi, 0, e)
+
+@wp.kernel
+def compute_gravitational_energy(state: NewtonState, M: wp.array(dtype = float)):
+    i = wp.tid()
+    e = -M[i] * wp.dot(gravity, state.x[i])
+    wp.atomic_add(state.Psi, 0, e)
+
+@wp.kernel
 def compute_compensation(state: NewtonState, geo: FEMMesh, theta: float, comp_x: wp.array(dtype = wp.vec3)):
     i = wp.tid()
     xi = state.x[i]
@@ -151,7 +163,7 @@ class PSViewer:
         self.ui_pause = True
         self.animate = False
         
-        self.end_frame = 5000
+        self.end_frame = 1000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
@@ -197,6 +209,7 @@ class PSViewer:
                 self.save()
         if self.frame >= self.end_frame:
             print(f"end frame = {self.frame} reached, exiting")
+            np.save("E.npy", np.array(self.rod.energies))
             quit()
 
         
@@ -224,7 +237,7 @@ class RodBCBase:
         self.h = h
         print(f"timestep set to {h}")
         self.frame = 0
-        
+        self.energies = []
     def reset(self):
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
@@ -273,6 +286,19 @@ class RodBCBase:
         self.update_x0_xdot()
         self.theta += self.h * omega
         self.frame += 1
+        ef = self.compute_energy()
+        self.energies.append(ef)
+
+    def compute_energy(self):
+        self.states.Psi.zero_() 
+        wp.launch(compute_kinetic_energy, (self.n_nodes,), inputs=[self.states, self.M, self.h])
+        E_kinetic = self.states.Psi.numpy()[0]
+        E_elastic = self.compute_psi() / (self.h * self.h)
+        self.states.Psi.zero_()
+        wp.launch(compute_gravitational_energy, (self.n_nodes,), inputs=[self.states, self.M])
+        E_gravity = self.states.Psi.numpy()[0]
+
+        return [E_kinetic, E_elastic, E_gravity]
 
     def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
