@@ -139,7 +139,9 @@ class NullSpaceWoodburySolver(WoodburySolver):
 class MedialVABD(MedialRodComplex):
     def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
         super().__init__(h, meshes, transforms, static_meshes)
-        
+        self.body_centers = np.zeros((self.n_meshes, 3))
+        for i in range(self.n_meshes): 
+            self.body_centers[i] = self.transforms[i][:3, 3]
         self.abd_only = self.n_modes == 12 
         self.split_U0_U_tilide()
         self.define_mm()
@@ -311,10 +313,11 @@ class MedialVABD(MedialRodComplex):
         indices_file = f"data/{filename}_indices.npy"
         indptr_file = f"data/{filename}_indptr.npy"
 
-        
-        data = np.load(data_file)
-        indices = np.load(indices_file)
-        indptr = np.load(indptr_file)
+        ddata = np.load(data_file)
+        idx_size = ddata.shape[0] // 190 * self.n_meshes 
+        data = ddata[:idx_size]
+        indices = np.load(indices_file)[:idx_size]
+        indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
 
     def prefactor_once(self):
@@ -638,6 +641,13 @@ class MedialVABD(MedialRodComplex):
         return ret
 
     def compute_inertia(self):
+        for i in range(self.n_meshes):
+            y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+            if y > 15:
+                self.gravity[i * 12 + 9: i * 12 + 12] = 0.0
+            else:
+                self.gravity[i * 12 + 9: i * 12 + 12] = gravity_np
+
         with wp.ScopedTimer("inertia"):
 
             zh = self.z0 + self.h * self.z_dot + self.gravity * self.h * self.h
@@ -679,7 +689,11 @@ class MedialVABD(MedialRodComplex):
     def z_hat(self, i):
         zh = self.z0 + self.h * self.z_dot
         ret = zh[i * 12: (i + 1) * 12]
-        ret[9: 12] += gravity_np * self.h * self.h
+        y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+        if y > 15: 
+            pass
+        else: 
+            ret[9: 12] += gravity_np * self.h * self.h
         return ret
 
     def compute_U_prime(self):
@@ -751,7 +765,7 @@ class MedialVABD(MedialRodComplex):
                 # field[:] = np.load(f"output/states/{alias}_{self.frame}.npy")
                 field[:] = states[alias]
 
-            self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
+            # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
 
     def save_states(self):
         # pass

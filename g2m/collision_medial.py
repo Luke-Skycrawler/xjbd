@@ -594,8 +594,7 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            h = 2 * dist * h + 2 * np.outer(g, g)
-            # h = 2 * np.outer(g, g)
+            h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
@@ -629,8 +628,7 @@ class MedialCollisionDetector:
             b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
             b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
             
-            h = 2 * dist * h + 2 * np.outer(g, g)
-            # h = 2 * np.outer(g, g)
+            h = 2 * np.outer(g, g)
 
             self.indices_set.update(ee)
             # self.indices_set.update(ee + 1)
@@ -723,7 +721,7 @@ class MedialCollisionDetector:
                 b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3] * ground_rel_stiffness
                 b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6] * ground_rel_stiffness
                 
-                h = (2 * dist * h + 2 * np.outer(g, g)) * ground_rel_stiffness
+                h = (2 * np.outer(g, g)) * ground_rel_stiffness
 
                 self.indices_set.update(ee)
                 for ii in range(2):
@@ -765,12 +763,12 @@ class MedialCollisionDetector:
 
                     dist = np.abs(cc.get_distance())
                     g, h = cc.get_dist_gh()
-                    b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3]
-                    b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6]
+                    b[e0 * 3: (e0 + 1) * 3] += 2 * dist * g[:3] * ground_rel_stiffness
+                    b[e1 * 3: (e1 + 1) * 3] += 2 * dist * g[3:6] * ground_rel_stiffness
                     # b[e2 * 3: (e2 + 1) * 3] += 2 * dist * g[6:9]
                     # b[e3 * 3: (e3 + 1) * 3] += 2 * dist * g[9:12]
                     
-                    h = 2 * dist * h + 2 * np.outer(g, g)
+                    h = 2 * np.outer(g, g) * ground_rel_stiffness
 
                     self.indices_set.update(ee)
                     # self.indices_set.update(ee + 1)
