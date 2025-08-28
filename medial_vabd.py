@@ -16,6 +16,7 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
+import os
 eps = 1e-2
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -300,19 +301,47 @@ class MedialVABD(MedialRodComplex):
         f = self.z[self.F_idx].reshape((self.n_meshes, 3, 3)) # n_meshes x 3 x3
         return np.transpose(f, axes = (0, 2, 1))
 
+    def save_sparse(self, name, sparse_matrix):
+        np.save(f"data/{name}_data.npy", sparse_matrix.data)
+        np.save(f"data/{name}_indices.npy", sparse_matrix.indices)
+        np.save(f"data/{name}_indptr.npy", sparse_matrix.indptr)
+
+    def load_sparse(self, filename):
+        data_file = f"data/{filename}_data.npy"
+        indices_file = f"data/{filename}_indices.npy"
+        indptr_file = f"data/{filename}_indptr.npy"
+
+        
+        data = np.load(data_file)
+        indices = np.load(indices_file)
+        indptr = np.load(indptr_file)
+        return csc_matrix((data, indices, indptr))
+
     def prefactor_once(self):
         if self.abd_only:
             return
         h = self.h
         self.compute_K()
-        self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
-        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
+        if os.path.exists("data/K0_data.npy"):
+            # self.K0 = np.load("data/K0.npy")
+            # self.M_tilde = np.load("data/M_tilde.npy")
+            self.K0 = self.load_sparse("K0")
+            self.M_tilde = self.load_sparse("M_tilde")
+            self.A_tilde = self.K0 + self.M_tilde
+        else: 
+            self.K0 = (self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)).tocsc()
+            self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
 
-        self.A_tilde = self.K0 + self.M_tilde
+            self.A_tilde = self.K0 + self.M_tilde
+
+            self.save_sparse("K0", self.K0)
+            self.save_sparse("M_tilde", self.M_tilde)
+
+            print("saved K0 and M_tilde to data/")
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
-        self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
+        self.solver = None #WoodburySolver(self.n_meshes * 12, self.A_tilde)
         n_medials = self.V_medial.shape[0]
         self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
         lhs_args = []
@@ -1018,7 +1047,7 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 80
+    n_meshes = 190
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
