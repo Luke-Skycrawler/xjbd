@@ -316,6 +316,8 @@ class MedialVABD(MedialRodComplex):
         ddata = np.load(data_file)
         idx_size = ddata.shape[0] // 190 * self.n_meshes 
         data = ddata[:idx_size]
+        if filename == "K0":
+            data *= 0.2
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -749,7 +751,7 @@ class MedialVABD(MedialRodComplex):
             for i in range(0, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
-                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
+                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -4.0, 0.0])
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -1073,7 +1075,7 @@ def pyramid(from_frame = 0):
         transforms[i][:3, 3] = positions[i]
     
     # stacked bowls
-    static_meshes_file = ["assets/bowl stack.obj"]
+    static_meshes_file = ["assets/bowl stack_boxed.obj"]
     scale = np.identity(4)
           
     static_bars = StaticScene(static_meshes_file, np.array([scale]))

@@ -9,3 +9,17 @@ data/eigs/
 assets/squishyball/
 *_v*.ma
 *.ply
+*.dll
+*/*.obj
+*/*.ma
+*/*.off
+*.pyd
+*.npz
+*/*.msh
+assets/
+data/
+timing/
+test_scripts/
+cylinders.obj
+tank.obj
+.vscode/
