@@ -396,17 +396,17 @@ class MedialVABD(MedialRodComplex):
         z = self.extract_z0(self.z)
         self.z_tilde2z(z, self.z_tilde)
 
-        self.z_dot_last[:] = self.z_dot
+        self.z_dot_last[:] = self.z_dot[:]
         self.z_dot[:] = (3/ 2 * z - 2 * self.z0 + 0.5 * self.z0_last) / self.h
 
-        self.z0_last[:] = self.z0
-        self.z0[:] = z
+        self.z0_last[:] = self.z0[:]
+        self.z0[:] = z[:]
 
-        self.z_tilde_dot_last[:] = self.z_tilde_dot
+        self.z_tilde_dot_last[:] = self.z_tilde_dot[:]
         self.z_tilde_dot[:] = (3/2 * self.z_tilde - 2 * self.z_tilde0 + 0.5 * self.z_tilde0_last) / self.h
 
-        self.z_tilde0_last[:] = self.z_tilde0
-        self.z_tilde0[:] = self.z_tilde
+        self.z_tilde0_last[:] = self.z_tilde0[:]
+        self.z_tilde0[:] = self.z_tilde[:]
 
         # if self.frame % 4 == 0:
         if False:
@@ -738,8 +738,8 @@ class MedialVABD(MedialRodComplex):
             for i in range(0, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
-                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
-                self.z_dot_last[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
+                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -1, 0.0])
+                self.z_dot_last[i * 12 + 9: i * 12 + 12] = np.array([0.0, -1, 0.0])
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -1078,7 +1078,7 @@ def C2():
     for i in range(n_meshes):
         # transforms[i][:3, :3] = np.identity(3) * 0.9
         transforms[i][:3, :3] *= 0.1
-        transforms[i][:3, 3] = np.array([-0.1, 4.5, -0.6])
+        transforms[i][:3, 3] = np.array([-0.1, 4.3, -0.6])
     
     # rods = MedialRodComplex(h, meshes, transforms)
 

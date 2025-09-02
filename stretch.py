@@ -163,7 +163,7 @@ class PSViewer:
         self.ui_pause = False
         self.animate = False
         
-        self.end_frame = 1000
+        self.end_frame = 2000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
