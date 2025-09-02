@@ -23,6 +23,7 @@ medial_collision_stiffness = 1e8
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 cpp_only = True
+bdf2 = True
 
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
@@ -308,7 +309,7 @@ class MedialVABD(MedialRodComplex):
         self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
         self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
 
-        self.A_tilde = self.K0 + self.M_tilde
+        self.A_tilde = self.K0 + self.M_tilde * 9 / 4
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
@@ -361,6 +362,14 @@ class MedialVABD(MedialRodComplex):
         self.z_tilde_dot = np.zeros_like(self.z_tilde)
         self.dz_tilde = np.zeros_like(self.z_tilde)
         self.z_fields = [self.z, self.z0, self.z_dot, self.z_tilde, self.z_tilde0, self.z_tilde_dot]
+
+        self.z0_last = np.zeros_like(self.z0)
+        self.z_dot_last = np.zeros_like(self.z0)
+
+
+        self.z_tilde0_last = np.copy(self.z_tilde)
+        self.z_tilde_dot_last = np.zeros_like(self.z_tilde)
+
         self.fields_alias = ["z", "z0", "z_dot", "z_tilde", "z_tilde0", "z_tilde_dot"]
 
     def extract_z0(self, z):
@@ -387,10 +396,16 @@ class MedialVABD(MedialRodComplex):
         z = self.extract_z0(self.z)
         self.z_tilde2z(z, self.z_tilde)
 
-        self.z_dot[:] = (z - self.z0) / self.h
+        self.z_dot_last[:] = self.z_dot
+        self.z_dot[:] = (3/ 2 * z - 2 * self.z0 + 0.5 * self.z0_last) / self.h
+
+        self.z0_last[:] = self.z0
         self.z0[:] = z
 
-        self.z_tilde_dot[:] = (self.z_tilde - self.z_tilde0) / self.h
+        self.z_tilde_dot_last[:] = self.z_tilde_dot
+        self.z_tilde_dot[:] = (3/2 * self.z_tilde - 2 * self.z_tilde0 + 0.5 * self.z_tilde0_last) / self.h
+
+        self.z_tilde0_last[:] = self.z_tilde0
         self.z_tilde0[:] = self.z_tilde
 
         # if self.frame % 4 == 0:
@@ -610,16 +625,21 @@ class MedialVABD(MedialRodComplex):
     def compute_inertia(self):
         with wp.ScopedTimer("inertia"):
 
-            zh = self.z0 + self.h * self.z_dot + self.gravity * self.h * self.h
+            # zh = self.z0 + self.h * self.z_dot + self.gravity * self.h * self.h
+            zh = self.zh()
             z0 = self.extract_z0(self.z)
             dz0 = z0 - zh
 
-            ret = (dz0 @ self.mm @ dz0) * 0.5
+            ret = (dz0 @ self.mm @ dz0) * 0.5 * 9/4
             if not self.abd_only:
                 dzt = self.z_tilde - self.z_tilde_hat()
-                ret += dzt @ self.M_tilde @ dzt * 0.5
+                ret += dzt @ self.M_tilde @ dzt * 0.5 * 9 / 4
         return ret
     
+    def zh(self):
+        h = self.h
+        return 4./3. * self.z0 - self.z0_last / 3. + 8. / 9. * h * self.z_dot - 2. / 9. * self.z_dot_last * h
+
     # def compute_inertia2(self):
     #     h2 = self.h ** 2
     #     ret = 0.0
@@ -643,13 +663,23 @@ class MedialVABD(MedialRodComplex):
     #     # self.states.x.assign((self.U @ self.z).reshape((-1, 3)))
     #     return 1.0
         
+    # def z_tilde_hat(self):
+    #     return self.h * self.z_tilde_dot + self.z_tilde0
+
     def z_tilde_hat(self):
-        return self.h * self.z_tilde_dot + self.z_tilde0
+        return 4./3. * self.z_tilde0 - self.z_tilde0_last / 3. + 8. / 9. * h * self.z_tilde_dot - 2. / 9. * self.z_tilde_dot_last * h
+
+    # def z_hat(self, i):
+    #     zh = self.z0 + self.h * self.z_dot
+    #     ret = zh[i * 12: (i + 1) * 12]
+    #     ret[9: 12] += gravity_np * self.h * self.h
+    #     return ret
 
     def z_hat(self, i):
-        zh = self.z0 + self.h * self.z_dot
+        zh = self.zh()
+
         ret = zh[i * 12: (i + 1) * 12]
-        ret[9: 12] += gravity_np * self.h * self.h
+        ret[9: 12] += gravity_np * self.h * self.h * 9. / 4.
         return ret
 
     def compute_U_prime(self):
@@ -690,7 +720,9 @@ class MedialVABD(MedialRodComplex):
         for i in range(self.n_meshes):
             self.z[i * self.n_modes: i * self.n_modes + 9] = vec(np.identity(3))
         self.z0[:] = self.extract_z0(self.z)
+        self.z0_last[:] = self.z0
         self.z_dot[:] = 0.0
+        self.z_dot_last[:] = 0.0
         
         # if self.n_meshes <= 2: 
         if False:
@@ -706,10 +738,13 @@ class MedialVABD(MedialRodComplex):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
                 self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
+                self.z_dot_last[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
+        self.z_tilde0_last[:] = 0.0
         self.z_tilde_dot[:] = 0.0
+        self.z_tilde_dot_last[:] = 0.0
         self.dz_tilde[:] = 0.0
 
         self.frame = 0
