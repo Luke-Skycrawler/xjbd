@@ -459,7 +459,7 @@ class MedialVABD(MedialRodComplex):
                 g = gg[i]
                 H = HH[i]
 
-                mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
+                mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] * 9 / 4
                 aai = H * h2 * self.sum_W[i] + mmi
                 self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
                 aa.append(aai)
@@ -467,7 +467,7 @@ class MedialVABD(MedialRodComplex):
 
         self.direct_solver.update_A0(aa)
         # set b_tilde
-        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
+        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) * 9 / 4 + self.compute_excitement() if not self.abd_only else 0.
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
         # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
@@ -626,7 +626,8 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("inertia"):
 
             # zh = self.z0 + self.h * self.z_dot + self.gravity * self.h * self.h
-            zh = self.zh()
+            h = self.h
+            zh = self.zh() + self.gravity * h * h * 4 / 9
             z0 = self.extract_z0(self.z)
             dz0 = z0 - zh
 
@@ -679,7 +680,7 @@ class MedialVABD(MedialRodComplex):
         zh = self.zh()
 
         ret = zh[i * 12: (i + 1) * 12]
-        ret[9: 12] += gravity_np * self.h * self.h * 9. / 4.
+        ret[9: 12] += gravity_np * self.h * self.h * 4. / 9.
         return ret
 
     def compute_U_prime(self):
