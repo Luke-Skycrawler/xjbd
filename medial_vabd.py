@@ -24,7 +24,8 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 cpp_only = True
-
+damp_alpha = 0.0
+damp_beta = 5e-2
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
@@ -317,7 +318,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0] // 190 * self.n_meshes 
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= 0.2
+            data *= 0.1
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -332,12 +333,14 @@ class MedialVABD(MedialRodComplex):
             # self.M_tilde = np.load("data/M_tilde.npy")
             self.K0 = self.load_sparse("K0")
             self.M_tilde = self.load_sparse("M_tilde")
-            self.A_tilde = self.K0 + self.M_tilde
+            self.A_tilde = self.K0 * (1 + damp_beta / h) + self.M_tilde * (1 + damp_alpha * h)
+            self.C = self.K0 * damp_beta + self.M_tilde * damp_alpha
         else: 
             self.K0 = (self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)).tocsc()
             self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
 
             self.A_tilde = self.K0 + self.M_tilde
+            self.C = self.K0 * damp_beta + self.M_tilde * damp_alpha
 
             self.save_sparse("K0", self.K0)
             self.save_sparse("M_tilde", self.M_tilde)
@@ -481,13 +484,16 @@ class MedialVABD(MedialRodComplex):
 
                 mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
                 aai = H * h2 * self.sum_W[i] + mmi
+                ci = H * damp_beta * self.sum_W[i] + mmi * damp_alpha
+                aai += ci
                 self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
                 aa.append(aai)
-                self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i))
+                damp_term = ci @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z0[i * 12: i * 12 + 12]) * self.h
+                self.b0[i * 12: (i + 1) * 12] = g * h2 * self.sum_W[i] + mmi @ (self.z[i * self.n_modes: i * self.n_modes + 12] - self.z_hat(i)) + damp_term
 
         self.direct_solver.update_A0(aa)
         # set b_tilde
-        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
+        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.C @ (self.z_tilde - self.z_tilde0) * self.h + self.compute_excitement() if not self.abd_only else 0.
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
         # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
@@ -646,6 +652,7 @@ class MedialVABD(MedialRodComplex):
         for i in range(self.n_meshes):
             y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
             if y > 15:
+            # if False:
                 self.gravity[i * 12 + 9: i * 12 + 12] = 0.0
             else:
                 self.gravity[i * 12 + 9: i * 12 + 12] = gravity_np
@@ -693,6 +700,7 @@ class MedialVABD(MedialRodComplex):
         ret = zh[i * 12: (i + 1) * 12]
         y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
         if y > 15: 
+        # if False:
             pass
         else: 
             ret[9: 12] += gravity_np * self.h * self.h
@@ -811,6 +819,10 @@ class MedialVABD(MedialRodComplex):
             self.direct_solver.compute_Um_tilde(rotations)
             self.direct_solver.ensure_copied(rows, cols, values)
             self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx, rows, cols, values)
+            dz = np.zeros_like(self.z)
+            dz[: 12 * self.n_meshes] = self.extract_z0(self.z) - self.z0
+            dz[12 * self.n_meshes :] = self.z_tilde - self.z_tilde0
+            self.direct_solver.damp(dz, damp_beta / self.h)
             
         if not cpp_only:
             with wp.ScopedTimer("Um tildeT"):
