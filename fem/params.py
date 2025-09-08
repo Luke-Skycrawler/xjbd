@@ -3,7 +3,7 @@ import numpy as np
 L, W = 1, 0.2
 # mu, rho, lam = 2e6, 1., 125.0
 mu, rho, lam = 4e6, 1.0e3, 0.0
-g = 10.
+g = 20.0
 n_x = 20
 n_yz = 4
 dx = L / n_x

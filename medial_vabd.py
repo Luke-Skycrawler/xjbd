@@ -24,8 +24,8 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 cpp_only = True
-damp_alpha = 0.0
-damp_beta = 5e-2
+damp_alpha = 1e-2
+damp_beta = 2e-2
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
@@ -334,7 +334,7 @@ class MedialVABD(MedialRodComplex):
             self.K0 = self.load_sparse("K0")
             self.M_tilde = self.load_sparse("M_tilde")
             self.A_tilde = self.K0 * (1 + damp_beta / h) + self.M_tilde * (1 + damp_alpha * h)
-            self.C = self.K0 * damp_beta + self.M_tilde * damp_alpha
+            self.C = self.K0 * damp_beta / (h * h) + self.M_tilde * damp_alpha
         else: 
             self.K0 = (self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)).tocsc()
             self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
@@ -484,7 +484,11 @@ class MedialVABD(MedialRodComplex):
 
                 mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
                 aai = H * h2 * self.sum_W[i] + mmi
-                ci = H * damp_beta * self.sum_W[i] + mmi * damp_alpha
+
+                y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+                ci = H * damp_beta * self.sum_W[i]
+                if y > 15:
+                    ci += mmi * damp_alpha
                 aai += ci
                 self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
                 aa.append(aai)
@@ -699,7 +703,7 @@ class MedialVABD(MedialRodComplex):
         zh = self.z0 + self.h * self.z_dot
         ret = zh[i * 12: (i + 1) * 12]
         y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
-        if y > 15: 
+        if y > 15:
         # if False:
             pass
         else: 
@@ -1075,7 +1079,7 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 190
+    n_meshes = 80
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1087,8 +1091,10 @@ def pyramid(from_frame = 0):
         transforms[i][:3, 3] = positions[i]
     
     # stacked bowls
-    static_meshes_file = ["assets/bowl stack_boxed.obj"]
+    static_meshes_file = ["assets/bowl stack.obj"]
     scale = np.identity(4)
+    scale[:3, :3] *= 1.2
+    # scale[:3, 3] = np.array([0., -5., 0.])
           
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
     # static_bars = None
