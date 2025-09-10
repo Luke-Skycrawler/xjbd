@@ -24,8 +24,9 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 cpp_only = True
-damp_alpha = 1e-2
-damp_beta = 2e-2
+damp_alpha = 5e-2
+damp_beta = 5e-2
+damp_collision = 5e-2
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
@@ -33,6 +34,7 @@ if collision_handler == "triangle":
 assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = False
 n_windmills = 1
+no_gravity_region = 15
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -318,7 +320,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0] // 190 * self.n_meshes 
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= 0.1
+            data *= 2.5
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -340,7 +342,7 @@ class MedialVABD(MedialRodComplex):
             self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
 
             self.A_tilde = self.K0 + self.M_tilde
-            self.C = self.K0 * damp_beta + self.M_tilde * damp_alpha
+            self.C = self.K0 * damp_beta / (h * h) + self.M_tilde * damp_alpha
 
             self.save_sparse("K0", self.K0)
             self.save_sparse("M_tilde", self.M_tilde)
@@ -487,7 +489,7 @@ class MedialVABD(MedialRodComplex):
 
                 y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
                 ci = H * damp_beta * self.sum_W[i]
-                if y > 15:
+                if y <= no_gravity_region:
                     ci += mmi * damp_alpha
                 aai += ci
                 self.A0[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12] = aai
@@ -630,7 +632,8 @@ class MedialVABD(MedialRodComplex):
             e1c = self.compute_collision_energy()
             E1 = e10 + e1c
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
-            if E1 < E0:
+            # if E1 < E0:
+            if True:
                 break
             if alpha < 5e-2:
                 self.z_tilde[:] = z_tilde_tmp
@@ -655,7 +658,7 @@ class MedialVABD(MedialRodComplex):
     def compute_inertia(self):
         for i in range(self.n_meshes):
             y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
-            if y > 15:
+            if y > no_gravity_region:
             # if False:
                 self.gravity[i * 12 + 9: i * 12 + 12] = 0.0
             else:
@@ -703,7 +706,7 @@ class MedialVABD(MedialRodComplex):
         zh = self.z0 + self.h * self.z_dot
         ret = zh[i * 12: (i + 1) * 12]
         y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
-        if y > 15:
+        if y > no_gravity_region:
         # if False:
             pass
         else: 
@@ -826,7 +829,7 @@ class MedialVABD(MedialRodComplex):
             dz = np.zeros_like(self.z)
             dz[: 12 * self.n_meshes] = self.extract_z0(self.z) - self.z0
             dz[12 * self.n_meshes :] = self.z_tilde - self.z_tilde0
-            self.direct_solver.damp(dz, damp_beta / self.h)
+            self.direct_solver.damp(dz, damp_collision / self.h)
             
         if not cpp_only:
             with wp.ScopedTimer("Um tildeT"):
@@ -1079,7 +1082,7 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 80
+    n_meshes = 20
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]

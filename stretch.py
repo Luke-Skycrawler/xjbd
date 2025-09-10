@@ -12,7 +12,7 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 2e-3
+h = 1e-2
 rho = 1e3
 omega = 3.0
 @wp.struct 
