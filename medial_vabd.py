@@ -24,8 +24,8 @@ medial_collision_stiffness = 1e7
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
 cpp_only = True
-damp_alpha = 5e-2
-damp_beta = 5e-2
+damp_alpha = 0
+damp_beta = 0
 damp_collision = 5e-2
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
@@ -320,7 +320,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0] // 190 * self.n_meshes 
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= 2.5
+            data *= 0.1
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -487,7 +487,10 @@ class MedialVABD(MedialRodComplex):
                 mmi = self.mm[i * 12: (i + 1) * 12, i * 12: (i + 1) * 12]
                 aai = H * h2 * self.sum_W[i] + mmi
 
-                y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+                ai = self.z0[i * 12: i * 12 + 9].reshape(3, 3).T
+                bi = self.body_centers[i]
+                y = (ai @ bi)[1] + self.z0[i * 12 + 10]
+                
                 ci = H * damp_beta * self.sum_W[i]
                 if y <= no_gravity_region:
                     ci += mmi * damp_alpha
@@ -632,8 +635,8 @@ class MedialVABD(MedialRodComplex):
             e1c = self.compute_collision_energy()
             E1 = e10 + e1c
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
-            # if E1 < E0:
-            if True:
+            if E1 < E0:
+            # if True:
                 break
             if alpha < 5e-2:
                 self.z_tilde[:] = z_tilde_tmp
@@ -657,7 +660,9 @@ class MedialVABD(MedialRodComplex):
 
     def compute_inertia(self):
         for i in range(self.n_meshes):
-            y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+            ai = self.z0[i * 12: i * 12 + 9].reshape(3, 3).T
+            bi = self.body_centers[i]
+            y = (ai @ bi)[1] + self.z0[i * 12 + 10]
             if y > no_gravity_region:
             # if False:
                 self.gravity[i * 12 + 9: i * 12 + 12] = 0.0
@@ -705,7 +710,11 @@ class MedialVABD(MedialRodComplex):
     def z_hat(self, i):
         zh = self.z0 + self.h * self.z_dot
         ret = zh[i * 12: (i + 1) * 12]
-        y = self.body_centers[i, 1] + self.z0[i * 12 + 10]
+
+        ai = self.z0[i * 12: i * 12 + 9].reshape(3, 3).T
+        bi = self.body_centers[i]
+        y = (ai @ bi)[1] + self.z0[i * 12 + 10]
+
         if y > no_gravity_region:
         # if False:
             pass
@@ -1082,7 +1091,7 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 20
+    n_meshes = 190
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -1096,7 +1105,7 @@ def pyramid(from_frame = 0):
     # stacked bowls
     static_meshes_file = ["assets/bowl stack.obj"]
     scale = np.identity(4)
-    scale[:3, :3] *= 1.2
+    # scale[:3, :3] *= 1.2
     # scale[:3, 3] = np.array([0., -5., 0.])
           
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
