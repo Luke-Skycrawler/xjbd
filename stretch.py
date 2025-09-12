@@ -106,7 +106,7 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
-    psie = psi(F)
+    psie = psi(F, lam, mu)
     # wp.atomic_add(Psi, 0, W[e] * psi)
     Psi[e] = W[e] * psie
 
@@ -163,7 +163,7 @@ class PSViewer:
         self.ui_pause = False
         self.animate = False
         
-        self.end_frame = 2000
+        self.end_frame = 6000
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()

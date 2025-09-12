@@ -25,7 +25,7 @@ from g2m.nn import WarpEncoder
 save_weight_only = False
 # if enabled, only save the medial weights and quit
 eps = 3e-3
-padding = True
+padding = False
 def vec(t):
     return (t.T).reshape(-1)
 

@@ -3,7 +3,7 @@
 % spy(K);
 function Vv = nullspace(name)
 % load data/eigs/squishy_ball_lowlow.mat
-load data/eigs/boatv8.mat
+load data/eigs/boatv9_scaled.mat
 % load data/eigs/tmp.mat
 % load output/bug/A1.mat;
 % na1 = null(A1');
@@ -19,6 +19,6 @@ tilde_M = M;
 % Vv = Vv ./ sqrt(diagVMV');
 % V = na1 * Vv;
 % save data/eigs/Q_squishy_ball_lowlow.mat Vv D
-save data/eigs/Q_boatv8.mat Vv D
+save data/eigs/Q_boatv9_scaled.mat Vv D
 
 end

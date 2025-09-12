@@ -16,6 +16,7 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
+import os
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e8
@@ -32,6 +33,10 @@ if collision_handler == "triangle":
 assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = False
 n_windmills = 1
+# params for C2 demo
+boat_translate = np.array([-0.1, 4.3, -0.6])
+boat_scale = 1
+damp_collision = 1.5e-3
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -301,19 +306,52 @@ class MedialVABD(MedialRodComplex):
         f = self.z[self.F_idx].reshape((self.n_meshes, 3, 3)) # n_meshes x 3 x3
         return np.transpose(f, axes = (0, 2, 1))
 
+
+    def save_sparse(self, name, sparse_matrix):
+        np.save(f"data/{name}_data.npy", sparse_matrix.data)
+        np.save(f"data/{name}_indices.npy", sparse_matrix.indices)
+        np.save(f"data/{name}_indptr.npy", sparse_matrix.indptr)
+
+    def load_sparse(self, filename):
+        data_file = f"data/{filename}_data.npy"
+        indices_file = f"data/{filename}_indices.npy"
+        indptr_file = f"data/{filename}_indptr.npy"
+
+        ddata = np.load(data_file)
+        idx_size = ddata.shape[0]
+        data = ddata[:idx_size]
+        if filename == "K0":
+            data *= 0.05
+        indices = np.load(indices_file)[:idx_size]
+        indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
+        return csc_matrix((data, indices, indptr))
+
     def prefactor_once(self):
         if self.abd_only:
             return
         h = self.h
         self.compute_K()
-        self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
-        self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
+        if os.path.exists("data/K0_data.npy"):
+            # self.K0 = np.load("data/K0.npy")
+            # self.M_tilde = np.load("data/M_tilde.npy")
+            self.K0 = self.load_sparse("K0")
+            self.M_tilde = self.load_sparse("M_tilde")
+            self.A_tilde = self.K0 + self.M_tilde
+        else: 
+            self.K0 = (self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)).tocsc()
+            self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
 
-        self.A_tilde = self.K0 + self.M_tilde * 9 / 4
+            self.A_tilde = self.K0 + self.M_tilde
+
+            self.save_sparse("K0", self.K0)
+            self.save_sparse("M_tilde", self.M_tilde)
+
+            print("saved K0 and M_tilde to data/")
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
-        self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
+        # self.solver = WoodburySolver(self.n_meshes * 12, self.A_tilde)
+        self.solver = None
         n_medials = self.V_medial.shape[0]
         self.direct_solver = DirectSolver(self.n_meshes, n_medials, self.n_modes, self.n_nodes)
         lhs_args = []
@@ -724,7 +762,7 @@ class MedialVABD(MedialRodComplex):
         self.z0_last[:] = self.z0
         self.z_dot[:] = 0.0
         self.z_dot_last[:] = 0.0
-        
+
         # if self.n_meshes <= 2: 
         if False:
             off = (self.n_meshes - 1) * 12
@@ -801,6 +839,10 @@ class MedialVABD(MedialRodComplex):
             self.direct_solver.compute_Um_tilde(rotations)
             self.direct_solver.ensure_copied(rows, cols, values)
             self.direct_solver.compute_Ab_sys_col(H.tocsc(), g, term, idx, rows, cols, values)
+            dz = np.zeros_like(self.z)
+            dz[: 12 * self.n_meshes] = self.extract_z0(self.z) - self.z0
+            dz[12 * self.n_meshes :] = self.z_tilde - self.z_tilde0
+            self.direct_solver.damp(dz, damp_collision / self.h)
             
         if not cpp_only:
             with wp.ScopedTimer("Um tildeT"):
@@ -1065,31 +1107,115 @@ def C3():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+
+class C2MedialVABD(MedialVABD):
+    def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
+        '''
+        only built to overwrite the load medials function (to modify ground height)
+        '''
+        super().__init__(h, meshes, transforms, static_meshes)
+
+    def define_medials(self):
+        from g2m.medial import SlabMesh
+        from g2m.collision_medial import MedialCollisionDetector
+        padding = False
+
+        self.slabmeshes = dict([(model, SlabMesh(f"assets/{model}/ma/{model}.ma")) for model in self.model_set])
+        
+        
+        R = np.zeros(0, float)
+        E = np.zeros((0, 2), int)
+        F = np.zeros((0, 3), int)
+        V = np.zeros((0, 3))
+        body = []
+
+        cnt = 0
+        if padding: 
+            v_cnt = [self.slabmeshes[model].nv for model in self.model_set]
+            self.v_cnt_max = np.max(np.array(v_cnt))
+            print(f"\npadding : max v cnt = {self.v_cnt_max}\n") 
+
+        for i in range(self.n_meshes):
+            slabmesh = self.slabmeshes[self.models[i]]
+            V0 = np.copy(slabmesh.V)
+            v4 = np.ones((V0.shape[0], 4))
+            v4[:, :3] = V0
+            R0 = slabmesh.R
+            E0 = slabmesh.E
+            F0 = slabmesh.F
+
+            Vi = (v4 @ self.transforms[i].T)[:, : 3]
+            J3 = np.abs(np.linalg.det(self.transforms[i][:3, :3]))
+            J = J3 ** (1./3.)
+            Ri = np.copy(R0) * J
+            if padding:
+                Vii = np.zeros((self.v_cnt_max, 3), float)
+                Vii[:Vi.shape[0], :] = Vi
+                Vi = Vii 
+
+                Rii = np.ones((self.v_cnt_max, ), float) * -1
+                Rii[:Ri.shape[0]] = Ri
+                Ri = Rii 
+                
+            V = np.vstack([V, Vi])
+            # R = np.concatenate([R, np.copy(R0) * J])
+            R = np.concatenate([R, Ri])
+            E = np.vstack((E, E0 + cnt))
+            F = np.vstack((F, F0 + cnt))
+
+            if not padding:
+                body += [i] * slabmesh.nv
+                cnt += slabmesh.nv
+            else:
+                body += [i] * self.v_cnt_max
+                cnt += self.v_cnt_max
+        
+
+        self.F_medial = F
+        self.E_medial = E
+        self.V_medial_rest = np.copy(V)
+        self.V_medial = np.zeros_like(V)
+        self.R_rest = np.copy(R)
+        self.R = np.zeros_like(self.R_rest)
+        self.body_medial = np.array(body, int)
+
+        self.V_medial[:] = self.V_medial_rest
+        self.R[:] = self.R_rest
+
+        self.collider_medial = MedialCollisionDetector(
+            self.V_medial, self.R_rest, self.E_medial, self.F_medial, self.body_medial, dense = False, ground = -boat_translate[1] / boat_scale, static_objects = self.static_meshes)
+
+        self.n_medial = self.V_medial.shape[0]
+
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "rowboat_voxel"
-    model = "boatv8"
+    model = "boatv9_scaled"
     # model = "squishy"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms = np.array(transforms, dtype = float)
 
-    for i in range(n_meshes):
-        # transforms[i][:3, :3] = np.identity(3) * 0.9
-        transforms[i][:3, :3] *= 0.1
-        transforms[i][:3, 3] = np.array([-0.1, 4.3, -0.6])
+
+
+    
+    # for i in range(n_meshes):
+    #     # transforms[i][:3, :3] = np.identity(3) * 0.9
+    #     transforms[i][:3, :3] *= 0.1
+    #     transforms[i][:3, 3] = np.array([-0.1, 4.3, -0.6])
     
     # rods = MedialRodComplex(h, meshes, transforms)
 
     # scale params for teapot
     static_meshes_file = ["assets/stairs_fenced.obj"]
     scale = np.identity(4)
+    scale[:3, :3] *= 1 / boat_scale
+    scale[:3, 3] = -boat_translate * (1 / boat_scale)
 
     
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    rods = MedialVABD(h, meshes, transforms, static_bars)
-    
+    rods = C2MedialVABD(h, meshes, transforms, static_bars)
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
@@ -1124,8 +1250,8 @@ def pyramid(from_frame = 0):
 
 if __name__ == "__main__":
     ps.init()
-    # ps.set_ground_plane_mode("none")
-    ps.set_ground_plane_height(-collision_eps)
+    ps.set_ground_plane_mode("none")
+    # ps.set_ground_plane_height(-collision_eps)
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))

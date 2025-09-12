@@ -17,7 +17,7 @@ import os
 
 # model = "bunny"
 # model = "windmill"
-model = "boatv8"
+model = "boatv9_scaled"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -106,7 +106,7 @@ class RodLBSWeight(Rod):
             with wp.ScopedTimer("matlab eigs"):
                 import matlab.engine
                 eng = matlab.engine.start_matlab()
-                eng.nullspace()
+                eng.nullspace(model)
                 data = loadmat(f"data/eigs/Q_{model}.mat")
                 Q = data["Vv"].astype(np.float64)
                 lam = data["D"].astype(np.float64)

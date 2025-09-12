@@ -9,9 +9,14 @@ from .params import *
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, BsrMatrix
 from scipy.sparse import bsr_matrix
 
-from .neo_hookean import PK1, tangent_stiffness, psi
-# from .linear_elasticity import PK1, tangent_stiffness, psi
+# from .neo_hookean import PK1, tangent_stiffness, psi
+from .linear_elasticity import PK1, tangent_stiffness, psi
 # from .stvk import PK1, tangent_stiffness, psi
+
+from .params import lam, mu
+lam0, mu0 = lam, mu
+lam1, mu1 = lam * 10.0, mu * 10.0
+precompute = True
 @wp.struct 
 class Triplets:
     rows: wp.array(dtype = int)
@@ -91,7 +96,25 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
     
     F = Ds @ Bm[e]
         
-    P = PK1(F)
+    ll = lam0
+    mm = mu0
+
+    center = (t0 + t1 + t2 + t3) / 4.0
+
+    # rest shape
+    #####################################
+    if precompute:
+        xx = center[0]
+        xy = center[2]
+        xx1 = center[0] + 0.4794
+        xy1 = center[2] - 0.0193
+        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.256:
+            # inside skirt of the watermill
+            ll = lam1 
+            mm = mu1
+
+
+    P = PK1(F, ll, mm)
     H = -W[e] * P @ wp.transpose(Bm[e])
 
     # forces are columns of H
@@ -112,7 +135,7 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
             dDs[k, 2] = 1.0
 
         dF = dDs @ Bm[e]
-        dP = tangent_stiffness(F, dF)
+        dP = tangent_stiffness(F, dF, ll, mm)
         dH = -W[e] * dP @ wp.transpose(Bm[e])
         df = wp.vec3(0.0)
         if _i == 3: 
@@ -153,7 +176,26 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
 
     i = geo.T[e, _i]
 
-    P = PK1(F)
+    ll = lam0 
+    mm = mu0
+
+    center = (t0 + t1 + t2 + t3) / 4.0
+
+
+    # rest shape
+    #####################################
+    if precompute:
+        xx = center[0]
+        xy = center[2]
+
+        xx1 = center[0] + 0.4794
+        xy1 = center[2] - 0.0193
+        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.256:
+            # inside skirt of the watermill
+            ll = lam1 
+            mm = mu1
+        
+    P = PK1(F, ll, mm)
     H = -W[e] * P @ wp.transpose(Bm[e])
 
     # forces are columns of H
@@ -171,7 +213,9 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
             dDs[k, 1] = 1.0
             dDs[k, 2] = 1.0
         dF = dDs @ Bm[e]
-        dP = tangent_stiffness(F, dF)
+
+        dP = tangent_stiffness(F, dF, ll, mm)
+        # dP
         dH = -W[e] * dP @ wp.transpose(Bm[e])
 
         df = wp.vec3(0.0)
