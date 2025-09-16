@@ -26,7 +26,7 @@ assert collision_handler in ["triangle", "medial"]
 cpp_only = True
 damp_alpha = 0
 damp_beta = 0
-damp_collision = 5e-2
+damp_collision = 1e-2
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
@@ -320,7 +320,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0] // 190 * self.n_meshes 
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= 0.1
+            data *= 1.0
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -638,7 +638,7 @@ class MedialVABD(MedialRodComplex):
             if E1 < E0:
             # if True:
                 break
-            if alpha < 5e-2:
+            if alpha < 1e-2:
                 self.z_tilde[:] = z_tilde_tmp
                 self.z[:] = z_tmp
                 alpha = 0.0
@@ -1091,12 +1091,12 @@ def C2():
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
-    n_meshes = 190
+    n_meshes = 356
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
 
-    positions = np.load("data/init_pos190.npy")
+    positions = np.load("data/init_pos_356.npy")
     for i in range(n_meshes):
     # for i in range(30, 31):
     #     transforms[i - 30][:3, 3] = positions[i] - np.array([0.0, 4.0, 0.0])
@@ -1126,6 +1126,6 @@ if __name__ == "__main__":
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
     # windmill()
-    pyramid()
+    pyramid(3680)
     # staggered_bug()
     # C2()
