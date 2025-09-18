@@ -14,12 +14,13 @@ from g2m.viewer import MedialViewer
 from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
+from fem.params import mu
 from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
 import os
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e8
+medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -34,9 +35,10 @@ assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = False
 n_windmills = 1
 # params for C2 demo
-boat_translate = np.array([-0.1, 4.3, -0.6])
-boat_scale = 1
-damp_collision = 1.5e-3
+demo = "C3"
+boat_translate = np.array([-0.1, 4.3, -0.6]) if demo == "C2" else np.array([0.0, 3.0, -2.0])
+boat_scale = 1.0
+damp_collision = 0.0
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -321,7 +323,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0]
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= 0.05
+            data *= (mu / 5e6) * (self.h / 2e-3) ** 2
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -1064,50 +1066,6 @@ def staggered_bug():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
-def C3():
-    ps.look_at((0, 4, 10), (0, 4, 0))
-    # model = "armadilo"
-    model = "rowboat_voxel"
-    # model = "squishy"
-    n_meshes = 1
-    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[0][:3, :3] = np.identity(3, float) * 0.1
-    transforms = np.array(transforms, dtype = float)
-    transforms[0][:3, 3] = np.array([0, 3, -2], float)
-    
-    # for i in range(n_meshes):
-    #     # transforms[i][:3, :3] *= 0.1
-    #     # transforms[i][:3, 3] = np.array([-0.2, 4.3, -0.6])
-    #     s = np.sin(-np.pi / 4 * (i))
-    #     c = np.cos(-np.pi / 4 * (i))
-    #     t = np.array([-0.4, 0.0, -0.8])
-    #     R = np.array([
-    #         [c, 0.0, -s],
-    #         [0.0, 1.0, 0.0],
-    #         [s, 0.0, c]
-    #     ])
-    #     transforms[i][:3, :3] = R
-    #     transforms[i][:3, :3] *= .6
-    #     transforms[i][:3, 3] = R @ t + np.array([0., 4.1 - i * 0.5, 0.])
-    
-    # rods = MedialRodComplex(h, meshes, transforms)
-
-    # scale params for teapot
-    # static_meshes_file = ["assets/stairs.obj"]
-    static_meshes_file = ["assets/slope.obj"]
-    scale = np.identity(4)
-    scale[:3, :3] *= 1.0
-
-    
-    static_bars = StaticScene(static_meshes_file, np.array([scale]))
-    rods = MedialVABD(h, meshes, transforms, static_bars)
-    
-    viewer = MedialViewer(rods, static_bars)
-    ps.set_user_callback(viewer.callback)
-    ps.show()
-
-
 class C2MedialVABD(MedialVABD):
     def __init__(self, h, meshes=[], transforms=[], static_meshes:StaticScene = None):
         '''
@@ -1187,6 +1145,49 @@ class C2MedialVABD(MedialVABD):
 
         self.n_medial = self.V_medial.shape[0]
 
+def C3():
+    ps.look_at((0, 4, 10), (0, 4, 0))
+    model = "boatv9_scaled"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    # transforms[0][:3, :3] = np.identity(3, float) * 0.1
+    transforms = np.array(transforms, dtype = float)
+    # transforms[0][:3, 3] = np.array([0, 3, -2], float)
+    
+    # for i in range(n_meshes):
+    #     # transforms[i][:3, :3] *= 0.1
+    #     # transforms[i][:3, 3] = np.array([-0.2, 4.3, -0.6])
+    #     s = np.sin(-np.pi / 4 * (i))
+    #     c = np.cos(-np.pi / 4 * (i))
+    #     t = np.array([-0.4, 0.0, -0.8])
+    #     R = np.array([
+    #         [c, 0.0, -s],
+    #         [0.0, 1.0, 0.0],
+    #         [s, 0.0, c]
+    #     ])
+    #     transforms[i][:3, :3] = R
+    #     transforms[i][:3, :3] *= .6
+    #     transforms[i][:3, 3] = R @ t + np.array([0., 4.1 - i * 0.5, 0.])
+    
+    # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
+    # static_meshes_file = ["assets/stairs.obj"]
+    static_meshes_file = ["assets/slope.obj"]
+    scale = np.identity(4)
+    scale[:3, :3] *= 1 / boat_scale
+    scale[:3, 3] = -boat_translate * (1 / boat_scale)
+    
+    static_bars = StaticScene(static_meshes_file, np.array([scale]))
+    rods = C2MedialVABD(h, meshes, transforms, static_bars)
+    
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "rowboat_voxel"
@@ -1258,5 +1259,5 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    # C3()
-    C2()
+    C3()
+    # C2()
