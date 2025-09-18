@@ -1,3 +1,8 @@
 eigs/
 x_target.npy
 md/
+*.txt
+*.mat
+*.pth
+*.npy
+*.npz

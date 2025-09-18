@@ -11,3 +11,9 @@ assets/squishyball/
 *.ply
 *.dll
 *.pyd
+timing/
+test_scripts/
+.vscode/
+tank.obj
+cylinders.obj
+*.npz
