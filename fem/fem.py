@@ -15,7 +15,7 @@ from .linear_elasticity import PK1, tangent_stiffness, psi
 
 from .params import lam, mu
 lam0, mu0 = lam, mu
-lam1, mu1 = lam * 100.0, mu * 100.0
+lam1, mu1 = lam * 10.0, mu * 10.0
 precompute = True
 @wp.struct 
 class Triplets:
@@ -108,7 +108,7 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
         xy = center[2]
         xx1 = center[0] + 0.4794
         xy1 = center[2] - 0.0193
-        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.256:
+        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.11:
             # inside skirt of the watermill
             ll = lam1 
             mm = mu1
@@ -190,7 +190,7 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
 
         xx1 = center[0] + 0.4794
         xy1 = center[2] - 0.0193
-        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.256:
+        if wp.sqrt(xx * xx + xy * xy) < 0.3 * 0.1 or wp.sqrt(xx1 * xx1 + xy1 * xy1) < 0.3 * 0.1 or center[1] > -0.11:
             # inside skirt of the watermill
             ll = lam1 
             mm = mu1

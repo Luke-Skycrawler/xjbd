@@ -35,7 +35,7 @@ assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = False
 n_windmills = 1
 # params for C2 demo
-demo = "C3"
+demo = "C2"
 boat_translate = np.array([-0.1, 4.3, -0.6]) if demo == "C2" else np.array([0.0, 3.0, -2.0])
 boat_scale = 1.0
 damp_collision = 0.0
@@ -323,7 +323,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0]
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= (mu / 2e6) * (self.h / 2e-3) ** 2
+            data *= (mu / 1e7) * (self.h / 2e-3) ** 2
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -1259,5 +1259,5 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    C3()
-    # C2()
+    # C3()
+    C2()
