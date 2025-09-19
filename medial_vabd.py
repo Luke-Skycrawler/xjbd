@@ -20,7 +20,7 @@ from mtk_solver import DirectSolver
 import os
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e7
+medial_collision_stiffness = 1e8
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -323,7 +323,7 @@ class MedialVABD(MedialRodComplex):
         idx_size = ddata.shape[0]
         data = ddata[:idx_size]
         if filename == "K0":
-            data *= (mu / 5e6) * (self.h / 2e-3) ** 2
+            data *= (mu / 2e6) * (self.h / 2e-3) ** 2
         indices = np.load(indices_file)[:idx_size]
         indptr = np.load(indptr_file)[:(self.n_modes - 12) * self.n_meshes + 1]
         return csc_matrix((data, indices, indptr))
@@ -338,12 +338,12 @@ class MedialVABD(MedialRodComplex):
             # self.M_tilde = np.load("data/M_tilde.npy")
             self.K0 = self.load_sparse("K0")
             self.M_tilde = self.load_sparse("M_tilde")
-            self.A_tilde = self.K0 + self.M_tilde
+            self.A_tilde = self.K0 + self.M_tilde * 9. / 4
         else: 
             self.K0 = (self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)).tocsc()
             self.M_tilde = (self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde).tocsc()
 
-            self.A_tilde = self.K0 + self.M_tilde
+            self.A_tilde = self.K0 + self.M_tilde * 9. / 4
 
             self.save_sparse("K0", self.K0)
             self.save_sparse("M_tilde", self.M_tilde)
@@ -1147,7 +1147,7 @@ class C2MedialVABD(MedialVABD):
 
 def C3():
     ps.look_at((0, 4, 10), (0, 4, 0))
-    model = "boatv9_scaled"
+    model = "boatv9"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
 
@@ -1191,7 +1191,7 @@ def C3():
 def C2():
     ps.look_at((0, 4, 10), (0, 4, 0))
     # model = "rowboat_voxel"
-    model = "boatv9_scaled"
+    model = "boatv9"
     # model = "squishy"
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes

@@ -15,7 +15,7 @@ from .linear_elasticity import PK1, tangent_stiffness, psi
 
 from .params import lam, mu
 lam0, mu0 = lam, mu
-lam1, mu1 = lam * 10.0, mu * 10.0
+lam1, mu1 = lam * 100.0, mu * 100.0
 precompute = True
 @wp.struct 
 class Triplets:
