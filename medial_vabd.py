@@ -20,7 +20,7 @@ from mtk_solver import DirectSolver
 import os
 eps = 3e-3
 ad_hoc = True
-medial_collision_stiffness = 1e8
+medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
@@ -35,10 +35,10 @@ assert solver_choice in ["woodbury", "direct", "compare"]
 use_nullspace = False
 n_windmills = 1
 # params for C2 demo
-demo = "C2"
+demo = "C3"
 boat_translate = np.array([-0.1, 4.3, -0.6]) if demo == "C2" else np.array([0.0, 3.0, -2.0])
 boat_scale = 1.0
-damp_collision = 0.0
+damp_collision = 1e-2
 def asym(a):
     return 0.5 * (a - a.T)
 
@@ -1259,5 +1259,7 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    # C3()
-    C2()
+    if demo == "C3":
+        C3()
+    elif demo == "C2":
+        C2()
