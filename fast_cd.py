@@ -15,7 +15,7 @@ from igl import lbs_matrix, massmatrix
 import igl
 import os
 
-model = "rowboat"
+model = "elephant"
 # model = "windmill"
 from stretch import eps
 class PSViewer:
@@ -76,7 +76,8 @@ def compute_Hw(triplets: Triplets, triplets_Hw: CSRTriplets):
     
 class RodLBSWeight(Rod):
     def __init__(self):
-        self.filename = f"assets/{model}/{model}.tobj"
+        # self.filename = f"assets/{model}/{model}.tobj"
+        self.filename = f"assets/elephant.mesh"
         super().__init__()
         self.define_Hw()
         self.define_M()
@@ -146,7 +147,7 @@ class RodLBSWeight(Rod):
 class RodLBSWeightBC(RodLBSWeight):
     def __init__(self):
         super().__init__()
-        # self.define_Jw()
+        self.define_Jw()
 
     def define_sys_dim(self):
         n_handles = 1
@@ -196,56 +197,54 @@ class RodLBSWeightBC(RodLBSWeight):
         
         return A
 
-    def get_contraint_weight(self):
-        v_rst = self.xcs.numpy()        
-        w = np.zeros((self.n_nodes, 3), float)
+    # def get_contraint_weight(self):
+    #     v_rst = self.xcs.numpy()        
+    #     w = np.zeros((self.n_nodes, 3), float)
 
-        x_rst = v_rst[:, 0]
-        z_rst = v_rst[:, 2]
+    #     x_rst = v_rst[:, 0]
+    #     z_rst = v_rst[:, 2]
         
-        # select = np.abs(x_rst) < eps * 10 
-        # select2 = np.abs(z_rst) < eps * 10
-        # select = select & select2
-        select = np.array([80, 97])
-        w[select[0], 0] = 1.0
-        w[select[1], 1] = 1.0
-        w[:, 2] = 1.0
-        w[select, 2] = 0.0
-        # w[x_rst < -0.5 + eps, 0] = 1.0
-        # w[x_rst > 0.5 - eps, 1] = 1.0        
-        # w[:, 0] = x_rst * 2
-        # w[:, 1] = 1.
+    #     # select = np.abs(x_rst) < eps * 10 
+    #     # select2 = np.abs(z_rst) < eps * 10
+    #     # select = select & select2
+    #     select = np.array([80, 97])
+    #     w[select[0], 0] = 1.0
+    #     w[select[1], 1] = 1.0
+    #     w[:, 2] = 1.0
+    #     w[select, 2] = 0.0
+    #     # w[x_rst < -0.5 + eps, 0] = 1.0
+    #     # w[x_rst > 0.5 - eps, 1] = 1.0        
+    #     # w[:, 0] = x_rst * 2
+    #     # w[:, 1] = 1.
+    #     return w
+
+    def get_constraint_weight(self):
+        w = np.load("data/comp_W.npy")
         return w
 
-
     def compute_J(self):
-        w = self.get_contraint_weight()
+        w = self.get_constraint_weight()
         v_rst = self.xcs.numpy()        
         v1 = np.hstack((v_rst, np.ones((v_rst.shape[0], 1))))
-        # v1 = np.hstack((np.ones((v_rst.shape[0], 1)), v_rst))
-        # w = 1.0 - w
-        # print(f"w sum = {w.sum()}")
-        # v1 = v1 * w.reshape((-1, 1))
-
-        # w2 = np.zeros_like(w)
-        # w2[x_rst > 0.5 - eps] = 1.0
         js = np.hstack([v1 * w[:, i: i + 1] for i in range(w.shape[1])])
-        # js = np.hstack([v1 * w.reshape((-1, 1)), v1 * w2.reshape((-1, 1))])
-        # J = np.kron(np.identity(3, float), js)
-
         J = np.kron(np.identity(3, float), js)
         return J
-        
+    
+    def eigs_export(self, K, M):
+        f = f"data/eigs/{model}.mat"
+        savemat(f, {"K": K, "M": M, "A1": self.Jw}, long_field_names= True)
+        print(f"exported matrices to {f}")
+
     def define_Jw(self):
         J = self.compute_J()
         A = self.compute_Aw()
         Jwij = []
         for ii in range(3):
             for jj in range(4):
-                Jwij.append(J.T @ A[ii, jj])
-        # self.Jw = np.vstack(Jwij, )
-        w = self.get_contraint_weight()
-        self.Jw = w.T
+                Jwij.append(J.T @ A[ii][jj])
+        self.Jw = np.vstack(Jwij)
+        # w = self.get_contraint_weight()
+        # self.Jw = w.T
 
         # w = np.zeros(self.n_nodes, float)
         # v_rst = self.xcs.numpy()
@@ -283,14 +282,15 @@ class RodLBSWeightBC(RodLBSWeight):
         M = self.M_sparse
         for i in range(3):
             for j in range(0, 4):
-                if i!= j:
+                # if i!= j:
+                if j == 3: 
                     Hw += A[i][j].T @ H @ A[i][j]
                     # Mw += A[i][j].T @ M @ A[i][j]
-                if j < 3:
-                    # Hw -= A[i][j].T @ H @ A[j][i]
-                    # Mw -= A[i][j].T @ M @ A[j][i]
-                    Hw -= 0.5 * A[j][i].T @ H @ A[i][j]
-                    # Mw -= 0.5 * A[j][i].T @ M @ A[i][j]
+                # if j < 3:
+                #     # Hw -= A[i][j].T @ H @ A[j][i]
+                #     # Mw -= A[i][j].T @ M @ A[j][i]
+                #     Hw -= 0.5 * A[j][i].T @ H @ A[i][j]
+                #     # Mw -= 0.5 * A[j][i].T @ M @ A[i][j]
         K = Hw
         '''
         we used a covariance matrix that accounts for shear and translation,
