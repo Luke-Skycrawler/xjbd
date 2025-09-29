@@ -21,3 +21,8 @@ gear.obj
 *.tobj
 *.mesh
 CH47/
+tokyo_tower/
+!tokyo_tower/tokyo_tower.tobj
+*.zip
+eiffel_tower/
+*.glb

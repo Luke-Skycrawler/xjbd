@@ -18,7 +18,7 @@ import os
 
 # model = "bunny"
 # model = "windmill"
-model = "boatv9"
+model = "tokyo_tower"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):

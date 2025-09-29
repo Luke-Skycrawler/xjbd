@@ -6,6 +6,10 @@ import polyscope as ps
 import polyscope.imgui as gui
 import numpy as np
 import warp.sparse
+from scipy.io import savemat, loadmat
+from scipy.sparse.linalg import eigsh
+import os
+model = "tokyo_tower"
 @wp.struct
 class ModalWarpingData: 
     W: wp.array(dtype = wp.vec3)
@@ -229,6 +233,34 @@ class ModalWarpingRod(Rod):
     def compute_Q(self):
         self.lam, self.Q = self.eigs_sparse()
 
+
+    def eigs_sparse(self): 
+        update = True
+        K = self.to_scipy_bsr()
+        print("start eigs")
+        dim = K.shape[0]
+        if dim >= 3000:
+            self.eigs_export(K)
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                if update or not os.path.exists(f"data/eigs/Q_{model}.mat"):
+                    import matlab.engine
+                    eng = matlab.engine.start_matlab()
+                    eng.matlab_eigs(model)
+                data = loadmat(f"data/eigs/Q_{model}.mat")
+                Q = data["Vv"].astype(np.float64)
+                lam = data["D"].astype(np.float64)
+        else: 
+            with wp.ScopedTimer("weight space eigs"):
+                lam, Q = eigsh(K, k = 10, which = "SM")
+        return lam, Q
+
+    def eigs_export(self, K):
+        f = f"data/eigs/{model}.mat"
+        savemat(f, {"K": K}, long_field_names= True)
+        print(f"exported matrices to {f}")
+
+    
     def compute_sparse_W(self):
         wp.launch(compute_sparse_W, dim = (self.n_tets * 4,), inputs = [self.geo, self.modal_w, self.triplets])
         warp.sparse.bsr_set_zero(self.W)
@@ -241,8 +273,8 @@ class ModalWarpingRod(Rod):
         # print("cnt min = ", cnt)
         # assert cnt > 0
 
-    def compute_Psi(self, Qi, q_k):
-        # Qi = self.Q[:, mode]
+    def compute_Psi(self, mode, q_k):
+        Qi = self.Q[:, mode]
 
         disp = Qi.reshape((-1, 3)) * q_k
 
@@ -268,7 +300,7 @@ class MWViewer:
 
         self.ui_deformed_mode = 6
 
-        self.ui_magnitude = 2
+        self.ui_magnitude = 200.0
 
         self.ui_use_modal_warping = True
 
@@ -286,14 +318,14 @@ class MWViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 400.0)
 
 if __name__ == "__main__":
     wp.init()
     ps.init()
     ps.set_ground_plane_mode("none")
 
-    rod = ModalWarpingRod()
+    rod = ModalWarpingRod(f"assets/{model}/{model}.tobj")
 
     viewer = MWViewer(rod)
     ps.set_user_callback(viewer.callback)
