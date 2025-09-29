@@ -8,16 +8,17 @@ from scipy.sparse import bsr_matrix, csr_matrix, bmat, diags
 from scipy.sparse.linalg import eigsh
 from scipy.linalg import null_space
 from scipy.io import savemat, loadmat
+from scipy.spatial.transform import Rotation as R
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.fem import Triplets
 from fem.params import rho
-from igl import lbs_matrix, massmatrix
+from igl import lbs_matrix, massmatrix, dqs
 import igl
 import os
 
 # model = "bunny"
 # model = "windmill"
-model = "boatv9"
+model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -36,6 +37,15 @@ class PSViewer:
         
         self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
 
+
+        self.ui_Rx = 0.0
+        self.ui_Ry = 0.0 
+        self.ui_Rz = 0.0
+
+        self.t = np.zeros((self.n_modes, 3))
+        self.q = np.zeros((self.n_modes, 4))
+        self.q[:, 3] = 1.0
+
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
     def idx_to_T(self, idx):
@@ -43,8 +53,21 @@ class PSViewer:
         j = idx % 3
         return i, j
 
+    def compute_V(self):
+        # return self.B @ self.T + self.V0
+        Q = np.zeros((self.Q.shape))
+        Q[:] = self.Q[:] 
+        Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
+        Q /= Q_max
+
+        q = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False).as_quat()
+        print(f"current quat = {q}")
+        self.q[self.ui_deformed_mode // 12] = q
+        
+        return dqs(self.V0.astype(float), Q, self.q, self.t)
+        
     def callback(self):
-        self.V_deform = self.B @ self.T + self.V0
+        self.V_deform = self.compute_V()
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
 
@@ -54,6 +77,12 @@ class PSViewer:
 
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
         self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
+
+
+        changed, self.ui_Rx = gui.SliderFloat("Rx", self.ui_Rx, v_min = -np.pi, v_max = np.pi)
+        changed, self.ui_Ry = gui.SliderFloat("Ry", self.ui_Ry, v_min = -np.pi, v_max = np.pi)
+        changed, self.ui_Rz = gui.SliderFloat("Rz", self.ui_Rz, v_min = -np.pi, v_max = np.pi)
+        
         self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12], enabled = True)
 
 
