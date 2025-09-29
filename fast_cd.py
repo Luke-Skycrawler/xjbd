@@ -18,7 +18,7 @@ import os
 
 # model = "bunny"
 # model = "windmill"
-model = "bar2"
+model = "boatv9"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -42,9 +42,16 @@ class PSViewer:
         self.ui_Ry = 0.0 
         self.ui_Rz = 0.0
 
-        self.t = np.zeros((self.n_modes, 3))
-        self.q = np.zeros((self.n_modes, 4))
+        self.t = np.zeros((2, 3))
+        self.q = np.zeros((2, 4))
         self.q[:, 3] = 1.0
+
+
+        Q = np.zeros((self.Q.shape))
+        Q[:] = self.Q[:] 
+        Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
+        Q /= Q_max / 6.0
+        self.Q = Q
 
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -53,17 +60,16 @@ class PSViewer:
         j = idx % 3
         return i, j
 
+    def to_dqs_weight(self, Q):
+        return np.hstack([Q, 1.0 - Q])
+
     def compute_V(self):
         # return self.B @ self.T + self.V0
-        Q = np.zeros((self.Q.shape))
-        Q[:] = self.Q[:] 
-        Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
-        Q /= Q_max
 
         q = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False).as_quat()
-        print(f"current quat = {q}")
         self.q[self.ui_deformed_mode // 12] = q
         
+        Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
         return dqs(self.V0.astype(float), Q, self.q, self.t)
         
     def callback(self):
@@ -83,7 +89,7 @@ class PSViewer:
         changed, self.ui_Ry = gui.SliderFloat("Ry", self.ui_Ry, v_min = -np.pi, v_max = np.pi)
         changed, self.ui_Rz = gui.SliderFloat("Rz", self.ui_Rz, v_min = -np.pi, v_max = np.pi)
         
-        self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12], enabled = True)
+        self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode], enabled = True)
 
 
 @wp.struct
@@ -355,8 +361,8 @@ def vis_weights():
     rod = RodLBSWeight()
     # rod = RodLBSWeightBC()
     lam, Q = None, None
-    # if not os.path.exists(f"data/W_{model}.npy"):
-    if True:
+    if not os.path.exists(f"data/W_{model}.npy"):
+    # if True:
         lam, Q = rod.eigs()
         np.save(f"data/W_{model}.npy", Q)
     else:
