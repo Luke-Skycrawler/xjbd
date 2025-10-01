@@ -29,7 +29,7 @@ class PSViewer:
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
 
         self.ui_deformed_mode = 0
-
+        self.ui_dqs = False
         self.n_modes = Q.shape[1]
         self.B = lbs_matrix(self.V0, Q)
         self.T = np.zeros((4 * self.n_modes, 3))
@@ -50,7 +50,7 @@ class PSViewer:
         Q = np.zeros((self.Q.shape))
         Q[:] = self.Q[:] 
         Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
-        Q /= Q_max / 6.0
+        Q /= Q_max
         self.Q = Q
 
     def current_magnitude(self):
@@ -66,11 +66,23 @@ class PSViewer:
     def compute_V(self):
         # return self.B @ self.T + self.V0
 
-        q = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False).as_quat()
+        rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
+        q = rotation.as_quat()
         self.q[self.ui_deformed_mode // 12] = q
         
         Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
-        return dqs(self.V0.astype(float), Q, self.q, self.t)
+        if self.ui_dqs:
+            return dqs(self.V0.astype(float), Q, self.q, self.t)
+        else: 
+            rr = rotation.as_matrix().T
+            rrt = np.vstack([rr, np.zeros((1, 3))])
+            start = 0
+            end = start + 4
+            T = np.zeros((8, 3))
+            T[start: end, :] = rrt
+            T[start + 4: end + 3, :] = np.eye(3)
+            B = lbs_matrix(self.V0, Q)
+            return B @ T
         
     def callback(self):
         self.V_deform = self.compute_V()
@@ -80,7 +92,7 @@ class PSViewer:
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
         if changed:
             self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
-
+        changed, self.ui_dqs = gui.Checkbox("dqs", self.ui_dqs)
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
         self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
 
