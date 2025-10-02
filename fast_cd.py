@@ -18,15 +18,13 @@ import os
 
 # model = "bunny"
 # model = "windmill"
-model = "tokyo_tower"
+model = "effel"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
         self.Q = Q
         self.V0 = V0
         self.F = F
-        self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
-        self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
 
         self.ui_deformed_mode = 0
         self.ui_dqs = False
@@ -49,9 +47,19 @@ class PSViewer:
 
         Q = np.zeros((self.Q.shape))
         Q[:] = self.Q[:] 
-        Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
-        Q /= Q_max
+        # Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
+        # Q /= Q_max
+        
+        Q_max_signed = np.max(Q, axis = 0, keepdims = True)
+        Q_min = np.min(Q, axis = 0, keepdims = True)
+        Q_range = Q_max_signed - Q_min
+        Q[:, 1:] -= Q_min[:, 1:] 
+        Q[:, 1:] /= Q_range[:, 1:]
+        
         self.Q = Q
+
+        self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
+        self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
 
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
