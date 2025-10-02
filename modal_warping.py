@@ -9,7 +9,7 @@ import warp.sparse
 from scipy.io import savemat, loadmat
 from scipy.sparse.linalg import eigsh
 import os
-model = "tokyo_tower"
+model = "effel"
 @wp.struct
 class ModalWarpingData: 
     W: wp.array(dtype = wp.vec3)

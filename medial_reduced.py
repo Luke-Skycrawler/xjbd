@@ -22,7 +22,7 @@ from g2m.bary_centric import TetBaryCentricCompute
 from g2m.nn import WarpEncoder
 # from g2m.encoder import Encoder
 # import torch
-save_weight_only = False
+save_weight_only = True
 # if enabled, only save the medial weights and quit
 eps = 3e-3
 padding = False

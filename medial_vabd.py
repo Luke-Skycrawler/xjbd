@@ -1221,6 +1221,17 @@ def C2():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+
+def compute_weight():
+    model = "effel"
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms = np.array(transforms, dtype = float)
+
+    static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
+
 def pyramid(from_frame = 0):
     model = "squishy"
     # model = "bug"
@@ -1259,7 +1270,8 @@ if __name__ == "__main__":
     # windmill()
     # pyramid()
     # staggered_bug()
-    if demo == "C3":
-        C3()
-    elif demo == "C2":
-        C2()
+    # if demo == "C3":
+    #     C3()
+    # elif demo == "C2":
+    #     C2()
+    compute_weight()
