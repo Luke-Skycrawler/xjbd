@@ -15,7 +15,8 @@ from fem.params import rho
 from igl import lbs_matrix, massmatrix, dqs
 import igl
 import os
-
+from g2m.viewer import MedialViewerInterface
+from g2m.bary_centric import TetBaryCentricCompute
 # model = "bunny"
 # model = "windmill"
 model = "effel"
@@ -111,7 +112,22 @@ class PSViewer:
         
         self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode], enabled = True)
 
+class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
+    def __init__(self, model, Q, V0, F):
+        self.tbtt = TetBaryCentricCompute(model)
+        self.V_medial = self.tbtt.slabmesh.V
+        self.R = self.tbtt.slabmesh.R
 
+        self.V_rest = np.copy(self.tbtt.slabmesh.V)
+        self.R_rest = np.copy(self.tbtt.slabmesh.R)
+        self.E = self.tbtt.slabmesh.E
+        super().__init__(Q, V0, F)
+
+    def callback(self):
+        super().callback()
+        self.tbtt.deform(self.V_deform)
+        self.update_medial()
+    
 @wp.struct
 class CSRTriplets:
     rows: wp.array(dtype = int)
@@ -388,7 +404,7 @@ def vis_weights():
     else:
         Q = np.load(f"data/W_{model}.npy")
     
-    viewer = PSViewer(Q, rod.V0, rod.F)
+    viewer = PSViewerMedialSocket(model, Q, rod.V0, rod.F)
     ps.set_user_callback(viewer.callback)
     ps.show()
 

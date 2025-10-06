@@ -64,10 +64,10 @@ class TetBaryCentricCompute:
             bary = None
         return bary, tid
 
-    def deform(self, Qi):
+    def deform(self, V):
         if self.bc is None:
             return
-        V = self.V + Qi.reshape(-1, 3)
+        # V = self.V + Qi.reshape(-1, 3)
         T = self.T
         for i, tid in enumerate(self.tids):
             self.slabmesh.V[i] = V[T[tid]].T @ self.bc[i]

@@ -39,7 +39,7 @@ class MedialViewerSocket(PSViewer):
 
         self.E = rod.E_medial
 
-        np.save("output/medial/E.npy", self.E)
+        # np.save("output/medial/E.npy", self.E)
     
 class MedialViewer(MedialViewerInterface, MedialViewerSocket):
     def __init__(self, rod, static_mesh = None):
