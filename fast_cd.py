@@ -17,6 +17,7 @@ import igl
 import os
 from g2m.viewer import MedialViewerInterface
 from g2m.bary_centric import TetBaryCentricCompute
+from g2m.naive_fitter import Fitter
 # model = "bunny"
 # model = "windmill"
 model = "effel"
@@ -115,17 +116,22 @@ class PSViewer:
 class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
     def __init__(self, model, Q, V0, F):
         self.tbtt = TetBaryCentricCompute(model)
-        self.V_medial = self.tbtt.slabmesh.V
-        self.R = self.tbtt.slabmesh.R
 
-        self.V_rest = np.copy(self.tbtt.slabmesh.V)
-        self.R_rest = np.copy(self.tbtt.slabmesh.R)
+        self.V_rest = self.tbtt.slabmesh.V
+        self.R_rest = self.tbtt.slabmesh.R
         self.E = self.tbtt.slabmesh.E
+        V, T = self.tbtt.V, self.tbtt.T
+        self.fitter = Fitter(V, T, self.tbtt.slabmesh)
+
+        self.V_medial = self.fitter.fitted_V
+        self.R = self.fitter.fitted_R
+        
         super().__init__(Q, V0, F)
 
     def callback(self):
         super().callback()
         self.tbtt.deform(self.V_deform)
+        V, R = self.fitter.V2p(self.V_deform)
         self.update_medial()
     
 @wp.struct
