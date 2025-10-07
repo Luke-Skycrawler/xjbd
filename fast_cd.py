@@ -24,18 +24,19 @@ model = "effel"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
-        self.Q = Q
+        self.Q = Q[:, 1:11]
         self.V0 = V0
         self.F = F
 
         self.ui_deformed_mode = 0
         self.ui_dqs = False
-        self.n_modes = Q.shape[1]
-        self.B = lbs_matrix(self.V0, Q)
+        self.n_modes = self.Q.shape[1]
+        self.B = lbs_matrix(self.V0, self.Q)
         self.T = np.zeros((4 * self.n_modes, 3))
         # self.T[:3, :] = np.eye(3)
         
         self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
+        self.ui_exponent = 0
 
 
         self.ui_Rx = 0.0
@@ -81,9 +82,9 @@ class PSViewer:
         self.q[self.ui_deformed_mode // 12] = q
         
         Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
-        if self.ui_dqs:
+        if self.ui_dqs == 1:
             return dqs(self.V0.astype(float), Q, self.q, self.t)
-        else: 
+        elif self.ui_dqs == 2: 
             rr = rotation.as_matrix().T
             rrt = np.vstack([rr, np.zeros((1, 3))])
             start = 0
@@ -93,6 +94,8 @@ class PSViewer:
             T[start + 4: end + 3, :] = np.eye(3)
             B = lbs_matrix(self.V0, Q)
             return B @ T
+        else:
+            return self.B @ self.T+ self.V0
         
     def callback(self):
         self.V_deform = self.compute_V()
@@ -102,9 +105,17 @@ class PSViewer:
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
         if changed:
             self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
-        changed, self.ui_dqs = gui.Checkbox("dqs", self.ui_dqs)
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
-        self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
+        changed, self.ui_dqs = gui.SliderInt("dqs", self.ui_dqs, v_max=2)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 10)
+        changed, self.ui_exponent = gui.SliderInt("Exponent", self.ui_exponent, v_min = -5, v_max = 5)
+
+        changed = gui.Button("Random")
+        if changed:
+            mag = np.abs(self.ui_magnitude) * pow(10, self.ui_exponent)
+            rand_T = np.random.uniform(-mag, mag, (4 * self.n_modes, 3))
+            self.T = rand_T
+
+        # self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
 
 
         changed, self.ui_Rx = gui.SliderFloat("Rx", self.ui_Rx, v_min = -np.pi, v_max = np.pi)
@@ -125,13 +136,15 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
 
         self.V_medial = self.fitter.fitted_V
         self.R = self.fitter.fitted_R
-        
+        self.ui_fitter = False
         super().__init__(Q, V0, F)
 
     def callback(self):
         super().callback()
         self.tbtt.deform(self.V_deform)
-        V, R = self.fitter.V2p(self.V_deform)
+        changed, self.ui_fitter = gui.Checkbox("fitter", self.ui_fitter)
+        if self.ui_fitter:
+            V, R = self.fitter.V2p(self.V_deform)
         self.update_medial()
     
 @wp.struct

@@ -3,7 +3,7 @@ from torch import nn
 from torch import optim
 
 class Encoder(nn.Module):
-    def __init__(self, n_modes, n_nodes, n_latent = 32):
+    def __init__(self, n_modes, n_nodes, n_latent = 128):
 
         super().__init__()
         self.n_modes = n_modes
