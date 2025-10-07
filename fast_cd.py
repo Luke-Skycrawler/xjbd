@@ -43,8 +43,8 @@ class PSViewer:
         self.ui_Ry = 0.0 
         self.ui_Rz = 0.0
 
-        self.t = np.zeros((2, 3))
-        self.q = np.zeros((2, 4))
+        self.t = np.zeros((self.n_modes * 2, 3))
+        self.q = np.zeros((self.n_modes * 2, 4))
         self.q[:, 3] = 1.0
 
 
@@ -57,9 +57,10 @@ class PSViewer:
         Q_min = np.min(Q, axis = 0, keepdims = True)
         Q_range = Q_max_signed - Q_min
         Q[:, 1:] -= Q_min[:, 1:] 
-        Q[:, 1:] /= Q_range[:, 1:]
-        
-        self.Q = Q
+        Q[:, 1:] /= Q_range[:, 1:]        
+
+        comp_Q = 1 - Q
+        self.Q = np.hstack([Q, comp_Q]) / self.n_modes
 
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
@@ -79,11 +80,12 @@ class PSViewer:
 
         rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
         q = rotation.as_quat()
-        self.q[self.ui_deformed_mode // 12] = q
+        self.q[self.ui_deformed_mode] = q
         
         Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
         if self.ui_dqs == 1:
-            return dqs(self.V0.astype(float), Q, self.q, self.t)
+            return dqs(self.V0.astype(float), self.Q, self.q, self.t)
+    
         elif self.ui_dqs == 2: 
             rr = rotation.as_matrix().T
             rrt = np.vstack([rr, np.zeros((1, 3))])
