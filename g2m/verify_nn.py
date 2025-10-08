@@ -49,7 +49,7 @@ class PSViewer:
         self.n_nodes = 150
         # name = "10000_1e-3"
         name = dataset[1]
-        checkpoint = 2000
+        checkpoint = 1000
 
         self.encoder = Encoder(self.n_modes, self.n_nodes)
         self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))

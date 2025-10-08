@@ -1,7 +1,8 @@
 import torch
 from torch import nn
 from torch import optim
-
+from g2m.medial import SlabMesh
+import numpy as np 
 class Encoder(nn.Module):
     def __init__(self, n_modes, n_nodes, n_latent = 128):
 
@@ -25,22 +26,44 @@ class Encoder(nn.Module):
         #     self.fc2
         # )
 
+        model = "effel"
+        self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
+        VR = np.hstack([self.slabmesh.V, self.slabmesh.R.reshape(-1, 1)])
+        self.VR = torch.tensor(VR.reshape(-1), dtype=torch.float32)
 
-        layer_widths = [self.n_modes, 120, 60, 30, 60, 120, self.n_nodes * 4]
-        
-        self.layers = []
+        layer_widths_encoder = [self.n_modes, 120, 60, 30]
+        layer_widths_decoder = [self.n_nodes * 4 + 30, self.n_nodes * 4 + 60, self.n_nodes * 4 + 60, self.n_nodes * 4]
+
+        self.layers_encoder = []
+        self.layers_decoder = []
+
         self.fcs = []
-        for i in range(len(layer_widths) - 1):
-            input_dim = layer_widths[i]
-            output_dim = layer_widths[i + 1]
-            non_linear = "relu" if i < len(layer_widths) - 2 else "none"
-            layer = nn.Linear(input_dim, output_dim)
-            self.layers.append(layer)
-            self.fcs.append(layer)
-            if non_linear == "relu":
-                self.layers.append(nn.ReLU())
 
-        self.mlp = nn.Sequential(*self.layers)
+        for i in range(len(layer_widths_encoder) - 1):
+            input_dim = layer_widths_encoder[i]
+            output_dim = layer_widths_encoder[i + 1]
+            non_linear_cond = True
+            layer = nn.Linear(input_dim, output_dim)
+            self.layers_encoder.append(layer)
+            self.fcs.append(layer)
+            if non_linear_cond:
+                self.layers_encoder.append(nn.ReLU())
+
+        
+        for i in range(len(layer_widths_decoder) - 1):
+            input_dim = layer_widths_decoder[i]
+            output_dim = layer_widths_decoder[i + 1]
+            non_linear_cond = i < len(layer_widths_decoder) - 2
+            layer = nn.Linear(input_dim, output_dim)
+            self.layers_decoder.append(layer)
+            self.fcs.append(layer)
+            if non_linear_cond:
+                self.layers_decoder.append(nn.ReLU())
+        
+
+        # self.mlp = nn.Sequential(*self.layers)
+        self.encoder = nn.Sequential(*self.layers_encoder)
+        self.decoder = nn.Sequential(*self.layers_decoder)
 
         # nn.init.kaiming_normal(self.mlp)
         # for layer in [self.fc0, self.fc1, self.fc2]:
@@ -49,9 +72,15 @@ class Encoder(nn.Module):
             nn.init.zeros_(layer.bias)
 
     def forward(self, x):
-        s = self.mlp(x).flatten()
+        s = self.encoder(x)
+        if len(s.shape) == 1:
+            VR = self.VR
+        else:
+            VR = self.VR.unsqueeze(0).expand(x.size(0), -1)
+        decoder_input = torch.cat([s, VR], dim=-1)
+        y = self.decoder(decoder_input)
 
-        return s
+        return y.flatten()
         # q = s[:3 * self.n_nodes].reshape(-1, 3)
         # r = s[3 * self.n_nodes:].reshape(-1) 
         # return q, r
