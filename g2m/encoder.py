@@ -5,7 +5,7 @@ from g2m.medial import SlabMesh
 import numpy as np 
 class Encoder(nn.Module):
     def __init__(self, n_modes, n_nodes, n_latent = 128):
-
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__()
         self.n_modes = n_modes
         self.n_nodes = n_nodes
@@ -29,7 +29,7 @@ class Encoder(nn.Module):
         model = "effel"
         self.slabmesh = SlabMesh(f"assets/{model}/ma/{model}.ma")
         VR = np.hstack([self.slabmesh.V, self.slabmesh.R.reshape(-1, 1)])
-        self.VR = torch.tensor(VR.reshape(-1), dtype=torch.float32)
+        self.VR = torch.tensor(VR.reshape(-1), dtype=torch.float32).to(device)
 
         layer_widths_encoder = [self.n_modes, 120, 60, 30]
         layer_widths_decoder = [self.n_nodes * 4 + 30, self.n_nodes * 4 + 60, self.n_nodes * 4 + 60, self.n_nodes * 4]

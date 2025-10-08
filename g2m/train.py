@@ -8,12 +8,15 @@ import polyscope as ps
 import time
 from torch.utils.tensorboard import SummaryWriter
 dataset = ["10000_1e-3", "36d_2000_pi"]
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def train_pq(dataloader: DataLoader, model: Encoder, optimizer: optim.Optimizer):
     size = len(dataloader.dataset)
     model.train()
     loss_avg = 0.0
-    for batch, (p_prime, q) in enumerate(dataloader):
+    for batch, (_p_prime, _q) in enumerate(dataloader):
+        q = _q.to(device)
+        p_prime = _p_prime.to(device)
         p = model(q)
         loss = nn.MSELoss()
 
@@ -32,7 +35,9 @@ def test_pq(dataloader: DataLoader, model: Encoder):
     n_batches = len(dataloader)
     test_loss = 0.0
     with torch.no_grad():
-        for (p_prime, q) in dataloader:
+        for (_p_prime, _q) in dataloader:
+            q = _q.to(device)
+            p_prime = _p_prime.to(device)
             pred = model(q)
             test_loss += nn.MSELoss()(p_prime.flatten(), pred).item()
     test_loss /= n_batches
@@ -45,11 +50,11 @@ def train_with_pq(load_from = 0, epochs = 1000):
     training_data = PQDataset(name = name, end = 1500)
     testing_data = PQDataset(name = name, start = 1500)
 
-    train_dataloader = DataLoader(training_data, batch_size = 50)
-    test_dataloader = DataLoader(testing_data, batch_size = 50)
+    train_dataloader = DataLoader(training_data, batch_size = 200)
+    test_dataloader = DataLoader(testing_data, batch_size = 200)
     n_modes = training_data.n_modes
     n_nodes = training_data.n_nodes
-    model = Encoder(n_modes, n_nodes)
+    model = Encoder(n_modes, n_nodes).to(device)
     writer = SummaryWriter()
     tot_epochs = load_from
     if load_from > 0:
