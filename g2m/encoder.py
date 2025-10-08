@@ -11,22 +11,40 @@ class Encoder(nn.Module):
         self.n_latent = n_latent
         
 
-        self.fc0 = nn.Linear(self.n_modes, self.n_latent)
-        self.fc1 = nn.Linear(self.n_latent, self.n_latent)
-        self.fc2 = nn.Linear(self.n_latent, self.n_nodes * 4)
-        self.mlp = nn.Sequential(
-            # nn.Linear(self.n_modes, self.n_latent), 
-            self.fc0,
-            nn.ReLU(),
-            # nn.Linear(self.n_latent, self.n_latent), 
-            self.fc1,
-            nn.ReLU(),
-            # nn.Linear(self.n_latent, self.n_nodes * 4)
-            self.fc2
-        )
+        # self.fc0 = nn.Linear(self.n_modes, self.n_latent)
+        # self.fc1 = nn.Linear(self.n_latent, self.n_latent)
+        # self.fc2 = nn.Linear(self.n_latent, self.n_nodes * 4)
+        # self.mlp = nn.Sequential(
+        #     # nn.Linear(self.n_modes, self.n_latent), 
+        #     self.fc0,
+        #     nn.ReLU(),
+        #     # nn.Linear(self.n_latent, self.n_latent), 
+        #     self.fc1,
+        #     nn.ReLU(),
+        #     # nn.Linear(self.n_latent, self.n_nodes * 4)
+        #     self.fc2
+        # )
+
+
+        layer_widths = [self.n_modes, 120, 60, 30, 60, 120, self.n_nodes * 4]
+        
+        self.layers = []
+        self.fcs = []
+        for i in range(len(layer_widths) - 1):
+            input_dim = layer_widths[i]
+            output_dim = layer_widths[i + 1]
+            non_linear = "relu" if i < len(layer_widths) - 2 else "none"
+            layer = nn.Linear(input_dim, output_dim)
+            self.layers.append(layer)
+            self.fcs.append(layer)
+            if non_linear == "relu":
+                self.layers.append(nn.ReLU())
+
+        self.mlp = nn.Sequential(*self.layers)
 
         # nn.init.kaiming_normal(self.mlp)
-        for layer in [self.fc0, self.fc1, self.fc2]:
+        # for layer in [self.fc0, self.fc1, self.fc2]:
+        for layer in self.fcs:
             nn.init.kaiming_normal_(layer.weight)
             nn.init.zeros_(layer.bias)
 
