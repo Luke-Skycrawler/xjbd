@@ -6,12 +6,12 @@ from scipy.spatial.transform import Rotation as R
 from g2m.viewer import MedialViewerInterface
 from g2m.encoder import Encoder
 from g2m.medial import SlabMesh
+from g2m.utils import dqs_Q, euler_to_quat, euler_to_affine
 import torch
 import os
 from fast_cd import RodLBSWeight
-
 model = "effel"
-
+dataset = ["10000_1e-3", "36d_2000_pi"]
 class PSViewer:
     def __init__(self, Q, V0, F):
         self.Q = Q[:, 1:11]
@@ -19,7 +19,7 @@ class PSViewer:
         self.F = F
 
         self.ui_deformed_mode = 0
-        self.ui_dqs = False
+        self.ui_dqs = 0
         self.ui_sample_id = 0
         self.n_modes = self.Q.shape[1]
         self.B = lbs_matrix(self.V0, self.Q)
@@ -33,23 +33,13 @@ class PSViewer:
         self.ui_Ry = 0.0 
         self.ui_Rz = 0.0
 
-        self.t = np.zeros((2, 3))
-        self.q = np.zeros((2, 4))
+
+        self.Q, self.Q_range = dqs_Q(self.Q)
+
+        self.t = np.zeros((self.n_modes * 2, 3))
+        self.q = np.zeros((self.n_modes * 2, 4))
         self.q[:, 3] = 1.0
 
-
-        Q = np.zeros((self.Q.shape))
-        Q[:] = self.Q[:] 
-        # Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
-        # Q /= Q_max
-        
-        Q_max_signed = np.max(Q, axis = 0, keepdims = True)
-        Q_min = np.min(Q, axis = 0, keepdims = True)
-        Q_range = Q_max_signed - Q_min
-        Q[:, 1:] -= Q_min[:, 1:] 
-        Q[:, 1:] /= Q_range[:, 1:]
-        
-        self.Q = Q
 
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
@@ -57,13 +47,22 @@ class PSViewer:
         # load pretrained encoder
         self.n_modes = 120
         self.n_nodes = 150
-        name = "10000_1e-3"
-        checkpoint = 5000
+        # name = "10000_1e-3"
+        name = dataset[1]
+        checkpoint = 6000
 
         self.encoder = Encoder(self.n_modes, self.n_nodes)
         self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))
         self.encoder.eval()
+
         self.q_samples = np.load(f"data/pqsample/{name}.npy")
+
+        self.q_120d = np.zeros((self.q_samples.shape[0], 120), np.float32)
+        if self.q_samples.shape[1] == 120:
+            self.q_120d = self.q_samples
+        elif self.q_samples.shape[1] == 36:
+            for id in range(self.q_samples.shape[0]):
+                self.q_120d[id] = euler_to_affine(self.q_samples[id], self.Q_range)
         
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -78,17 +77,22 @@ class PSViewer:
     def compute_V(self):
         # return self.B @ self.T + self.V0
 
-        rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
-        q = rotation.as_quat()
-        self.q[self.ui_deformed_mode // 12] = q
-        
-        Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
         if self.ui_dqs == 1:
-            return dqs(self.V0.astype(float), Q, self.q, self.t)
+            return dqs(self.V0.astype(float), self.Q, self.q, self.t)
         else:
             return self.B @ self.T+ self.V0
         
     def callback(self):
+        changed, self.ui_sample_id = gui.InputInt("sample id", self.ui_sample_id)
+
+        if changed: 
+            q = self.q_samples[self.ui_sample_id]
+            if self.q_samples.shape[1] == 36:
+                quats = euler_to_quat(q, self.Q_range)
+                self.q[:] = quats
+            elif self.q_samples.shape[1] == 120:
+                self.T[:] = self.q_120d[self.ui_sample_id].reshape(self.T.shape)
+
         self.V_deform = self.compute_V()
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
@@ -99,20 +103,6 @@ class PSViewer:
         changed, self.ui_dqs = gui.SliderInt("dqs", self.ui_dqs, v_max=2)
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 10)
         changed, self.ui_exponent = gui.SliderInt("Exponent", self.ui_exponent, v_min = -5, v_max = 5)
-
-        changed, self.ui_sample_id = gui.InputInt("sample id", self.ui_sample_id)
-
-        if changed: 
-            self.T = self.q_samples[self.ui_sample_id].reshape(self.T.shape)
-
-        # changed = gui.Button("Random")
-        # if changed:
-        #     mag = np.abs(self.ui_magnitude) * pow(10, self.ui_exponent)
-        #     rand_T = np.random.uniform(-mag, mag, (4 * self.n_modes, 3))
-        #     self.T = rand_T
-
-        # self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
-
 
         changed, self.ui_Rx = gui.SliderFloat("Rx", self.ui_Rx, v_min = -np.pi, v_max = np.pi)
         changed, self.ui_Ry = gui.SliderFloat("Ry", self.ui_Ry, v_min = -np.pi, v_max = np.pi)
@@ -137,7 +127,8 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
     def callback(self):
         super().callback()
 
-        q_input = self.q_samples[self.ui_sample_id]
+        q_input = self.q_120d[self.ui_sample_id]
+
         with torch.no_grad():
             # with wp.ScopedTimer("inference"):
             p = self.encoder(torch.from_numpy(q_input.astype(np.float32)))

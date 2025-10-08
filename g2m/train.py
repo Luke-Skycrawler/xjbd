@@ -7,6 +7,7 @@ from g2m.dataset import *
 import polyscope as ps
 import time
 from torch.utils.tensorboard import SummaryWriter
+dataset = ["10000_1e-3", "36d_2000_pi"]
 
 def train_pq(dataloader: DataLoader, model: Encoder, optimizer: optim.Optimizer):
     size = len(dataloader.dataset)
@@ -40,9 +41,9 @@ def test_pq(dataloader: DataLoader, model: Encoder):
 
         
 def train_with_pq(load_from = 0, epochs = 1000):
-    name = "10000_1e-3"
-    training_data = PQDataset(name = name, end = 7500)
-    testing_data = PQDataset(name = name, start = 7500)
+    name = dataset[1]
+    training_data = PQDataset(name = name, end = 1500)
+    testing_data = PQDataset(name = name, start = 1500)
 
     train_dataloader = DataLoader(training_data, batch_size = 50)
     test_dataloader = DataLoader(testing_data, batch_size = 50)
@@ -72,4 +73,4 @@ def train_with_pq(load_from = 0, epochs = 1000):
     writer.flush()
 
 if __name__ == "__main__":
-    train_with_pq(load_from = 0, epochs = 5000)
+    train_with_pq(load_from = 5000, epochs = 1000)

@@ -18,6 +18,7 @@ import os
 from g2m.viewer import MedialViewerInterface
 from g2m.bary_centric import TetBaryCentricCompute
 from g2m.naive_fitter import Fitter
+from g2m.utils import dqs_Q
 # model = "bunny"
 # model = "windmill"
 model = "effel"
@@ -29,7 +30,7 @@ class PSViewer:
         self.F = F
 
         self.ui_deformed_mode = 0
-        self.ui_dqs = False
+        self.ui_dqs = 1
         self.n_modes = self.Q.shape[1]
         self.B = lbs_matrix(self.V0, self.Q)
         self.T = np.zeros((4 * self.n_modes, 3))
@@ -48,19 +49,7 @@ class PSViewer:
         self.q[:, 3] = 1.0
 
 
-        Q = np.zeros((self.Q.shape))
-        Q[:] = self.Q[:] 
-        # Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
-        # Q /= Q_max
-        
-        Q_max_signed = np.max(Q, axis = 0, keepdims = True)
-        Q_min = np.min(Q, axis = 0, keepdims = True)
-        Q_range = Q_max_signed - Q_min
-        Q[:, 1:] -= Q_min[:, 1:] 
-        Q[:, 1:] /= Q_range[:, 1:]        
-
-        comp_Q = 1 - Q
-        self.Q = np.hstack([Q, comp_Q]) / self.n_modes
+        self.Q, _ = dqs_Q(self.Q)
 
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
