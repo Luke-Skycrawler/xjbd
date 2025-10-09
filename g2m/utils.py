@@ -2,6 +2,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 n_modes = 10
 def dqs_Q(sQ, comp = True):
+    lam = np.load("data/lam_effel.npy")[1:11]
     Q = np.zeros(sQ.shape)
     Q[:] = sQ[:]
     # Q_max = np.max(np.abs(Q), axis = 0, keepdims = True)
@@ -17,31 +18,34 @@ def dqs_Q(sQ, comp = True):
         return Q
     comp_Q = 1 - Q
     ret = np.hstack([Q, comp_Q])
-    return ret, Q_range
+    Q_range = lam / 7e7
+    return ret, Q_range.reshape((1, -1))
 
 def euler_to_quat(euler, Q_range = None):
     q = euler.reshape((-1, 3))
     quats = np.zeros((n_modes * 2, 4))
+    quats[:, 3] = 1.0
     for i in range(n_modes):
         if Q_range is not None:
             qr = Q_range[0, i]
         else: 
             qr = 1.0
-        rotation = R.from_euler('xyz', q[i] * 10 / qr, degrees = False)
+        rotation = R.from_euler('xyz', q[i] / qr, degrees = False)
         quats[i] = rotation.as_quat()
     return quats
 
 def euler_to_affine(euler, Q_range = None):
     q = euler.reshape((-1, 3))
-    affines = np.zeros((n_modes, 12))
+    affines = np.zeros((n_modes * 2, 12))
+    affines[:, : 9] = np.eye(3).reshape(-1)
     for i in range(n_modes):
         if Q_range is not None:
             qr = Q_range[0, i]
         else: 
             qr = 1.0
-        rotation = R.from_euler('xyz', q[i] * 10 / qr, degrees = False)
+        rotation = R.from_euler('xyz', q[i] / qr, degrees = False)
         rr = rotation.as_matrix().T
         rrt = np.vstack([rr, np.zeros((1, 3))])
-        affines[i] = rrt.flatten()
-    return affines.flatten()
+        affines[i] = rrt.reshape(-1)
+    return affines.reshape(-1) / n_modes
     

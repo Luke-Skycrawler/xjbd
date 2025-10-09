@@ -18,7 +18,7 @@ import os
 from g2m.viewer import MedialViewerInterface
 from g2m.bary_centric import TetBaryCentricCompute
 from g2m.naive_fitter import Fitter
-from g2m.utils import dqs_Q
+from g2m.utils import dqs_Q, euler_to_quat, euler_to_affine
 # model = "bunny"
 # model = "windmill"
 model = "effel"
@@ -30,13 +30,9 @@ class PSViewer:
         self.F = F
 
         self.ui_deformed_mode = 0
-        self.ui_dqs = 1
+        self.ui_dqs = 2
         self.n_modes = self.Q.shape[1]
-        self.B = lbs_matrix(self.V0, self.Q)
-        self.T = np.zeros((4 * self.n_modes, 3))
-        # self.T[:3, :] = np.eye(3)
         
-        self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
         self.ui_exponent = 0
 
 
@@ -49,7 +45,12 @@ class PSViewer:
         self.q[:, 3] = 1.0
 
 
-        self.Q, _ = dqs_Q(self.Q)
+        self.Q, self.Q_range = dqs_Q(self.Q)
+
+        self.B = lbs_matrix(self.V0, self.Q)
+        self.T = np.zeros((4 * self.n_modes, 3))
+        # self.T[:3, :] = np.eye(3)
+        self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
 
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)
@@ -67,15 +68,24 @@ class PSViewer:
     def compute_V(self):
         # return self.B @ self.T + self.V0
 
-        rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
-        q = rotation.as_quat()
-        self.q[self.ui_deformed_mode] = q
+        # rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
+        # q = rotation.as_quat()
+        # self.q[self.ui_deformed_mode] = q
+
+        euler = np.zeros((10, 3))
+        euler[self.ui_deformed_mode] = np.array([self.ui_Rx, self.ui_Ry, self.ui_Rz])
         
-        Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
         if self.ui_dqs == 1:
+            self.q[:] = euler_to_quat(euler, self.Q_range)
             return dqs(self.V0.astype(float), self.Q, self.q, self.t)
     
         elif self.ui_dqs == 2: 
+            affine = euler_to_affine(euler, self.Q_range)
+            self.T = affine.reshape((-1, 3))
+            return self.B @ self.T
+
+            rotation = R.from_euler('xyz', [self.ui_Rx, self.ui_Ry, self.ui_Rz], degrees = False)
+            Q = self.to_dqs_weight(self.Q[:, self.ui_deformed_mode: self.ui_deformed_mode + 1])
             rr = rotation.as_matrix().T
             rrt = np.vstack([rr, np.zeros((1, 3))])
             start = 0
