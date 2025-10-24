@@ -7,8 +7,7 @@ import numpy as np
 from geometry.collision_cell import MeshCollisionDetector, collision_eps
 from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
-from fem.geometry import TOBJComplex
-from fem.interface import StaticScene
+from geometry.static_scene import StaticScene
 from scene_reader import SceneReader
 omega = 3.0
 collision_policy = "all"
@@ -21,7 +20,7 @@ def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n
     states.xdot[i] = v * 0.5
 
 class RodComplexBC(RodBCBase, RodComplex):
-    def __init__(self, h, meshes = [], transforms = [], static_meshes:TOBJComplex = None):
+    def __init__(self, h, meshes = [], transforms = [], static_meshes:StaticScene = None):
         self.meshes_filename = meshes 
         self.transforms = transforms
         super().__init__(h)
@@ -267,7 +266,8 @@ def bar_rain():
     
 
 def staggered_bug():
-    model = "bunny"
+    # model = "bunny"
+    model = "bug"
     n_meshes = 2
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
@@ -282,9 +282,22 @@ def staggered_bug():
         transforms[i][2, 3] = i * 1.2 - 0.8
     
     # rods = MedialRodComplex(h, meshes, transforms)
+
+    # scale params for teapot
     static_meshes_file = ["assets/teapotContainer.obj"]
     scale = np.identity(4) * 3
     scale[3, 3] = 1.0
+
+    # bouncy box
+    static_meshes_file = ["assets/bouncybox.obj"]
+    box_size = 4
+    scale = np.identity(4) * box_size
+    scale[3, 3] = 1.0
+    scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
+    for i in range(n_meshes):
+        transforms[i][1, 3] += box_size * 1.5
+        
+    
     static_bars = StaticScene(static_meshes_file, np.array([scale]))
     # static_bars = None
     rods = RodComplexBC(h, meshes, transforms, static_bars)
@@ -313,9 +326,9 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    # staggered_bars()
+    staggered_bars()
     # staggered_bug()
-    tets()
+    # tets()
     # bunny_rain()
     # bar_rain()
     # load_erleben()

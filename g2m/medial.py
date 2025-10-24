@@ -43,8 +43,8 @@ class SlabMesh:
         
         self.E0 = np.array(edges)
         # extracts edges from faces and append to the edge set
-        self.F = np.array(faces)
-        E = igl.edges(self.F)
+        self.F = np.array(faces).reshape(-1, 3)
+        E = igl.edges(self.F) if self.F.shape[0] > 0 else np.zeros((0, 2), dtype = int)
         E = np.concatenate((self.E0, E))
         sorted_edges = np.sort(E, axis=1)
         unique_edges = np.unique(sorted_edges, axis=0)

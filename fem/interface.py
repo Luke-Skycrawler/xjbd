@@ -29,8 +29,3 @@ class RodComplex(SifakisFEM, TOBJComplex):
         self.V0 = self.V - self.mid
 
         
-class StaticScene(TOBJComplex):
-    def __init__(self, meshes = [], transforms = []):
-        self.meshes_filename = meshes
-        self.transforms = transforms
-        super().__init__()

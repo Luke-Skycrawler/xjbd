@@ -6,7 +6,7 @@ import polyscope.imgui as gui
 from stretch import h, add_dx, PSViewer, Triplets
 from mesh_complex import RodComplexBC, set_velocity_kernel, set_vx_kernel
 from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffness
-from fem.interface import StaticScene
+from geometry.static_scene import StaticScene
 
 import os
 from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
@@ -73,7 +73,7 @@ class MedialRodComplexDebug(RodComplexBC):
     def load_Q(self, model):
         # Q = np.load("data/W_bug.npy")
         Q = np.load(f"data/W_{model}.npy")
-        self.Q = Q[:, :]
+        self.Q = Q[:, :5]
         self.Q[:, 0] = 1.0
         
         
@@ -231,8 +231,8 @@ class MedialRodComplex(MedialRodComplexDebug):
 
         self.n_reduced = self.n_modes * self.n_meshes
         self.z = np.zeros(self.n_reduced)
-        self.z[:9] = vec(np.identity(3))
-        self.z[self.n_modes: self.n_modes + 9] = vec(np.identity(3))
+        for i in range(self.n_meshes):
+            self.z[i * self.n_modes: i * self.n_modes + 9] = vec(np.identity(3))
         
         self.dz = np.zeros_like(self.z)
 
@@ -273,9 +273,11 @@ class MedialRodComplex(MedialRodComplexDebug):
         v4[:, :3] = V0
         R0 = self.slabmesh.R
         E0 = self.slabmesh.E
+        F0 = self.slabmesh.F
         
         R = np.zeros(0, float)
-        E = np.zeros((0, 2), float)
+        E = np.zeros((0, 2), int)
+        F = np.zeros((0, 3), int)
         V = np.zeros((0, 3))
         self.n_mdeial_per_mesh = V0.shape[0]
 
@@ -283,9 +285,14 @@ class MedialRodComplex(MedialRodComplexDebug):
             Vi = (v4 @ self.transforms[i].T)[:, : 3]
             cnt = i * self.n_mdeial_per_mesh
             V = np.vstack([V, Vi])
+            J3 = np.linalg.det(self.transforms[i][:3, :3])
+            J = np.abs(np.power(J3, 1 / 3))
+            # R = np.concatenate([R, np.copy(R0) * J])
             R = np.concatenate([R, np.copy(R0)])
             E = np.vstack((E, E0 + cnt))
+            F = np.vstack((F, F0 + cnt))
 
+        self.F_medial = F
         self.E_medial = E
         self.V_medial_rest = np.copy(V)
         self.V_medial = np.zeros_like(V)
@@ -296,7 +303,7 @@ class MedialRodComplex(MedialRodComplexDebug):
         self.R[:] = self.R_rest
 
         self.collider_medial = MedialCollisionDetector(
-            self.V_medial, self.R_rest, self.E_medial, self.slabmesh.F, ground = 0.0, static_objects = self.static_meshes)
+            self.V_medial, self.R_rest, self.E_medial, self.F_medial, ground = 0.0, static_objects = self.static_meshes)
 
         self.n_medial = self.V_medial.shape[0]
 

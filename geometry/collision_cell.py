@@ -15,7 +15,7 @@ from collision.ee import C_ee, dceedx_s, dcdx_delta_ee
 from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
-from fem.geometry import TOBJComplex
+from geometry.static_scene import StaticScene
 COLLISION_DEBUG = False
 collision_eps = 2e-2
 PT_SET_SIZE = 2048
@@ -23,7 +23,7 @@ EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e6
+stiffness = 1e5
 
 @wp.struct
 class TriangleSoup:
@@ -33,6 +33,7 @@ class TriangleSoup:
     mesh_id: wp.uint64
     vertices: wp.array(dtype = wp.vec3)
     indices: wp.array(dtype = int)  # 1-d array of shape #F * 3, as per warp format 
+    edges: wp.array(dtype = int)
 
 @wp.struct
 class CollisionList:
@@ -291,7 +292,7 @@ def point_triangle_collision(inverted: wp.array(dtype = int), triangles_soup: Tr
                         append(collision_list, element)
 
 @wp.kernel
-def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dtype =wp.vec3), triangles_soup: TriangleSoup, collision_list: CollisionList):
+def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dtype =wp.vec3), triangles_soup: TriangleSoup, collision_list: CollisionList, neighbors: wp.array(dtype = int)):
     '''
     point collision with static triangle soup
     '''
@@ -325,7 +326,7 @@ def point_static_collision(inverted: wp.array(dtype = int), points: wp.array(dty
                 distance, _ = point_triangle_distance_wp(xt0, xt1, xt2, xi)
                 element = wp.vec2i(i, y)
                 if distance < collision_eps:
-                    if point_projects_inside_triangle(xt0, xt1, xt2, xi): #or inside_collision_cell(triangles_soup, neighbors, y, xi):
+                    if point_projects_inside_triangle(xt0, xt1, xt2, xi) or inside_collision_cell(triangles_soup, neighbors, y, xi):
                         append(collision_list, element)
 
 
@@ -341,17 +342,17 @@ def point_plane_collision(triangle_soup: TriangleSoup, ground_plane: float, coll
         append(collision_list, i)
 
 @wp.kernel
-def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup, edges_bvh: wp.uint64, collision_list: EdgeEdgeCollisionList):
+def edge_edge_collison(triangle_soup0: TriangleSoup, triangle_soup1: TriangleSoup, edges_bvh: wp.uint64, collision_list: EdgeEdgeCollisionList):
     x = wp.tid()
     bary_closest = wp.vec3(0.0)
     closest = int(-1)
     closest_distance = float(FLT_MAX)
 
-    ie0 = edges[x * 2 + 0]
-    ie1 = edges[x * 2 + 1]
+    ie0 = triangle_soup0.edges[x * 2 + 0]
+    ie1 = triangle_soup0.edges[x * 2 + 1]
     
-    e0 = triangle_soup.vertices[ie0]
-    e1 = triangle_soup.vertices[ie1]
+    e0 = triangle_soup0.vertices[ie0]
+    e1 = triangle_soup0.vertices[ie1]
 
     low = wp.min(e0, e1) - wp.vec3(collision_eps)
     high = wp.max(e0, e1) + wp.vec3(collision_eps)
@@ -361,14 +362,14 @@ def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup
 
     while wp.bvh_query_next(query, y):
         # find closest other edge
-        iy0 = edges[y * 2 + 0]
-        iy1 = edges[y * 2 + 1]
+        iy0 = triangle_soup1.edges[y * 2 + 0]
+        iy1 = triangle_soup1.edges[y * 2 + 1]
         if iy0 == ie0 or iy0 == ie1 or iy1 == ie0 or iy1 == ie1:
             # skip if share a vertex
             pass
         else:
-            v2 = triangle_soup.vertices[iy0]
-            v3 = triangle_soup.vertices[iy1]
+            v2 = triangle_soup1.vertices[iy0]
+            v3 = triangle_soup1.vertices[iy1]
 
             bary = wp.closest_point_edge_edge(e0, e1, v2, v3, 1e-8)
             distance = bary[2]
@@ -384,7 +385,7 @@ def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup
                 closest = y
                 bary_closest = bary
 
-    inside_2_ring = within_2_ring(x, closest, edges) 
+    inside_2_ring = False #within_2_ring(x, closest, edges) 
     if closest != -1 and not inside_2_ring and closest_distance < collision_eps:
         collision = wp.vec2i(x, closest)
         append(collision_list, collision, bary_closest)
@@ -861,7 +862,7 @@ def disable_interior_vertices(triangle_soup: TriangleSoup, inverted: wp.array(dt
     inverted[idx] = 0
 
 class MeshCollisionDetector:
-    def __init__(self, xcs, T, indices, Bm, ground = None, static_objects: TOBJComplex = None):
+    def __init__(self, xcs, T, indices, Bm, ground = None, static_objects: StaticScene = None):
         '''
         heavy-lifting class for collision detection provided the reference to warp array of points and indices
         '''
@@ -883,27 +884,6 @@ class MeshCollisionDetector:
         else:
             self.ground = ground
 
-        triangle_soup = TriangleSoup()
-        triangle_soup.indices = indices
-        triangle_soup.vertices = xcs
-        
-        self.mesh_triangle_soup = wp.Mesh(triangle_soup.vertices, triangle_soup.indices)
-        triangle_soup.mesh_id = self.mesh_triangle_soup.id
-        self.triangle_soup = triangle_soup
-        
-        if static_objects is not None:
-            self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
-            static_soup = TriangleSoup()
-            static_soup.indices = static_objects.indices
-            static_soup.vertices = static_objects.xcs
-            static_soup.mesh_id = self.staic_triangles.id
-            self.static_soup = static_soup
-            
-            p_static_set = CollisionList()
-            p_static_set.cnt = wp.zeros((1, ), dtype =int)
-            p_static_set.a = wp.zeros((PT_SET_SIZE, ), dtype = wp.vec2i)
-            self.p_static_set = p_static_set
-            self.n_static = 0
         self.F = indices.numpy().reshape((-1, 3))
         
         ev, _, EF = igl.edge_topology(np.zeros((self.n_nodes, 3), dtype = float), self.F)
@@ -915,6 +895,58 @@ class MeshCollisionDetector:
         # self.edges = wp.array(self.E, dtype = int)
         self.edges = wp.zeros((self.n_edges * 2, ), dtype = int)
         self.edges.assign(self.E)
+
+        
+        triangle_soup = TriangleSoup()
+        triangle_soup.indices = indices
+        triangle_soup.vertices = xcs
+        triangle_soup.edges = self.edges
+        
+        self.mesh_triangle_soup = wp.Mesh(triangle_soup.vertices, triangle_soup.indices)
+        triangle_soup.mesh_id = self.mesh_triangle_soup.id
+        self.triangle_soup = triangle_soup
+        
+        if static_objects is not None:
+            self.static_indices = static_objects.indices.numpy()
+
+            E_static = igl.edges(self.static_indices.reshape(-1, 3)).reshape(-1)
+            self.static_edges = wp.array(E_static, dtype = int)
+            n_static_edges = self.static_edges.shape[0] // 2
+
+            self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
+            static_soup = TriangleSoup()
+            static_soup.indices = static_objects.indices
+            static_soup.vertices = static_objects.xcs
+            static_soup.mesh_id = self.staic_triangles.id
+            static_soup.edges = self.static_edges
+            self.static_soup = static_soup
+            
+            p_static_set = CollisionList()
+            p_static_set.cnt = wp.zeros((1, ), dtype =int)
+            p_static_set.a = wp.zeros((PT_SET_SIZE, ), dtype = wp.vec2i)
+            self.p_static_set = p_static_set
+            self.n_static = 0
+
+            self.ee_static_set = EdgeEdgeCollisionList()
+            self.ee_static_set.cnt = wp.zeros((1, ), dtype = int)
+            self.ee_static_set.a = wp.zeros((EE_SET_SIZE, ), dtype = wp.vec2i)
+            self.ee_static_set.bary = wp.zeros((EE_SET_SIZE, 3), dtype = wp.vec3)
+            self.n_static_ee = 0
+
+
+            
+            TT, _ = igl.triangle_triangle_adjacency(self.static_indices.reshape(-1, 3))
+            self.static_neighbors = wp.array(TT.reshape(-1), dtype = int)
+
+            _, _, EF = igl.edge_topology(np.zeros((static_soup.vertices.shape[0], 3), dtype = float), self.F)
+            self.static_neighbor_faces = wp.array(EF.reshape(-1), dtype = int)
+
+            # static edges bvh
+            self.static_lowers = wp.zeros((n_static_edges * 2, ), dtype = wp.vec3)
+            self.static_uppers = wp.zeros_like(self.static_lowers)
+            wp.launch(edge_aabbs, dim = (n_static_edges,), inputs = [self.static_edges, self.static_soup.vertices, self.static_lowers, self.static_uppers])
+            self.static_edges_bvh = wp.Bvh(self.static_lowers, self.static_uppers)
+
 
 
         self.lowers = wp.zeros((self.n_edges, ), dtype = wp.vec3)
@@ -983,7 +1015,7 @@ class MeshCollisionDetector:
         with wp.ScopedTimer("ee"):
             if type == "all" or "ee" in type:
                 self.ee_set.cnt.zero_()
-                wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
+                wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.triangle_soup, self.triangle_soup, self.edges_bvh.id, self.ee_set])
                 # nee = self.ee_set.cnt.numpy()[0]
                 # col_set = self.ee_set.a.numpy()[:nee]
                 # np.save("ee_set.npy", col_set)
@@ -1006,8 +1038,11 @@ class MeshCollisionDetector:
 
         if hasattr(self, "static_soup"):
             self.p_static_set.cnt.zero_()
-            wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set])
+            wp.launch(point_static_collision, dim = (self.n_nodes, ), inputs = [self.inverted, self.xcs, self.static_soup, self.p_static_set, self.static_neighbors])
             self.n_static = self.p_static_set.cnt.numpy()[0]    
+            self.ee_static_set.cnt.zero_()
+            wp.launch(edge_edge_collison, dim = self.n_edges, inputs = [self.edges, self.static_soup, self.static_edges_bvh.id, self.ee_static_set])
+            self.n_static_ee = self.ee_static_set.cnt.numpy()[0]
         npt, nee, n_ground = self.pt_set.cnt.numpy()[0], self.ee_set.cnt.numpy()[0], self.ground_set.cnt.numpy()[0]
         
         return npt, nee, n_ground
@@ -1027,6 +1062,8 @@ class MeshCollisionDetector:
         if hasattr(self, "n_static") and self.n_static:
             self.n_static = min(self.n_static, PT_SET_SIZE)
             wp.launch(collision_energy_static, (self.n_static, ), inputs = [self.p_static_set, self.xcs, self.static_soup, self.inverted, self.stiffness, self.e_col])
+            self.n_static_ee = min(self.n_static_ee, EE_SET_SIZE)   
+            wp.launch()
 
         ret = self.e_col.numpy()[0]
         if COLLISION_DEBUG:

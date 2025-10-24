@@ -11,3 +11,5 @@ assets/squishyball/
 *.ply
 .vscode/
 !input/
+*.dll
+*.pyd
