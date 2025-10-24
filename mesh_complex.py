@@ -11,7 +11,7 @@ from fem.geometry import TOBJComplex
 from fem.interface import StaticScene
 from scene_reader import SceneReader
 omega = 3.0
-
+collision_policy = "all"
 @wp.kernel
 def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
     i = wp.tid()
@@ -69,7 +69,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set(collision_policy) 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -122,7 +122,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         bsr_axpy(collision_force_derivatives, self.A, self.h * self.h)
 
     def compute_collision_energy(self):
-        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all")
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set(collision_policy)
         return self.collider.collision_energy(self.n_pt, self.n_ee, self.n_ground) * self.h * self.h
         # return 0.0
 
@@ -150,8 +150,8 @@ def set_velocity_kernel(states: NewtonState, thres: int):
 def set_vx_kernel(states: NewtonState, thres: int):
     i = wp.tid()
     states.xdot[i] = wp.vec3(0.0)
-    if i >= thres:
-        states.xdot[i] = wp.vec3(3.0, 0.0, 0.0)
+    vx = 3.0 * float(i // thres)
+    states.xdot[i] = wp.vec3(vx, 0.0, 0.0)
 
 def staggered_bars():
     n_meshes = 2 
@@ -174,7 +174,7 @@ def staggered_bars():
     ps.show()
 
 def tets():
-    n_meshes = 2 
+    n_meshes = 10
     meshes = ["assets/tet.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     for i in range(n_meshes):
@@ -313,9 +313,9 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    staggered_bars()
+    # staggered_bars()
     # staggered_bug()
-    # tets()
+    tets()
     # bunny_rain()
     # bar_rain()
     # load_erleben()

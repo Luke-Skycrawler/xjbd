@@ -906,7 +906,11 @@ class MeshCollisionDetector:
             self.n_static = 0
         self.F = indices.numpy().reshape((-1, 3))
         
-        self.E = igl.edges(self.F).reshape(-1)
+        ev, _, EF = igl.edge_topology(np.zeros((self.n_nodes, 3), dtype = float), self.F)
+        self.neighbor_faces = wp.array(EF.reshape(-1), dtype = int)
+        self.E = ev.reshape(-1)
+        # assert (ev.reshape(-1) == self.E).all()
+
         self.n_edges = self.E.shape[0] // 2
         # self.edges = wp.array(self.E, dtype = int)
         self.edges = wp.zeros((self.n_edges * 2, ), dtype = int)
@@ -946,10 +950,8 @@ class MeshCollisionDetector:
 
         # FIXME: only here for a test. change it to actual neighing data 
         TT, _ = igl.triangle_triangle_adjacency(self.F)
-        _, _, EF = igl.edge_topology(np.zeros((self.n_nodes, 3), dtype = float), self.F)
-        self.neighbor_faces = wp.array(EF.reshape(-1), dtype = int)
         self.neighbors = wp.zeros((n_triangles * 3, ), dtype = int)
-        print(f"TT min = {np.min(TT)}")
+        # print(f"TT min = {np.min(TT)}")
         self.neighbors.assign(TT.reshape(-1))
         # self.neighbors.assign(np.array([-1] * n_triangles * 3, dtype = int))
         # FIXME: might have no neighbors if it is a cloth
