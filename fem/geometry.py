@@ -3,6 +3,7 @@ from utils.tobj import import_tobj
 import igl
 from typing import List
 import numpy as np
+import meshio
 L, W = 1, 0.2
 mu, rho, lam = 1e6, 1., 125
 g = 10.
@@ -130,6 +131,8 @@ class TOBJLoader:
             V, T = import_tobj(self.filename)
         elif self.filename.endswith(".mesh"):
             V, T, _ = igl.read_mesh(self.filename)
+        elif self.filename.endswith(".msh"):
+            V, T = igl.read_msh(self.filename)
             
         self.n_nodes = V.shape[0]
         self.n_tets = T.shape[0]
@@ -200,6 +203,12 @@ class TOBJComplex:
             elif f.endswith(".mesh"):
                 v, t, _ = igl.read_mesh(f)
                 ff = np.zeros((0, 3), int)
+            elif f.endswith(".msh"):
+                # v, t = igl.read_msh(f)
+                ff = np.zeros((0, 3), int)
+                mesh = meshio.read(f)
+                v = np.array(mesh.points)
+                t = np.array(mesh.cells_dict["tetra"])
             elif f.endswith(".obj"):
                 v, _, _, ff, _, _ = igl.read_obj(f)
                 t = np.zeros((0, 4), int)

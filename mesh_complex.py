@@ -9,7 +9,7 @@ from utils.tobj import import_tobj
 from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from fem.geometry import TOBJComplex
 from fem.interface import StaticScene
-
+from scene_reader import SceneReader
 omega = 3.0
 
 @wp.kernel
@@ -46,7 +46,8 @@ class RodComplexBC(RodBCBase, RodComplex):
             "squishy": 4778,
             "bunny": 3679
         }
-        n_verts = model_ntets[model]
+        if model in model_ntets:
+            n_verts = model_ntets[model]
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
         if "assets/tet.tobj" in self.meshes_filename:
@@ -68,7 +69,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("ee") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -293,6 +294,15 @@ def staggered_bug():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
+def load_erleben():
+    scene = SceneReader("scenes/11_erleben/cubeCliffCO.txt")
+    static_bars = StaticScene(scene.static_object, scene.static_transform)
+    rods = RodComplexBC(h, scene.meshes_filenames, scene.transforms, static_bars)
+    
+    viewer = PSViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
 if __name__ == "__main__":
     ps.init()
     ps.look_at((0, 4, 8), (0, 2, 0))
@@ -304,8 +314,9 @@ if __name__ == "__main__":
     # multiple_drape()
     # drape()
     # staggered_bars()
-    staggered_bug()
+    # staggered_bug()
     # tets()
     # bunny_rain()
     # bar_rain()
+    load_erleben()
     

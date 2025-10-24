@@ -9,3 +9,5 @@ data/eigs/
 assets/squishyball/
 *_v*.ma
 *.ply
+.vscode/
+!input/

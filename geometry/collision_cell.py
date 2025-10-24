@@ -16,14 +16,14 @@ from collision.vf import C_vf, dcvfdx_s, dcdx_delta_vf
 from collision.dcdx_delta import *
 
 from fem.geometry import TOBJComplex
-COLLISION_DEBUG = True
-collision_eps = 5e-3
+COLLISION_DEBUG = False
+collision_eps = 2e-2
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e5
+stiffness = 1e6
 
 @wp.struct
 class TriangleSoup:
@@ -390,12 +390,12 @@ def edge_edge_collison(edges: wp.array(dtype = int), triangle_soup: TriangleSoup
         append(collision_list, collision, bary_closest)
 
 @wp.kernel
-def edge_aabbs(edges: wp.array(dtype = int), vertices: wp.array(dtype = wp.vec3), lowers: wp.array(dtype = wp.vec3), uppers: wp.array(dtype = wp.vec3)):
+def edge_aabbs(edges: wp.array(dtype = int), vertices: wp.array(dtype = wp.vec3), lowers: wp.array(dtype = wp.vec3), uppers: wp.array(dtype = wp.vec3), dilation: float):
     i = wp.tid()
     e0 = vertices[edges[i * 2 + 0]]
     e1 = vertices[edges[i * 2 + 1]]
-    lowers[i] = wp.min(e0, e1)  
-    uppers[i] = wp.max(e0, e1)
+    lowers[i] = wp.min(e0, e1) - wp.vec3(dilation)
+    uppers[i] = wp.max(e0, e1) + wp.vec3(dilation)
 
 
 @wp.func
@@ -956,7 +956,8 @@ class MeshCollisionDetector:
         self.stiffness = stiffness
 
     def compute_edge_aabbs(self):
-        wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers])
+        dilation = collision_eps / 2
+        wp.launch(edge_aabbs, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup.vertices, self.lowers, self.uppers, dilation])
 
     def refit(self):
         self.compute_edge_aabbs()
