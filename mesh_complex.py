@@ -69,7 +69,7 @@ class RodComplexBC(RodBCBase, RodComplex):
     def process_collision(self):
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("ee") 
+                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -113,7 +113,7 @@ class RodComplexBC(RodBCBase, RodComplex):
         dxnp = self.states.dx.numpy()
         norm_dx = np.linalg.norm(dxnp)
         print(f"norm dx = {np.linalg.norm(dxnp)}")
-        return norm_dx < 1e-3
+        return norm_dx < 1e-5
             
     def add_collision_to_sys_matrix(self, triplets: Triplets):
 
@@ -155,7 +155,7 @@ def set_vx_kernel(states: NewtonState, thres: int):
 
 def staggered_bars():
     n_meshes = 2 
-    meshes = ["assets/bug.tobj"] * n_meshes
+    meshes = ["assets/bar2.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
     transforms[1][:3, :3] = np.zeros((3, 3))
@@ -295,7 +295,7 @@ def staggered_bug():
     ps.show()
 
 def load_erleben():
-    scene = SceneReader("scenes/11_erleben/cubeCliffCO.txt")
+    scene = SceneReader("scenes/11_erleben/spikeCrackCO.txt")
     static_bars = StaticScene(scene.static_object, scene.static_transform)
     rods = RodComplexBC(h, scene.meshes_filenames, scene.transforms, static_bars)
     
@@ -313,10 +313,10 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    # staggered_bars()
+    staggered_bars()
     # staggered_bug()
     # tets()
     # bunny_rain()
     # bar_rain()
-    load_erleben()
+    # load_erleben()
     

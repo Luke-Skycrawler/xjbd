@@ -971,7 +971,7 @@ class MeshCollisionDetector:
         n_ground = 0
 
         with wp.ScopedTimer("ground"):
-            if self.ground_enabled and (type == "ground" or type == "all"):
+            if self.ground_enabled and (type == "all" or "ground" in type):
                 self.ground_set.cnt.zero_()
                 wp.launch(point_plane_collision, dim = (self.n_nodes, ), inputs = [self.triangle_soup, self.ground, self.ground_set])
                 # n_ground = self.ground_set.cnt.numpy()[0]
@@ -979,7 +979,7 @@ class MeshCollisionDetector:
                     min_y = np.min(self.triangle_soup.vertices.numpy()[:, 1])
                     print(f"verts y coord min = {min_y}, ground = {self.ground}")
         with wp.ScopedTimer("ee"):
-            if type == "ee" or type == "all":
+            if type == "all" or "ee" in type:
                 self.ee_set.cnt.zero_()
                 wp.launch(edge_edge_collison, dim = (self.n_edges,), inputs = [self.edges, self.triangle_soup, self.edges_bvh.id, self.ee_set])
                 # nee = self.ee_set.cnt.numpy()[0]
@@ -988,7 +988,7 @@ class MeshCollisionDetector:
                 # np.save("edges.npy", self.edges.numpy())
                 # np.save("points.npy", self.triangle_soup.vertices.numpy())
         with wp.ScopedTimer("pt"):
-            if type == "pt" or type == "all":
+            if type == "all" or "pt" in type:
                 self.pt_set.cnt.zero_()
 
                 if self.Bm is not None:
