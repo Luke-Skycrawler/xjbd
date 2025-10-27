@@ -17,7 +17,7 @@ from collision.dcdx_delta import *
 
 from geometry.static_scene import StaticScene
 COLLISION_DEBUG = False
-collision_eps = 2e-2
+collision_eps = 5e-3
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
@@ -377,18 +377,20 @@ def edge_edge_collison(triangle_soup0: TriangleSoup, triangle_soup1: TriangleSou
             b = bary[1]
 
             SKIP_EPS = 1e-4
-            if distance > closest_distance or a < SKIP_EPS or a > 1.0 - SKIP_EPS or b < SKIP_EPS or b > 1.0 - SKIP_EPS:
-                # skip if is close to an end vertex
-                pass
-            else: 
-                closest_distance = distance
-                closest = y
-                bary_closest = bary
+            if distance < collision_eps:
+                append(collision_list, wp.vec2i(x, y), bary)
+    #         if distance > closest_distance or a < SKIP_EPS or a > 1.0 - SKIP_EPS or b < SKIP_EPS or b > 1.0 - SKIP_EPS:
+    #             # skip if is close to an end vertex
+    #             pass
+    #         else: 
+    #             closest_distance = distance
+    #             closest = y
+    #             bary_closest = bary
 
-    inside_2_ring = False #within_2_ring(x, closest, edges) 
-    if closest != -1 and not inside_2_ring and closest_distance < collision_eps:
-        collision = wp.vec2i(x, closest)
-        append(collision_list, collision, bary_closest)
+    # inside_2_ring = False #within_2_ring(x, closest, edges) 
+    # if closest != -1 and not inside_2_ring and closest_distance < collision_eps:
+    #     collision = wp.vec2i(x, closest)
+    #     append(collision_list, collision, bary_closest)
 
 @wp.kernel
 def edge_aabbs(edges: wp.array(dtype = int), vertices: wp.array(dtype = wp.vec3), lowers: wp.array(dtype = wp.vec3), uppers: wp.array(dtype = wp.vec3), dilation: float):
