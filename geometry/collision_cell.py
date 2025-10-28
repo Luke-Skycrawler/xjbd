@@ -17,13 +17,13 @@ from collision.dcdx_delta import *
 
 from geometry.static_scene import StaticScene
 COLLISION_DEBUG = False
-collision_eps = 5e-3
+collision_eps = 2e-2
 PT_SET_SIZE = 2048
 EE_SET_SIZE = 2048
 GROUND_SET_SIZE = 2048
 FLT_MAX = 1e5
 ZERO = 1e-6
-stiffness = 1e5
+stiffness = 1e7
 
 @wp.struct
 class TriangleSoup:
@@ -665,7 +665,7 @@ def fill_collision_triplets_ee(npt: int, ee_set: EdgeEdgeCollisionList, triangle
 
     is_penetrating = triangle_edge_intersection(ta0, ta1, ta2, e0, e1) or triangle_edge_intersection(tb0, tb1, tb2, e0, e1)
     
-    if is_penetrating: 
+    if is_penetrating and wp.abs(l) < collision_eps: 
         gl0, gl1, gl2 = gl(l, e2p)
         lam0, lam1, lam2, lam3, q0, q1, q2, q3 = eig_Hl(e0p, e1p, e2p)
         lam4 = 2.0
@@ -852,7 +852,7 @@ def collision_energy_ee(ee_set: EdgeEdgeCollisionList, triangle_soup: TriangleSo
 
     is_penetrating = triangle_edge_intersection(ta0, ta1, ta2, e0, e1) or triangle_edge_intersection(tb0, tb1, tb2, e0, e1)
 
-    if is_penetrating: 
+    if is_penetrating and wp.abs(l) < collision_eps: 
         dpsi = l * l * stiffness
         wp.atomic_add(e_col, 0, dpsi)
     

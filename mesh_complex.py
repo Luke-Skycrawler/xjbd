@@ -10,7 +10,7 @@ from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros
 from geometry.static_scene import StaticScene
 from scene_reader import SceneReader
 omega = 3.0
-collision_policy = "all"
+collision_policy = "pt_ground"
 @wp.kernel
 def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
     i = wp.tid()
@@ -55,9 +55,10 @@ class RodComplexBC(RodBCBase, RodComplex):
         elif model in["bar2", "bug", "squishy", "bunny", "fork"]: 
             wp.launch(set_velocity_kernel, (self.n_nodes,), inputs = [self.states, n_verts])
         else: 
-            pos = self.transforms[:, :3, 3]
-            positions = wp.array(pos, dtype = wp.vec3)
-            wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
+            pass
+            # pos = self.transforms[:, :3, 3]
+            # positions = wp.array(pos, dtype = wp.vec3)
+            # wp.launch(init_velocities, (self.n_nodes,), inputs = [self.states, positions, n_verts])
         
 
     def set_bc_fixed_hessian(self):
@@ -154,14 +155,14 @@ def set_vx_kernel(states: NewtonState, thres: int):
     states.xdot[i] = wp.vec3(vx, 0.0, 0.0)
 
 def staggered_bars():
-    n_meshes = 2 
+    n_meshes = 1
     meshes = ["assets/fork/fork.tobj"] * n_meshes
     # meshes = ["assets/bunny_5.tobj"] * n_meshes
     transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-    transforms[1][:3, :3] = np.zeros((3, 3))
-    transforms[1][0, 1] = 1
-    transforms[1][1, 0] = 1
-    transforms[1][2, 2] = 1
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
 
     for i in range(n_meshes):
         # transforms[i][0, 3] = i * 0.5
@@ -169,6 +170,30 @@ def staggered_bars():
         transforms[i][2, 3] = i * 1.0
         transforms[i][:3, :3] *= 0.2
     
+    rods = RodComplexBC(h, meshes, transforms)
+    viewer = PSViewer(rods)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+def two_tets():
+    n_meshes = 1 
+    # meshes = ["assets/two_tets_edge_edge.tobj"] * n_meshes
+    # meshes = ["assets/two_tets_vertex_face.tobj"] * n_meshes
+    meshes = ["assets/e_30.tobj"] * n_meshes
+    # meshes = ["assets/bunny_5.tobj"] * n_meshes
+    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
+    transforms[0][:3, 3] = np.array([0, 1.0, 0.0])
+    # transforms[1][:3, :3] = np.zeros((3, 3))
+    # transforms[1][0, 1] = 1
+    # transforms[1][1, 0] = 1
+    # transforms[1][2, 2] = 1
+
+    # for i in range(n_meshes):
+    #     # transforms[i][0, 3] = i * 0.5
+    #     transforms[i][1, 3] = 1.2 + i * 0.2
+    #     transforms[i][2, 3] = i * 1.0
+    #     transforms[i][:3, :3] *= 0.2
+
     rods = RodComplexBC(h, meshes, transforms)
     viewer = PSViewer(rods)
     ps.set_user_callback(viewer.callback)
@@ -328,7 +353,8 @@ if __name__ == "__main__":
 
     # multiple_drape()
     # drape()
-    staggered_bars()
+    # staggered_bars()
+    two_tets()
     # staggered_bug()
     # tets()
     # bunny_rain()
