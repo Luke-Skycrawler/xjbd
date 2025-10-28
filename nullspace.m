@@ -3,15 +3,15 @@
 % spy(K);
 function Vv = nullspace(name)
 % load data/eigs/squishy_ball_lowlow.mat
-load data/eigs/rowboat.mat
+load data/eigs/elephant.mat
 % load data/eigs/tmp.mat
 % load output/bug/A1.mat;
-% na1 = null(A1');
+na1 = null(A1');
 
-% tilde_K = na1' * K * na1;
-% tilde_M = na1' * M * na1;
-tilde_K = K;
-tilde_M = M;
+tilde_K = na1' * K * na1;
+tilde_M = na1' * M * na1;
+% tilde_K = K;
+% tilde_M = M;
 
 [Vv, D] = eigs(tilde_K, tilde_M, 20, 'smallestabs');
 
@@ -19,6 +19,6 @@ tilde_M = M;
 % Vv = Vv ./ sqrt(diagVMV');
 % V = na1 * Vv;
 % save data/eigs/Q_squishy_ball_lowlow.mat Vv D
-save data/eigs/Q_rowboat.mat Vv D
+save data/eigs/Q_elephant.mat Vv D
 
 end
