@@ -16,7 +16,7 @@ from .linear_elasticity import PK1, tangent_stiffness, psi
 from .params import lam, mu
 lam0, mu0 = lam, mu
 lam1, mu1 = lam * 1.0, mu * 1.0
-precompute = True
+precompute = False
 @wp.struct 
 class Triplets:
     rows: wp.array(dtype = int)
@@ -79,7 +79,25 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
 #                 for l in range(3):
 #                     a[i * 3 + l, j * 3 + k] += df[l]
 
+
+@wp.kernel
+def accumulate_F_trace(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), F_trace: wp.array(dtype = float), Wv: wp.array(dtype = float)):
+    e = wp.tid()
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
     
+    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    
+    F = Ds @ Bm[e]
+
+    for ii in range(4):
+        # F_trace[geo.T[e, ii]] += wp.trace(F) * W[e]
+        wp.atomic_add(F_trace, geo.T[e, ii], (wp.trace(F) - 3.0) * W[e])
+        wp.atomic_add(Wv, geo.T[e, ii], W[e])
+
+
 @wp.kernel
 def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), a: wp.array2d(dtype = float), b: wp.array(dtype = wp.vec3)):
 
@@ -344,3 +362,13 @@ class SifakisFEM:
         
         lam, Q = eigsh(K, k = 10, which = "SM", tol = 1e-4)
         return lam, Q
+
+    def convert_to_weight_mode(self, mode):
+        x = self.xcs.numpy()
+        xwp = wp.from_numpy(x + mode.reshape((-1, 3)), dtype = wp.vec3)
+        F_trace = wp.zeros((self.n_nodes,), dtype = float)
+        Wv = wp.zeros((self.n_nodes,), dtype = float)
+        wp.launch(accumulate_F_trace, (self.n_tets,), inputs = [xwp, self.geo, self.Bm, self.W, F_trace, Wv])
+        
+        return (F_trace.numpy() / Wv.numpy()).reshape((-1))
+        

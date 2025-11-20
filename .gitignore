@@ -15,3 +15,7 @@ assets/squishyball/
 *.npy
 test_scripts/
 .vscode/
+runs/
+data/*.pth
+*.pth
+data/*.txt

@@ -18,7 +18,7 @@ import os
 # model = "rowboat"
 # model = "windmill"
 # model = "boat"
-model = "boatv5"
+model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -97,6 +97,21 @@ class RodLBSWeight(Rod):
         savemat(f, {"K": K, "M": M}, long_field_names= True)
         print(f"exported matrices to {f}")
 
+    def eigs_new(self):
+        K = self.to_scipy_bsr()
+        with wp.ScopedTimer("displacement eigen modes"):
+            lam, Q3n = eigsh(K, k = 20, M = self.M_sparse, which = "SM")
+            # lam, Q = eigsh(K, k = 10, which = "SM")
+            Q_norm = np.linalg.norm(Q3n, axis = 0, ord = np.inf, keepdims = True)
+            Q3n /= Q_norm
+        Q = np.zeros((self.n_nodes, 14))
+        for i in range(6, 20):
+            Q[:, i - 6] = self.convert_to_weight_mode(Q3n[:, i])
+
+        Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+        Q /= Q_norm
+        return lam, Q
+        
     def eigs(self):
         K = self.to_scipy_csr()
         # print("start weight space eigs")
@@ -378,12 +393,12 @@ def vis_weights():
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
-    # rod = RodLBSWeight()
-    rod = RodLBSWeightBC()
+    rod = RodLBSWeight()
+    # rod = RodLBSWeightBC()
     lam, Q = None, None
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:
-        lam, Q = rod.eigs()
+        lam, Q = rod.eigs_new()
         np.save(f"data/W_{model}.npy", Q)
     else:
         Q = np.load(f"data/W_{model}.npy")
