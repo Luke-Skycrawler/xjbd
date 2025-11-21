@@ -3,7 +3,8 @@
 % spy(K);
 function Vv = nullspace(name)
 % load data/eigs/squishy_ball_lowlow.mat
-load data/eigs/boatv5.mat
+% load data/eigs/boatv5.mat
+load(['data/eigs/' name '.mat']);
 % load data/eigs/tmp.mat
 % load output/bug/A1.mat;
 % na1 = null(A1');
@@ -13,12 +14,13 @@ load data/eigs/boatv5.mat
 tilde_K = K;
 tilde_M = M;
 
-[Vv, D] = eigs(tilde_K, tilde_M, 100, 'smallestabs');
+[Vv, D] = eigs(tilde_K, tilde_M, 30, 'smallestabs');
 
 % diagVMV = diag(Vv' * tilde_M * Vv);
 % Vv = Vv ./ sqrt(diagVMV');
 % V = na1 * Vv;
 % save data/eigs/Q_squishy_ball_lowlow.mat Vv D
-save data/eigs/Q_boatv5.mat Vv D
+% save data/eigs/Q_boatv5.mat Vv D
+save(['data/eigs/Q_' name '.mat'], 'Vv', 'D');
 
 end

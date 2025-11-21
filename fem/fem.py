@@ -94,8 +94,12 @@ def accumulate_F_trace(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(
 
     for ii in range(4):
         # F_trace[geo.T[e, ii]] += wp.trace(F) * W[e]
-        wp.atomic_add(F_trace, geo.T[e, ii], (wp.trace(F) - 3.0) * W[e])
-        wp.atomic_add(Wv, geo.T[e, ii], W[e])
+        xi0 = geo.xcs[geo.T[e, ii]]
+        ui = x[geo.T[e, ii]] - xi0
+        # ui = x[geo.T[e, ii]]
+        wp.atomic_add(F_trace, geo.T[e, ii], wp.dot(ui, xi0) / wp.dot(xi0, xi0))
+        # wp.atomic_add(F_trace, geo.T[e, ii], (wp.trace(F) - 0.0 + wp.length(ui)) * W[e])
+        # wp.atomic_add(Wv, geo.T[e, ii], W[e])
 
 
 @wp.kernel
@@ -370,5 +374,8 @@ class SifakisFEM:
         Wv = wp.zeros((self.n_nodes,), dtype = float)
         wp.launch(accumulate_F_trace, (self.n_tets,), inputs = [xwp, self.geo, self.Bm, self.W, F_trace, Wv])
         
-        return (F_trace.numpy() / Wv.numpy()).reshape((-1))
+        # Q = (F_trace.numpy() / Wv.numpy()).reshape((-1))
+        # Qbar = np.mean(Q, axis = 0, keepdims = True)
+        Q = F_trace.numpy().reshape((-1))
+        return Q
         

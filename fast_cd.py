@@ -18,7 +18,8 @@ import os
 # model = "rowboat"
 # model = "windmill"
 # model = "boat"
-model = "bar2"
+model = "bug"
+# model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -36,6 +37,12 @@ class PSViewer:
         # self.T[:3, :] = np.eye(3)
         
         self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
+        self.ui_displacement = False
+
+        data = loadmat(f"data/eigs/Q_{model}.mat")
+        self.Q3n = data["Vv"].astype(np.float64)
+        lam = data["D"].astype(np.float64)
+
 
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -45,10 +52,14 @@ class PSViewer:
         return i, j
 
     def callback(self):
-        self.V_deform = self.B @ self.T + self.V0
+        changed, self.ui_displacement = gui.Checkbox("show displacement mode", self.ui_displacement)
+        if self.ui_displacement:
+            self.V_deform = self.V0 + self.Q3n[:, self.ui_deformed_mode // 12].reshape((-1, 3)) * self.ui_magnitude
+        else: 
+            self.V_deform = self.B @ self.T + self.V0
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
-
+        
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
         if changed:
             self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -99,18 +110,42 @@ class RodLBSWeight(Rod):
 
     def eigs_new(self):
         K = self.to_scipy_bsr()
-        with wp.ScopedTimer("displacement eigen modes"):
-            lam, Q3n = eigsh(K, k = 20, M = self.M_sparse, which = "SM")
-            # lam, Q = eigsh(K, k = 10, which = "SM")
-            Q_norm = np.linalg.norm(Q3n, axis = 0, ord = np.inf, keepdims = True)
-            Q3n /= Q_norm
-        Q = np.zeros((self.n_nodes, 14))
-        for i in range(6, 20):
-            Q[:, i - 6] = self.convert_to_weight_mode(Q3n[:, i])
+        dim = K.shape[0] 
+        n_weights = 20
+        # if dim >= 3000:
+        if True:
+            self.eigs_export(K, self.M_sparse)
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                import matlab.engine
+                eng = matlab.engine.start_matlab()
+                eng.nullspace(model)
+                data = loadmat(f"data/eigs/Q_{model}.mat")
+                Q3n = data["Vv"].astype(np.float64)
+                lam = data["D"].astype(np.float64)
+        else: 
+            with wp.ScopedTimer("displacement eigen modes"):
+                lam, Q3n = eigsh(K, k = 20, M = self.M_sparse, which = "SM")
+                # lam, Q = eigsh(K, k = 10, which = "SM")
 
-        Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-        Q /= Q_norm
+        Q_norm = np.linalg.norm(Q3n, axis = 0, ord = np.inf, keepdims = True)
+        Q3n /= Q_norm
+        Q = np.zeros((self.n_nodes, n_weights * 3))
+        for i in range(n_weights):
+            Q[:, i * 3:i * 3 + 3] = self.convert_to_weight_mode(Q3n[:, i + 6])
+
+        # PCA
+        XTX = Q.T @ Q
+        U, S, V = np.linalg.svd(Q)
+        Q = np.hstack([np.ones((Q.shape[0], 1)), U[:, :n_weights]])
+        
+        # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+        # Q /= Q_norm
         return lam, Q
+
+    def convert_to_weight_mode(self, mode):
+        Q = mode.reshape((-1, 3))
+        return Q
         
     def eigs(self):
         K = self.to_scipy_csr()
@@ -315,7 +350,7 @@ class RodLBSWeightBC(RodLBSWeight):
 
         p = vec([A, b])
         c_ij = covariance(p_i, p_j), i, j < 12
-        define ix(i, j) = 3 * i + j
+        define ix(i, j) = 4 * i + j, i < 3, j < 4
 
         c_ij = 1 if i == j 
         -1 if i == ix(a, b), j = ix(b, a) where b < 3
@@ -399,7 +434,7 @@ def vis_weights():
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:
         lam, Q = rod.eigs_new()
-        np.save(f"data/W_{model}.npy", Q)
+        np.save(f"data/lma_weight/W_{model}.npy", Q)
     else:
         Q = np.load(f"data/W_{model}.npy")
     
