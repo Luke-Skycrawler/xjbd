@@ -6,6 +6,10 @@ import polyscope as ps
 import polyscope.imgui as gui
 import numpy as np
 import warp.sparse
+from scipy.io import savemat, loadmat
+from scipy.sparse.linalg import eigsh
+import os
+model = "bar2"
 @wp.struct
 class ModalWarpingData: 
     W: wp.array(dtype = wp.vec3)
@@ -191,6 +195,20 @@ def displace_u(modal_w: ModalWarpingData, Phi: wp.array(dtype = wp.vec3)):
     w_hat = wp.normalize(w_k)
     modal_w.u[i] = Phi[i] + wp.cross(w_hat, wp.cross(w_hat, Phi[i])) * term2 + wp.cross(w_hat, Phi[i]) * term1
 
+@wp.kernel
+def displace_u_new(modal_w: ModalWarpingData, Phi: wp.array(dtype = wp.vec3), q: float):
+    i = wp.tid()
+    w_k = modal_w.psi[i] * q
+    norm_wk = wp.length(w_k)
+
+    term1 = (1.0 - wp.cos(norm_wk)) / norm_wk
+    term2 = (1.0 - wp.sin(norm_wk) / norm_wk)
+
+    wkx = wp.skew(w_k / norm_wk)
+    w_hat = wp.normalize(w_k)
+    phii = Phi[i] * q
+    modal_w.u[i] = phii + wp.cross(w_hat, wp.cross(w_hat, phii)) * term2 + wp.cross(w_hat, phii) * term1
+
 
 class ModalWarpingRod(Rod):
     def __init__(self, filename = default_tobj):
@@ -226,9 +244,40 @@ class ModalWarpingRod(Rod):
         self.triplets.col = cols
         self.triplets.values = vals
 
+
+        self.precompute_Psi()
+        
     def compute_Q(self):
         self.lam, self.Q = self.eigs_sparse()
 
+
+    def eigs_sparse(self): 
+        update = True
+        K = self.to_scipy_bsr()
+        print("start eigs")
+        dim = K.shape[0]
+        if dim >= 3000:
+            self.eigs_export(K)
+            print("dimension exceeds scipy capability, switching to matlab")
+            with wp.ScopedTimer("matlab eigs"):
+                if update or not os.path.exists(f"data/eigs/Q_{model}.mat"):
+                    import matlab.engine
+                    eng = matlab.engine.start_matlab()
+                    eng.matlab_eigs(model)
+                data = loadmat(f"data/eigs/Q_{model}.mat")
+                Q = data["Vv"].astype(np.float64)
+                lam = data["D"].astype(np.float64)
+        else: 
+            with wp.ScopedTimer("weight space eigs"):
+                lam, Q = eigsh(K, k = 10, which = "SM")
+        return lam, Q
+
+    def eigs_export(self, K):
+        f = f"data/eigs/{model}.mat"
+        savemat(f, {"K": K}, long_field_names= True)
+        print(f"exported matrices to {f}")
+
+    
     def compute_sparse_W(self):
         wp.launch(compute_sparse_W, dim = (self.n_tets * 4,), inputs = [self.geo, self.modal_w, self.triplets])
         warp.sparse.bsr_set_zero(self.W)
@@ -241,10 +290,16 @@ class ModalWarpingRod(Rod):
         # print("cnt min = ", cnt)
         # assert cnt > 0
 
-    def compute_Psi(self, Qi, q_k):
-        # Qi = self.Q[:, mode]
+    def precompute_Psi(self): 
+        self.Psi = np.zeros_like(self.Q)
+        for mode in range(self.Q.shape[1]):
+            self.Psi[:, mode] = self.compute_Psi(mode)
+            
+    def compute_Psi(self, mode):
+        Qi = self.Q[:, mode]
 
-        disp = Qi.reshape((-1, 3)) * q_k
+        # disp = Qi.reshape((-1, 3)) * q_k
+        disp = Qi.reshape((-1, 3)) 
 
         self.Phi.assign(disp)
 
@@ -253,8 +308,15 @@ class ModalWarpingRod(Rod):
         
         self.compute_sparse_W()
         w = warp.sparse.bsr_mv(self.W, self.Phi)
-        wp.copy(self.modal_w.psi, w)        
-        wp.launch(displace_u, dim = (self.n_nodes, ), inputs = [self.modal_w, self.Phi])
+        return w.numpy().reshape(-1)
+
+    def compute_displacement(self, mode, q_k):
+        # wp.copy(self.modal_w.psi, w)   
+        Qi = self.Q[:, mode]
+        disp = Qi.reshape((-1, 3)) 
+        self.Phi.assign(disp)    
+        self.modal_w.psi.assign(self.Psi[:, mode].reshape((-1, 3)))
+        wp.launch(displace_u_new, dim = (self.n_nodes, ), inputs = [self.modal_w, self.Phi, q_k])
         uprime = self.modal_w.u.numpy()
         return uprime
 
@@ -268,7 +330,7 @@ class MWViewer:
 
         self.ui_deformed_mode = 6
 
-        self.ui_magnitude = 2
+        self.ui_magnitude = 2.0
 
         self.ui_use_modal_warping = True
 
@@ -277,7 +339,8 @@ class MWViewer:
     def callback(self):
         changed, self.ui_use_modal_warping = gui.Checkbox("Use Modal Warping", self.ui_use_modal_warping)
 
-        disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
 
         
         self.V_deform = self.V0 + disp 
@@ -286,14 +349,14 @@ class MWViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4.0)
 
 if __name__ == "__main__":
     wp.init()
     ps.init()
     ps.set_ground_plane_mode("none")
 
-    rod = ModalWarpingRod()
+    rod = ModalWarpingRod(f"assets/{model}/{model}.tobj")
 
     viewer = MWViewer(rod)
     ps.set_user_callback(viewer.callback)
