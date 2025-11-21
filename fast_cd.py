@@ -18,8 +18,8 @@ import os
 # model = "rowboat"
 # model = "windmill"
 # model = "boat"
-model = "bug"
-# model = "bar2"
+# model = "bug"
+model = "bar2"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -433,8 +433,10 @@ def vis_weights():
     lam, Q = None, None
     # if not os.path.exists(f"data/W_{model}.npy"):
     if True:
-        lam, Q = rod.eigs_new()
-        np.save(f"data/lma_weight/W_{model}.npy", Q)
+        # lam, Q = rod.eigs_new()
+        lam, Q = rod.eigs()
+        # np.save(f"data/lma_weight/W_{model}.npy", Q)
+        np.save(f"data/W_{model}.npy", Q)
     else:
         Q = np.load(f"data/W_{model}.npy")
     

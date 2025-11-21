@@ -44,7 +44,7 @@ class VABDModalWarpingRod(ModalWarpingRod):
             Psi /= Q_norm
             Psi = Psi.reshape((-1, 3 * Psi.shape[1]))
 
-            
+
             Phi = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)[:, 6:]
             Q_norm = np.linalg.norm(Phi, axis = 0, ord = np.inf, keepdims = True)
             Phi /= Q_norm
@@ -55,8 +55,8 @@ class VABDModalWarpingRod(ModalWarpingRod):
             # Q = self.PCA(np.hstack([Phi]))
 
         if self.options["fast_cd_ref"]:
-            print("not implemented")
-            quit()
+            Q = np.load(f"data/W_{model}.npy")
+            Q[:, 0] = 1.0
         self.Q_vabd = Q[:, :10]
         
     def define_U(self):
@@ -134,7 +134,8 @@ if __name__ == "__main__":
     ps.set_ground_plane_mode("none")
 
     # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
-    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
+    # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
+    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", fast_cd_ref=True)
 
     viewer = BestFitViewer(rod)
     ps.set_user_callback(viewer.callback)
