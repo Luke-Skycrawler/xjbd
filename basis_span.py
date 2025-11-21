@@ -7,6 +7,8 @@ import polyscope as ps
 from scipy.spatial.transform import Rotation as R
 import polyscope.imgui as gui
 from modal_warping import ModalWarpingRod, MWViewer
+from scipy.io import loadmat
+
 model = "bar2"
 
 class VABDModalWarpingRod(ModalWarpingRod):
@@ -27,12 +29,31 @@ class VABDModalWarpingRod(ModalWarpingRod):
         self.define_U()
         self.z = np.zeros((self.U.shape[1], ))
 
+    def PCA(self, X):
+        n_weights = 10
+        U, S, V = np.linalg.svd(X)
+        Q = np.hstack([np.ones((X.shape[0], 1)), U[:, :n_weights]])
+        return Q
+
     def load_Q(self):
         Q = np.load(f"data/lma_weight/W_{model}.npy")
         Q[:, 0] = 1.0
         if self.options["add_rotations"]:
-            print("not implemented")
-            quit()
+            Psi = np.load(f"data/lma_weight/Psi_{model}.npy")[:, 6:]
+            Q_norm = np.linalg.norm(Psi, axis = 0, ord = np.inf, keepdims = True)
+            Psi /= Q_norm
+            Psi = Psi.reshape((-1, 3 * Psi.shape[1]))
+
+            
+            Phi = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)[:, 6:]
+            Q_norm = np.linalg.norm(Phi, axis = 0, ord = np.inf, keepdims = True)
+            Phi /= Q_norm
+            Phi = Phi.reshape((Phi.shape[0] // 3, -1))
+
+
+            Q = self.PCA(np.hstack([Psi, Phi]))
+            # Q = self.PCA(np.hstack([Phi]))
+
         if self.options["fast_cd_ref"]:
             print("not implemented")
             quit()
@@ -112,7 +133,8 @@ if __name__ == "__main__":
     ps.init()
     ps.set_ground_plane_mode("none")
 
-    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj")
+    # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
+    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
 
     viewer = BestFitViewer(rod)
     ps.set_user_callback(viewer.callback)
