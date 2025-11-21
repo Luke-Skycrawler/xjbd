@@ -7,114 +7,114 @@ import polyscope as ps
 from scipy.spatial.transform import Rotation as R
 import polyscope.imgui as gui
 from modal_warping import ModalWarpingRod, MWViewer
-model = "squishy_ball_lowlow"
+model = "bar2"
 
-
-def lbs_matrix(V, W):
-    nvm = V.shape[0]
-    v1 = np.ones((nvm, 4))
-    v1[:, :3] = V
-    lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
-    return np.kron(lhs, np.identity(3))
-
-class WarpedRod(ModalWarpingRod):
-    def __init__(self, filename = f"assets/squishyball/{model}.tobj"):
+class VABDModalWarpingRod(ModalWarpingRod):
+    '''
+    modal warping rod with VABD basis for fitting modal warping modes
+    testing the basis span of different modes including: 
+    [ ] fast cd weights 
+    [ ] weights from displacment -> PCA
+    [ ] weights from (rotation displacement + translation) -> PCA  
+    '''
+    def __init__(self, filename = f"assets/squishyball/{model}.tobj", add_rotations = False, fast_cd_ref = False):
         super().__init__(filename)
+        self.options = {
+            "add_rotations": add_rotations,
+            "fast_cd_ref": fast_cd_ref
+        }
+        self.load_Q()
+        self.define_U()
+        self.z = np.zeros((self.U.shape[1], ))
 
-    def compute_Q(self):
-
-        Q = np.load(f"data/W_{model}.npy")
+    def load_Q(self):
+        Q = np.load(f"data/lma_weight/W_{model}.npy")
         Q[:, 0] = 1.0
-        V = self.V0
-        self.Q = lbs_matrix(V, Q)
+        if self.options["add_rotations"]:
+            print("not implemented")
+            quit()
+        if self.options["fast_cd_ref"]:
+            print("not implemented")
+            quit()
+        self.Q_vabd = Q[:, :10]
         
+    def define_U(self):
+        x0 = self.xcs.numpy()
+        self.U = self.lbs_matrix(x0, self.Q_vabd)
 
-class PSViewer:
-    def __init__(self, x, v, F, x_target, U, z):
-        self.target = ps.register_surface_mesh("x_target", x_target, F)
-        self.target.add_scalar_quantity("indices", v[:, 0], enabled=True)
-        self.fit = ps.register_surface_mesh("best fit", x, F)
-        self.fit.add_scalar_quantity("indices", v[:, 0], enabled=True)
-        self.ui_magnitude = 1.0
-        ps.set_user_callback(self.callback)
+    def lbs_matrix(self, V, W):
+        nvm = V.shape[0]
+        v1 = np.ones((nvm, 4))
+        v1[:, :3] = V
+        lhs = np.hstack([W[:, j: j + 1] * v1 for j in range(W.shape[1])])
+        return np.kron(lhs, np.identity(3))
 
-        self.x, self.v= x, v
-        
-        self.U, self.z = U, z
+    def reconstruct(self):
+        return (self.U @ self.z).reshape((-1, 3))
 
-        self.U0 = self.U[: , : 12]
-        self.U_tilde = self.U[:, 12:]
-        
-        # self.x0 = (self.U0 @ self.z[:12]).reshape((-1, 3)) + self.v
-        self.x0 = self.v
-        self.rod = WarpedRod()
-        self.x_target = x_target
-        self.ui_use_modal_warping = True
-    def callback(self):
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 10.0)
-        changed, self.ui_use_modal_warping = gui.Checkbox("Use Modal Warping", self.ui_use_modal_warping)
-        # x = self.ui_magnitude * (self.U @ self.z).reshape((-1, 3)) + self.v
+    def best_fit_transform(self, disp):
+        U = self.U
+        A = U.T @ U
+        b = U.T @ disp.reshape(-1)
+        self.z[:] = solve(A, b, assume_a="sym")
 
-        r = R.from_rotvec([0, 0, np.pi/18])  # 45° around Z
-        rot_matrix = r.as_matrix()
+class BestFitViewer(MWViewer):
+    def __init__(self, rod: VABDModalWarpingRod):
+        super().__init__(rod)
+        self.disp = np.zeros_like(self.V0)
+        self.show_best_fit = False
 
-        # x_disp = self.x0 @ rot_matrix.T
-        # Qi= (x_disp - self.x0).reshape(-1)
+    def control_panel(self):
+        super().control_panel()
+        if gui.Button("best fit tansform"):
+            self.rod.best_fit_transform(self.disp)
+        changed, self.show_best_fit = gui.Checkbox("Show Best Fit", self.show_best_fit)
+    
+    def display(self):
+        self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
 
-        # Qi = self.x_target - (self.x0 + np.array([[0., 0.7, -0.4]]))
-
-        # Qi = self.U0 @ self.z[:12]
-        Qi = (self.U_tilde @ self.z[12:])
-
-
-        if self.ui_use_modal_warping:
-            disp = self.rod.compute_Psi(Qi, self.ui_magnitude)
-            x = self.x0 + disp.reshape((-1, 3))
+        if not self.show_best_fit:
+            self.V_deform = self.V0 + self.disp 
         else: 
-            x = self.ui_magnitude * Qi.reshape((-1, 3)) + self.x0
+            self.V_deform = self.V0 + self.rod.reconstruct()
 
-        self.fit.update_vertex_positions(x)
 
-def compute_ortho_loss():
-    Q = np.load(f"data/W_{model}.npy")
-    Q[:, 0] = 1.0
+# def compute_ortho_loss():
+#     Q = np.load(f"data/W_{model}.npy")
+#     Q[:, 0] = 1.0
 
-    x_target = np.load(f"data/x_target.npy")
+#     x_target = np.load(f"data/x_target.npy")
     
-    # r = R.from_rotvec([0, 0, np.pi/4])  # 45° around Z
-    # rot_matrix = r.as_matrix()
+#     # r = R.from_rotvec([0, 0, np.pi/4])  # 45° around Z
+#     # rot_matrix = r.as_matrix()
 
-    # x_target = x_target @ rot_matrix.T
-    t = np.mean(x_target, axis = 0, keepdims= True)
+#     # x_target = x_target @ rot_matrix.T
+#     t = np.mean(x_target, axis = 0, keepdims= True)
 
-    v, T = import_tobj(f"assets/squishyball/{model}.tobj")
-    F = igl.boundary_facets(T)
-    u = x_target - v
+#     v, T = import_tobj(f"assets/squishyball/{model}.tobj")
+#     F = igl.boundary_facets(T)
+#     u = x_target - v
 
-    U = lbs_matrix(v, Q[:, :])
+#     U = lbs_matrix(v, Q[:, :])
     
-    A = U.T @ U
-    b = U.T @ u.reshape(-1)
-    z = solve(A, b, assume_a="sym")
-    x = (U @ z).reshape((-1, 3)) + v
+#     A = U.T @ U
+#     b = U.T @ u.reshape(-1)
+#     z = solve(A, b, assume_a="sym")
+#     x = (U @ z).reshape((-1, 3)) + v
 
-    translated = v + t
+#     translated = v + t
 
-    viewer = PSViewer(x, v, F, x_target, U, z)
+#     viewer = PSViewer(x, v, F, x_target, U, z)
     
-def view_mw():
+
+if __name__ == "__main__":
     wp.init()
     ps.init()
     ps.set_ground_plane_mode("none")
-    rod = WarpedRod()
-    viewer = MWViewer(rod)
 
+    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj")
+
+    viewer = BestFitViewer(rod)
     ps.set_user_callback(viewer.callback)
-    ps.show()
 
-if __name__ == "__main__":
-    # view_mw()
-    ps.init()
-    ps.set_ground_plane_mode("none")
-    compute_ortho_loss()
     ps.show()

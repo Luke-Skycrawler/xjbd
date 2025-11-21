@@ -10,6 +10,7 @@ from scipy.io import savemat, loadmat
 from scipy.sparse.linalg import eigsh
 import os
 model = "bar2"
+save_Psi_only = False
 @wp.struct
 class ModalWarpingData: 
     W: wp.array(dtype = wp.vec3)
@@ -294,6 +295,12 @@ class ModalWarpingRod(Rod):
         self.Psi = np.zeros_like(self.Q)
         for mode in range(self.Q.shape[1]):
             self.Psi[:, mode] = self.compute_Psi(mode)
+        
+        if save_Psi_only: 
+            f = f"data/lma_weight/Psi_{model}.npy"
+            np.save(f, self.Psi)
+            print(f"saved Psi to {f}")
+            quit()
             
     def compute_Psi(self, mode):
         Qi = self.Q[:, mode]
@@ -335,21 +342,28 @@ class MWViewer:
         self.ui_use_modal_warping = True
 
         self.rod = rod
+        self.V_deform = np.zeros_like(self.V0)
 
     def callback(self):
+        self.control_panel()
+        self.display()
+
+    def control_panel(self):
         changed, self.ui_use_modal_warping = gui.Checkbox("Use Modal Warping", self.ui_use_modal_warping)
 
-        # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
-        disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
-
-        
-        self.V_deform = self.V0 + disp 
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
         changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4.0)
+
+    def display(self):
+        # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+
+        
+        self.V_deform = self.V0 + disp 
 
 if __name__ == "__main__":
     wp.init()
