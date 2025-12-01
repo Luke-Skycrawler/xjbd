@@ -335,9 +335,9 @@ class MWViewer:
         self.magnitude = 1.0
         self.ps_mesh = ps.register_surface_mesh("rod", self.V0, self.F)
 
-        self.ui_deformed_mode = 6
+        self.ui_deformed_mode = 9
 
-        self.ui_magnitude = 2.0
+        self.ui_magnitude = 4.0
 
         self.ui_use_modal_warping = True
 
@@ -356,7 +356,7 @@ class MWViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4.0)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 8.0)
 
     def display(self):
         # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))

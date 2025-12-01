@@ -25,9 +25,9 @@ class VABDModalWarpingRod(ModalWarpingRod):
             "add_rotations": add_rotations,
             "fast_cd_ref": fast_cd_ref
         }
+        self.n_weights_limit = 6
         self.load_Q()
         self.define_U()
-        self.z = np.zeros((self.U.shape[1], ))
 
     def PCA(self, X):
         n_weights = 10
@@ -57,11 +57,12 @@ class VABDModalWarpingRod(ModalWarpingRod):
         if self.options["fast_cd_ref"]:
             Q = np.load(f"data/W_{model}.npy")
             Q[:, 0] = 1.0
-        self.Q_vabd = Q[:, :10]
+        self.Q_vabd = Q[:, :self.n_weights_limit]
         
     def define_U(self):
         x0 = self.xcs.numpy()
         self.U = self.lbs_matrix(x0, self.Q_vabd)
+        self.z = np.zeros((self.U.shape[1], ))
 
     def lbs_matrix(self, V, W):
         nvm = V.shape[0]
@@ -84,12 +85,25 @@ class BestFitViewer(MWViewer):
         super().__init__(rod)
         self.disp = np.zeros_like(self.V0)
         self.show_best_fit = False
+        self.ui_basis_type = 0  # 0: fast cd, 1: translation, 2: translation + rotation
 
     def control_panel(self):
         super().control_panel()
         if gui.Button("best fit tansform"):
             self.rod.best_fit_transform(self.disp)
         changed, self.show_best_fit = gui.Checkbox("Show Best Fit", self.show_best_fit)
+        changed, self.rod.n_weights_limit = gui.InputInt("n_weights", self.rod.n_weights_limit, step = 1)
+        changed2, self.ui_basis_type = gui.SliderInt("Basis Type", self.ui_basis_type, v_min = 0, v_max=2)
+
+        if changed2: 
+            self.rod.options["add_rotations"] = (self.ui_basis_type == 2)
+            self.rod.options["fast_cd_ref"] = (self.ui_basis_type == 0)
+
+        if changed or changed2: 
+            self.rod.load_Q()
+            self.rod.define_U()
+            self.rod.best_fit_transform(self.disp)
+        
     
     def display(self):
         self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
@@ -134,8 +148,8 @@ if __name__ == "__main__":
     ps.set_ground_plane_mode("none")
 
     # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
-    # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
-    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", fast_cd_ref=True)
+    rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", add_rotations=True)
+    # rod = VABDModalWarpingRod(f"assets/{model}/{model}.tobj", fast_cd_ref=True)
 
     viewer = BestFitViewer(rod)
     ps.set_user_callback(viewer.callback)
