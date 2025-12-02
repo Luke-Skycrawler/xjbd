@@ -9,7 +9,10 @@ import warp.sparse
 from scipy.io import savemat, loadmat
 from scipy.sparse.linalg import eigsh
 import os
-model = "bar2"
+import igl
+from scipy.sparse import diags
+
+model = "dragon"
 save_Psi_only = False
 @wp.struct
 class ModalWarpingData: 
@@ -249,23 +252,32 @@ class ModalWarpingRod(Rod):
         self.precompute_Psi()
         
     def compute_Q(self):
+        self.define_M()
         self.lam, self.Q = self.eigs_sparse()
 
+    def define_M(self):
+        V = self.xcs.numpy()
+        T = self.T.numpy()
+        # self.M is a vector composed of diagonal elements 
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal() * rho
+        M_diag = np.repeat(self.Mnp, 3)
+        self.M_sparse = diags(M_diag)
 
     def eigs_sparse(self): 
-        update = True
+        update = False
         K = self.to_scipy_bsr()
+        M = self.M_sparse
         print("start eigs")
         dim = K.shape[0]
         if dim >= 3000:
-            self.eigs_export(K)
+            self.eigs_export(K, M)
             print("dimension exceeds scipy capability, switching to matlab")
             with wp.ScopedTimer("matlab eigs"):
-                if update or not os.path.exists(f"data/eigs/Q_{model}.mat"):
+                if update or not os.path.exists(f"data/eigs_lma/Q_{model}.mat"):
                     import matlab.engine
                     eng = matlab.engine.start_matlab()
-                    eng.matlab_eigs(model)
-                data = loadmat(f"data/eigs/Q_{model}.mat")
+                    eng.lma(model)
+                data = loadmat(f"data/eigs_lma/Q_{model}.mat")
                 Q = data["Vv"].astype(np.float64)
                 lam = data["D"].astype(np.float64)
         else: 
@@ -273,9 +285,9 @@ class ModalWarpingRod(Rod):
                 lam, Q = eigsh(K, k = 10, which = "SM")
         return lam, Q
 
-    def eigs_export(self, K):
-        f = f"data/eigs/{model}.mat"
-        savemat(f, {"K": K}, long_field_names= True)
+    def eigs_export(self, K, M):
+        f = f"data/eigs_lma/{model}.mat"
+        savemat(f, {"K": K, "M": M}, long_field_names= True)
         print(f"exported matrices to {f}")
 
     
@@ -337,7 +349,7 @@ class MWViewer:
 
         self.ui_deformed_mode = 9
 
-        self.ui_magnitude = 4.0
+        self.ui_magnitude = 0.0
 
         self.ui_use_modal_warping = True
 
@@ -356,8 +368,21 @@ class MWViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 8.0)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = -800.0, v_max = 800.0)
+        
+        if gui.Button("save"): 
+            mode = self.ui_deformed_mode
 
+            disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+
+            
+
+            V_deform = self.V0 + disp 
+            igl.write_obj(f"mode{mode}_pos.obj", V_deform, self.F)
+
+            disp = self.rod.compute_displacement(self.ui_deformed_mode, -self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * -self.ui_magnitude).reshape((-1, 3))
+            V_deform = self.V0 + disp 
+            igl.write_obj(f"mode{mode}_neg.obj", V_deform, self.F)
     def display(self):
         # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
         disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))

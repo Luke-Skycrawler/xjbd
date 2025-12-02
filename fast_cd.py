@@ -19,7 +19,7 @@ import os
 # model = "windmill"
 # model = "boat"
 # model = "bug"
-model = "bar2"
+model = "dragon"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -64,10 +64,15 @@ class PSViewer:
         if changed:
             self.ui_magnitude = self.T[self.idx_to_T(self.ui_deformed_mode)]
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 4)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = 0.0, v_max = 1)
         self.T[self.idx_to_T(self.ui_deformed_mode)] = self.ui_magnitude
         self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode // 12], enabled = True)
 
+        if gui.Button("save"):
+            mode = self.ui_deformed_mode // 12
+            ij = self.ui_deformed_mode % 12
+            igl.write_obj(f"affinemode_{mode}_{ij}.obj", self.V_deform, self.F)
+            
 
 @wp.struct
 class CSRTriplets:
@@ -154,15 +159,17 @@ class RodLBSWeight(Rod):
         if dim >= 3000:
             self.eigs_export(K, self.Mw.tocsr())
             print("dimension exceeds scipy capability, switching to matlab")
-            with wp.ScopedTimer("matlab eigs"):
-                import matlab.engine
-                eng = matlab.engine.start_matlab()
-                eng.nullspace()
-                data = loadmat(f"data/eigs/Q_{model}.mat")
-                Q = data["Vv"].astype(np.float64)
-                lam = data["D"].astype(np.float64)
-                # Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
-                # Q /= Q_norm
+            if not os.path.exists(f"data/eigs/Q_{model}.mat"):
+                with wp.ScopedTimer("matlab eigs"):
+                    import matlab.engine
+                    eng = matlab.engine.start_matlab()
+                    eng.nullspace(model)
+
+            data = loadmat(f"data/eigs/Q_{model}.mat")
+            Q = data["Vv"].astype(np.float64)
+            lam = data["D"].astype(np.float64)
+            Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
+            Q /= Q_norm
             # Q = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)
             # lam = loadmat(f"data/eigs/Q_{model}.mat")["D"].astype(np.float64)
         else: 
@@ -366,7 +373,7 @@ class RodLBSWeightBC(RodLBSWeight):
             with wp.ScopedTimer("matlab eigs"):
                 import matlab.engine
                 eng = matlab.engine.start_matlab()
-                eng.nullspace()
+                eng.nullspace(model)
                 Q = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)
                 lam = loadmat(f"data/eigs/Q_{model}.mat")["D"].astype(np.float64)
                 Q_norm = np.linalg.norm(Q, axis = 0, ord = np.inf, keepdims = True)
