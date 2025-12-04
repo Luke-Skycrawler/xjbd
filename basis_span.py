@@ -9,7 +9,8 @@ import polyscope.imgui as gui
 from modal_warping import ModalWarpingRod, MWViewer
 from scipy.io import loadmat
 
-model = "bar2"
+model = "dragon"
+save_only = True
 
 class VABDModalWarpingRod(ModalWarpingRod):
     '''
@@ -36,8 +37,16 @@ class VABDModalWarpingRod(ModalWarpingRod):
         return Q
 
     def load_Q(self):
-        Q = np.load(f"data/lma_weight/W_{model}.npy")
-        Q[:, 0] = 1.0
+
+        if not self.options["fast_cd_ref"] and not self.options["add_rotations"]:
+
+            Phi = loadmat(f"data/eigs_lma/Q_{model}.mat")["Vv"].astype(np.float64)[:, 6:]
+            Q_norm = np.linalg.norm(Phi, axis = 0, ord = np.inf, keepdims = True)
+            Phi /= Q_norm
+            Phi = Phi.reshape((Phi.shape[0] // 3, -1))            # Q = np.load(f"data/lma_weight/W_{model}.npy")
+
+            Q = self.PCA(Phi)
+            # Q[:, 0] = 1.0
         if self.options["add_rotations"]:
             Psi = np.load(f"data/lma_weight/Psi_{model}.npy")[:, 6:]
             Q_norm = np.linalg.norm(Psi, axis = 0, ord = np.inf, keepdims = True)
@@ -45,13 +54,24 @@ class VABDModalWarpingRod(ModalWarpingRod):
             Psi = Psi.reshape((-1, 3 * Psi.shape[1]))
 
 
-            Phi = loadmat(f"data/eigs/Q_{model}.mat")["Vv"].astype(np.float64)[:, 6:]
+            Phi = loadmat(f"data/eigs_lma/Q_{model}.mat")["Vv"].astype(np.float64)[:, 6:]
             Q_norm = np.linalg.norm(Phi, axis = 0, ord = np.inf, keepdims = True)
             Phi /= Q_norm
             Phi = Phi.reshape((Phi.shape[0] // 3, -1))
 
 
             Q = self.PCA(np.hstack([Psi, Phi]))
+            if save_only:
+                arr = []
+                assert Psi.shape[1] == Phi.shape[1]
+                for i in range(Psi.shape[1]):
+                    ps = Psi[:, i: i + 1]
+                    ph = Phi[:, i: i + 1]
+                    arr.append(ps)
+                    arr.append(ph)
+                data = np.hstack(arr)
+                np.save(f"data/lma_weight/all_weights_{model}.npy", data)
+                quit()
             # Q = self.PCA(np.hstack([Phi]))
 
         if self.options["fast_cd_ref"]:
