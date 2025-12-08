@@ -17,7 +17,7 @@ from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 from record_conv import ConvergenceRecord
 
-split_lbfgs = False
+split_lbfgs = True
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -823,11 +823,12 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("build csc"):
             ret = block_diag(diags, "csc")
         return ret
+    
+    def cd(self): 
+        V, R = self.get_VR()
+        self.collider_medial.collision_set(V, R)
 
     def process_collision_medial_based(self):
-        V, R = self.get_VR()
-        with wp.ScopedTimer("detect"):
-            self.collider_medial.collision_set(V, R)
         with wp.ScopedTimer("analyze"):
             g, H, idx = self.collider_medial.analyze()
             

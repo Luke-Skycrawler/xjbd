@@ -11,10 +11,10 @@ class ConvergenceRecord:
     
     def save(self):
         # np.savez("convergence.npz", *self.records)
-        np.save("convergence.npy", np.array(self.records))
+        np.save("plot/convergence.npy", np.array(self.records, dtype = object))
 
     def plot(self, path = ""):
-        plt.switch_backend("WebAgg")
+        # plt.switch_backend("WebAgg")
         if path != "":
             data = np.load(f"{path}/convergence.npy", allow_pickle=True)
         else:
@@ -62,8 +62,18 @@ class ConvergenceRecord:
         # ax.set_yscale('log')
         plt.show()
         # ax.plot(x, y, 'o', color='tab:brown')
+    
+    def plot_time(self, path):
+        meta = np.load(f"{path}/metadata.npy", allow_pickle=True).item()
+        print(meta)
+        tot_iters = meta["total_iters"]
+        tot_frames = meta["total_frames"]
         
+        print(f"total iters = {tot_iters}, total frames = {tot_frames}")
+        
+        time = np.load(f"{path}/timeit.npz", allow_pickle=True)
+        print(time["compute A"].shape)
 
 if __name__ == "__main__":
     record = ConvergenceRecord()
-    record.plot("plot/sbfgs")
+    record.plot_time("plot/mbfgs")

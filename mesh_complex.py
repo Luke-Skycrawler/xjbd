@@ -46,6 +46,21 @@ def set_K_fixed(geo: FEMMesh, triplets: Triplets):
         else:
             triplets.vals[eij] = wp.mat33(0.0)
 
+class Timeit:
+    def __init__(self):
+        self.dict = {
+            "compute A": [],
+            "collision": [],              
+            "assemble": [],
+            "solve": [],
+            "line search": [],
+            "detection": [],
+        }
+        
+    def reset(self):
+        for k in self.dict.keys():
+            self.dict[k] = 0.0
+
 
 class RodComplexBC(RodBCBase, RodComplex):
     def __init__(self, h, meshes = [], transforms = [], static_meshes:StaticScene = None):
@@ -57,6 +72,10 @@ class RodComplexBC(RodBCBase, RodComplex):
         self.n_pt = 0
         self.n_ee = 0
         self.n_ground = 0
+
+        self.timeit = Timeit()
+        self.tot_iters = 0
+        
 
     def define_collider(self):
         self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = 0.0, static_objects = self.static_meshes)
@@ -99,8 +118,6 @@ class RodComplexBC(RodBCBase, RodComplex):
     
     def process_collision(self):
         with wp.ScopedTimer("collision"):
-            with wp.ScopedTimer("detection"):
-                self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
             with wp.ScopedTimer("hess & grad"):
                 triplets = self.collider.analyze(self.b, self.n_pt, self.n_ee, self.n_ground)
                 # triplets = self.collider.analyze(self.b)
@@ -109,6 +126,9 @@ class RodComplexBC(RodBCBase, RodComplex):
     
     def line_search_fixed(self):
         return 1.0
+
+    def cd(self):
+        self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
 
     def step(self):
         self.theta += omega * self.h
@@ -120,13 +140,18 @@ class RodComplexBC(RodBCBase, RodComplex):
             # while n_iter < max_iter:
             while newton_iter:
                 with wp.ScopedTimer(f"newton #{self.n_iter}"):
-                    with wp.ScopedTimer("compute A"):
+                    with wp.ScopedTimer("compute A", dict = self.timeit.dict):
                         self.compute_A()
-                    with wp.ScopedTimer("collision"):
-                        self.process_collision()
-                    self.compute_rhs()
 
-                    with wp.ScopedTimer("solve"):
+                    with wp.ScopedTimer("detection", dict = self.timeit.dict):
+                        self.cd()
+                    with wp.ScopedTimer("collision", dict = self.timeit.dict):
+                        self.process_collision()
+                    
+                    with wp.ScopedTimer("assemble", dict = self.timeit.dict):
+                        self.compute_rhs()
+
+                    with wp.ScopedTimer("solve", dict = self.timeit.dict):
                         self.solve()
                     # wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, 1.0])
                     self.n_iter += 1
@@ -137,7 +162,7 @@ class RodComplexBC(RodBCBase, RodComplex):
                         print(f"\niter = {self.n_iter}, alpha = {alpha}, dz norm = {self.norm_dz:.2e}\n")
                         break
                     # line search stuff, not converged yet
-                    with wp.ScopedTimer("line search"):
+                    with wp.ScopedTimer("line search", dict = self.timeit.dict):
                         alpha = self.line_search()
                     if alpha == 0.0:
                         print("\nline search failed")
@@ -145,7 +170,12 @@ class RodComplexBC(RodBCBase, RodComplex):
 
                     print(f"\niter = {self.n_iter}, alpha = {alpha}, dz norm = {self.norm_dz:.2e}\n")
             self.update_x0_xdot()
-
+            
+    def save_meta(self):
+        print(f"total iterations = {self.tot_iters}, total frames = {self.frame}")
+        np.save("plot/metadata.npy", {"total_iters": self.tot_iters, "total_frames": self.frame})
+        # np.save("timeit.npy", self.timeit.dict)
+        np.savez("plot/timeit.npz", **self.timeit.dict)
 
     def converged(self):
         dxnp = self.states.dx.numpy()
