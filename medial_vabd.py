@@ -15,7 +15,9 @@ from vabd import per_node_forces
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
+from record_conv import ConvergenceRecord
 
+split_lbfgs = False
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -184,6 +186,8 @@ class MedialVABD(MedialRodComplex):
         
 
         self.bfgs_history = BFGSHistory(self.n_reduced, m_history= 8)
+        self.conv = ConvergenceRecord()
+        
     def define_collider(self):
         if collision_handler == "triangle":
             super().define_collider()
@@ -421,8 +425,8 @@ class MedialVABD(MedialRodComplex):
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def use_newton(self):
+        # return self.n_iter == 0
         return self.n_iter == 0
-        # return True
 
     def solve(self):
         self.A0[:] = 0.
@@ -478,6 +482,7 @@ class MedialVABD(MedialRodComplex):
         self.b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
         self.b_sys[self.n_meshes * 12:] = self.b_tilde# + self.b_col_tilde
 
+        self.conv.append(self.frame, np.linalg.norm(self.b_sys + self.b_sys_col))
         if solver_choice in ["direct", "compare"]:
             with wp.ScopedTimer("linalg system"): 
                 bh = self.bfgs_history
@@ -485,11 +490,20 @@ class MedialVABD(MedialRodComplex):
                 # if self.n_iter == 0:
                 if self.use_newton():
                     self.dz_sys = solve(A_sys + self.A_sys_col, self.b_sys + self.b_sys_col, assume_a="sym")
+                    
+                    if split_lbfgs:
+                        self.b_sys_col_last = np.copy(self.b_sys_col)
+                    else:
+                        self.b_sys_col_last = np.copy(self.b_sys_col + self.b_sys)
+                        self.A_sys_col += A_sys
                 else: 
                     # split L-BFGS 
 
                     # try BFGS first 
-                    yk = self.b_sys_col - self.b_sys_col_last
+                    if split_lbfgs: 
+                        yk = self.b_sys_col - self.b_sys_col_last
+                    else:
+                        yk = self.b_sys_col + self.b_sys - self.b_sys_col_last
                     sk = self.z_sys - self.z_sys_last
                    
                     bh.append(yk, sk, self.n_iter)
@@ -517,12 +531,18 @@ class MedialVABD(MedialRodComplex):
                         
                     # L-BFGS 
                     q = self.b_sys + self.b_sys_col
-                    AA = A_sys + self.A_sys_col 
+                    if split_lbfgs:
+                        AA = A_sys + self.A_sys_col 
+                    else: 
+                        AA = self.A_sys_col
                     
                     for i in reversed(range(start, end)):
                         ii = i % m        
                         si = bh.s[ii]
-                        yi = bh.y[ii] + A_sys @ si   
+                        if split_lbfgs:
+                            yi = bh.y[ii] + A_sys @ si   
+                        else: 
+                            yi = bh.y[ii]
 
                         bh.rho[ii] = 1.0 / np.dot(yi, si)
 
@@ -532,15 +552,20 @@ class MedialVABD(MedialRodComplex):
                     for i in range(start, end):
                         ii = i % m
                         si = bh.s[ii]
-                        yi = bh.y[ii] + A_sys @ si   
+                        if split_lbfgs:
+                            yi = bh.y[ii] + A_sys @ si   
+                        else: 
+                            yi = bh.y[ii]
 
                         bh.beta[ii ] = bh.rho[ii] * np.dot(yi, z)
                         z += si * (bh.alpha[ii] - bh.beta[ii])
 
                     self.dz_sys = z
 
-
-                    self.b_sys_col_last[:] = self.b_sys_col
+                    if split_lbfgs:
+                        self.b_sys_col_last[:] = self.b_sys_col
+                    else:
+                        self.b_sys_col_last[:] = self.b_sys + self.b_sys_col
                     # dz_sys = solve(AA, b_sys + self.b_sys_col, assume_a="sym")
                         
                         
@@ -837,7 +862,6 @@ class MedialVABD(MedialRodComplex):
             if solver_choice == "direct" :
                 if self.use_newton(): 
                     self.A_sys_col = step1 @ Um_sys.T
-                    self.b_sys_col_last = np.copy(self.b_sys_col)
                 else :
                     # BFGS 
                     pass
@@ -1023,7 +1047,7 @@ class PinnedVABD(MedialVABD):
 #     ps.show()
 
 def stacked_bug(from_frame = 0):
-    n_meshes = 2
+    n_meshes = 6
     model = "squishy"
     meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
     # meshes = [f"assets/bug/bug.tobj", f"assets/{model}/{model}.tobj"]
@@ -1034,9 +1058,9 @@ def stacked_bug(from_frame = 0):
     # transforms[-1][1, 0] = 1.5
     # transforms[-1][2, 2] = 1.5
 
-    n_heights = 2
+    n_heights = 3
     n_rows = 1
-    n_cols = 1
+    n_cols = 2
     gap = 1.5
     hgap = 2.0
 

@@ -140,10 +140,10 @@ class PSViewer:
         self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
         self.frame = 0
         self.rod = rod
-        self.ui_pause = True
+        self.ui_pause = False
         self.animate = False
         
-        self.end_frame = 5000
+        self.end_frame = 420
         self.capture_interval = 1
         if static_mesh is not None:
             Vs = static_mesh.xcs.numpy()
@@ -188,6 +188,8 @@ class PSViewer:
                 self.save()
         if self.frame >= self.end_frame:
             print(f"end frame = {self.frame} reached, exiting")
+            print(f"saving convergence info")
+            self.rod.conv.save()
             quit()
 
         
