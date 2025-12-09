@@ -362,6 +362,8 @@ class MedialCollisionDetector:
         if static_objects is not None:
             self.define_static_mesh(static_objects)
 
+        self.col_cnt = 0
+        
     def define_static_mesh(self, static_objects: StaticScene):
         self.static_objects = static_objects
         self.staic_triangles = wp.Mesh(static_objects.xcs, static_objects.indices, )
@@ -451,17 +453,20 @@ class MedialCollisionDetector:
     def collision_set(self, V, R = None, energy_only = False):
         self.refit(V, R)
         ret = 0.0
+        col_cnt = 0
         if ss_colliison:
             self.pt_set.cnt.zero_()
             self.pt_set.E.zero_()
             wp.launch(slab_sphere_collision_set, (self.n_faces, self.n_vertices), inputs= [self.medial_geo, self.pt_set, self.body])
             ret += self.pt_set.E.numpy()[0]
+            col_cnt += self.pt_set.cnt.numpy()[0]
 
         if cc_collision:
             self.ee_set.cnt.zero_()
             self.ee_set.E.zero_()
             wp.launch(cone_cone_collision_set, (self.n_edges, self.n_edges), inputs = [self.medial_geo, self.ee_set, self.body])
             ret += self.ee_set.E.numpy()[0]
+            col_cnt += self.ee_set.cnt.numpy()[0]
 
 
         if self.ground is not None and sg_collision:
@@ -469,6 +474,7 @@ class MedialCollisionDetector:
             self.g_set.E.zero_()
             wp.launch(sphere_ground_set, self.n_vertices, inputs = [self.medial_geo, self.g_set, self.ground])
             ret += self.g_set.E.numpy()[0] * ground_rel_stiffness
+            col_cnt += self.g_set.cnt.numpy()[0]
 
         if hasattr(self, "static_soup"):
             if sg_collision:
@@ -481,6 +487,7 @@ class MedialCollisionDetector:
                 self.p_static_set_cone.E.zero_()
                 # wp.launch(cone_static_colliison, self.n_edges, inputs = [self.medial_geo, self.static_soup, self.p_static_set_cone, self.staic_edge_bvh.id])
                 ret += self.p_static_set_cone.E.numpy()[0] * ground_rel_stiffness
+                col_cnt += self.p_static_set.cnt.numpy()[0]
 
             if self.static_objects.has_medials and cc_static_collision:
                 # only cone-cone collision
@@ -488,6 +495,7 @@ class MedialCollisionDetector:
                 self.ee_static_set.E.zero_()
                 wp.launch(cone_cone_collision_set_static, (self.n_edges, self.n_edges_static), inputs = [self.medial_geo, self.medial_geo_static, self.ee_static_set])
                 ret += self.ee_static_set.E.numpy()[0]
+                col_cnt += self.ee_static_set.cnt.numpy()[0]
 
         # npt = self.pt_set.cnt.numpy()[0]
         # ncc = self.ee_set.cnt.numpy()[0]
@@ -495,6 +503,7 @@ class MedialCollisionDetector:
         # nsc = self.p_static_set_cone.cnt.numpy()[0]
         
         # print(f"npt = {npt}, ncc = {ncc}, nss = {nss}, nsc = {nsc}")
+        self.col_cnt = col_cnt
         return ret
 
 

@@ -68,13 +68,23 @@ class ConvergenceRecord:
         print(meta)
         tot_iters = meta["total_iters"]
         tot_frames = meta["total_frames"]
-        
-        print(f"total iters = {tot_iters}, total frames = {tot_frames}")
-        
+        tot_cols = meta["total_cols"]
+        print(tot_cols)
+        # print(f"total iters = {tot_iters}, total frames = {tot_frames}")
+        print(f"average collisions per frame = {np.mean(tot_cols)}")
         time = np.load(f"{path}/timeit.npz", allow_pickle=True)
-        print(time["compute A"].shape)
+
+        tot_time = 0
+        for key, value in time.items(): 
+            print(f"{key}: total time = {np.sum(value)}s")
+            tot_time += np.sum(value)
+                  
+        print(f"avg time per frame = {tot_time / 5}s, avg time per iter = {tot_time / tot_iters}s")
+        
+
+        # print(time["compute A"].shape)
 
 if __name__ == "__main__":
     record = ConvergenceRecord()
     # record.plot_time("plot/mbfgs")
-    record.plot_time("plot")
+    record.plot_time("plot/windmill")

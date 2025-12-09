@@ -75,6 +75,7 @@ class RodComplexBC(RodBCBase, RodComplex):
 
         self.timeit = Timeit()
         self.tot_iters = []
+        self.tot_cols = [] 
         
 
     def define_collider(self):
@@ -177,9 +178,10 @@ class RodComplexBC(RodBCBase, RodComplex):
             
     def save_meta(self):
         tot_iters = np.array(self.tot_iters)
+        tot_cols = np.array(self.tot_cols)
         tot = np.sum(tot_iters)
         print(f"total iterations = {tot}, total frames = {self.frame}")
-        np.save("plot/metadata.npy", {"total_iters": tot_iters, "total_frames": self.frame})
+        np.save("plot/metadata.npy", {"total_iters": tot_iters, "total_frames": self.frame, "total_cols": tot_cols})
         # np.save("timeit.npy", self.timeit.dict)
         np.savez("plot/timeit.npz", **self.timeit.dict)
 

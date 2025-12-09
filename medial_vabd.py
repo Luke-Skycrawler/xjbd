@@ -750,6 +750,7 @@ class MedialVABD(MedialRodComplex):
     def cd(self): 
         V, R = self.get_VR()
         self.collider_medial.collision_set(V, R)
+        self.tot_cols.append(self.collider_medial.col_cnt)
 
     def process_collision_medial_based(self):
         with wp.ScopedTimer("analyze"):
