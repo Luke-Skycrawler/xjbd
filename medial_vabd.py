@@ -17,6 +17,10 @@ from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_mv, bsr_axpy
 from fem.fem import Triplets
 from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
+from record_conv import ConvergenceRecord
+
+test_time = True
+split_lbfgs = True
 eps = 3e-3
 ad_hoc = True
 medial_collision_stiffness = 1e7
@@ -742,11 +746,12 @@ class MedialVABD(MedialRodComplex):
         with wp.ScopedTimer("build csc"):
             ret = block_diag(diags, "csc")
         return ret
+    
+    def cd(self): 
+        V, R = self.get_VR()
+        self.collider_medial.collision_set(V, R)
 
     def process_collision_medial_based(self):
-        V, R = self.get_VR()
-        with wp.ScopedTimer("detect"):
-            self.collider_medial.collision_set(V, R)
         with wp.ScopedTimer("analyze"):
             g, H, idx, rows, cols, values = self.collider_medial.analyze()
             
@@ -944,6 +949,19 @@ def windmill(from_frame = 0):
     np.save("output/states/initial_transforms.npy", transforms)
     static_bars = None
     rods = MedialVABD(h, meshes, transforms, static_bars)
+    if test_time: 
+        samples = [102, 677, 942, 1219, 1954]
+        # samples = [102]
+            
+        for i in samples: 
+            rods.reset_z(i)
+
+            rods.step()
+
+        print(f"exiting")
+        print(f"saving convergence info")
+        rods.save_meta()
+
     if from_frame > 0:
         rods.reset_z(from_frame)
     viewer = MedialViewer(rods, static_bars)

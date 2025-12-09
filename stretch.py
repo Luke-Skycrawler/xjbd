@@ -189,6 +189,9 @@ class PSViewer:
                 self.save()
         if self.frame >= self.end_frame:
             print(f"end frame = {self.frame} reached, exiting")
+            print(f"saving convergence info")
+            self.rod.conv.save()
+            self.rod.save_meta()
             quit()
 
         
