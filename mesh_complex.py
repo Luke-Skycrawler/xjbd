@@ -132,7 +132,6 @@ class RodComplexBC(RodBCBase, RodComplex):
 
     def step(self):
         self.theta += omega * self.h
-        self.frame += 1
         with wp.ScopedTimer("step"):
             newton_iter = True
             self.n_iter = 0
@@ -170,6 +169,7 @@ class RodComplexBC(RodBCBase, RodComplex):
 
                     print(f"\niter = {self.n_iter}, alpha = {alpha}, dz norm = {self.norm_dz:.2e}\n")
             self.update_x0_xdot()
+            self.frame += 1
             
     def save_meta(self):
         print(f"total iterations = {self.tot_iters}, total frames = {self.frame}")

@@ -59,11 +59,23 @@ class BFGSHistory:
         self.alpha = np.zeros(m_history)
         self.beta = np.zeros(m_history)
         self.b_last = np.zeros(n_reduced)
+        self.valid = np.zeros(m_history, int)
+        self.since_last_reset = 0
     
     def append(self, yk, sk, n_iter):
-        i = n_iter % self.m_history
+        self.since_last_reset += 1
+        if self.m_history == 0:
+            return
+        # i = n_iter % self.m_history
+        i = (self.since_last_reset) % self.m_history
         self.y[i] = yk
         self.s[i] = sk
+        valid = n_iter != 0
+        self.valid[i] = valid 
+
+    def clear_history(self):
+        self.since_last_reset = 0
+        self.valid[:] = 0
 
     # def factorize(self, A):
     #     self.solver = splu(A)
@@ -185,6 +197,7 @@ class MedialVABD(MedialRodComplex):
             self.z_sys[i * 12: i * 12 + 9] = vec(np.identity(3))
         
 
+        self.newton_interval = 5
         self.bfgs_history = BFGSHistory(self.n_reduced, m_history= 8)
         self.conv = ConvergenceRecord()
         
@@ -425,8 +438,8 @@ class MedialVABD(MedialRodComplex):
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
     def use_newton(self):
-        # return self.n_iter == 0
-        return self.n_iter == 0
+        return self.n_iter == 0 and self.frame % self.newton_interval == 0
+
 
     def solve(self):
         self.A0[:] = 0.
@@ -496,6 +509,7 @@ class MedialVABD(MedialRodComplex):
                     else:
                         self.b_sys_col_last = np.copy(self.b_sys_col + self.b_sys)
                         self.A_sys_col += A_sys
+                    bh.clear_history()
                 else: 
                     # split L-BFGS 
 
@@ -509,8 +523,8 @@ class MedialVABD(MedialRodComplex):
                     bh.append(yk, sk, self.n_iter)
                     
                     # BFGS w/ history 
-                    start = max(1, self.n_iter - m + 1)
-                    end = self.n_iter + 1
+                    start = max(1, bh.since_last_reset - m + 1)
+                    end = bh.since_last_reset + 1
 
                     # AA = self.A_sys_col + A_sys
                     # for i in range(start, end):
@@ -539,6 +553,8 @@ class MedialVABD(MedialRodComplex):
                     for i in reversed(range(start, end)):
                         ii = i % m        
                         si = bh.s[ii]
+                        if bh.valid[ii] == 0:
+                            continue
                         if split_lbfgs:
                             yi = bh.y[ii] + A_sys @ si   
                         else: 
@@ -551,6 +567,8 @@ class MedialVABD(MedialRodComplex):
                     z = solve(AA, q, assume_a = "sym")
                     for i in range(start, end):
                         ii = i % m
+                        if bh.valid[ii] == 0:
+                            continue
                         si = bh.s[ii]
                         if split_lbfgs:
                             yi = bh.y[ii] + A_sys @ si   

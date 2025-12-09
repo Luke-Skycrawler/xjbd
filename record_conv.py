@@ -124,7 +124,7 @@ class ConvergenceRecord:
 
 if __name__ == "__main__":
     record = ConvergenceRecord()
-    folders = ["plot/mbfgs_m2", "plot/mbfgs_m4", "plot/bfgs_m8", "plot/mbfgs_m8", "plot/mbfgs_m16", "plot/newton", "plot/frozen"]
+    folders = ["plot/mbfgs_m2", "plot/mbfgs_m4", "plot/bfgs_m8", "plot/mbfgs_m8", "plot/mbfgs_m16", "plot/newton", "plot/frozen", "plot/mbfgs_by5_m8", "plot/bfgs_by2_m8"]
     for i, folder in enumerate(folders):
         show = (i == len(folders) - 1)
         record.plot(folder, show = show, reuse_fig = i!= 0)
