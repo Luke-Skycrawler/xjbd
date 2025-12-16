@@ -19,7 +19,7 @@ import os
 # model = "windmill"
 # model = "boat"
 # model = "bug"
-model = "dragon"
+model = "lpwheel"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
@@ -156,7 +156,8 @@ class RodLBSWeight(Rod):
         K = self.to_scipy_csr()
         # print("start weight space eigs")
         dim = K.shape[0]
-        if dim >= 3000:
+        # if dim >= 3000:
+        if True:
             self.eigs_export(K, self.Mw.tocsr())
             print("dimension exceeds scipy capability, switching to matlab")
             if not os.path.exists(f"data/eigs/Q_{model}.mat"):
@@ -367,7 +368,8 @@ class RodLBSWeightBC(RodLBSWeight):
 
         
         dim = K.shape[0]
-        if dim >= 3000:
+        # if dim >= 3000:
+        if True:
             self.eigs_export(K, self.Mw)
             print("dimension exceeds scipy capability, switching to matlab")
             with wp.ScopedTimer("matlab eigs"):

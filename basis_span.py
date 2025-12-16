@@ -9,8 +9,8 @@ import polyscope.imgui as gui
 from modal_warping import ModalWarpingRod, MWViewer
 from scipy.io import loadmat
 
-model = "dragon"
-save_only = True
+model = "bar2"
+save_only = False
 
 class VABDModalWarpingRod(ModalWarpingRod):
     '''
@@ -126,7 +126,11 @@ class BestFitViewer(MWViewer):
         
     
     def display(self):
-        self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        # self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        
+        # self.disp = self.rod.compute_displacement_mix(self.ui_deformed_mode, self.ui_magnitude)
+        blend = np.dot(self.Q, self.qs)
+        self.disp = self.rod.compute_displacement_mix(blend)
 
         if not self.show_best_fit:
             self.V_deform = self.V0 + self.disp 

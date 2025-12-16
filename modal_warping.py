@@ -12,7 +12,7 @@ import os
 import igl
 from scipy.sparse import diags
 
-model = "dragon"
+model = "bar2"
 save_Psi_only = False
 @wp.struct
 class ModalWarpingData: 
@@ -269,7 +269,8 @@ class ModalWarpingRod(Rod):
         M = self.M_sparse
         print("start eigs")
         dim = K.shape[0]
-        if dim >= 3000:
+        # if dim >= 3000:
+        if True:
             self.eigs_export(K, M)
             print("dimension exceeds scipy capability, switching to matlab")
             with wp.ScopedTimer("matlab eigs"):
@@ -328,6 +329,14 @@ class ModalWarpingRod(Rod):
         self.compute_sparse_W()
         w = warp.sparse.bsr_mv(self.W, self.Phi)
         return w.numpy().reshape(-1)
+    
+    def compute_Psi_mix(self, u): 
+        disp = u.reshape((-1, 3))   
+        self.Phi.assign(disp)
+        self.modal_w.psi.zero_()
+        self.compute_sparse_W()
+        w = warp.sparse.bsr_mv(self.W, self.Phi)
+        return w.numpy().reshape(-1)
 
     def compute_displacement(self, mode, q_k):
         # wp.copy(self.modal_w.psi, w)   
@@ -338,6 +347,16 @@ class ModalWarpingRod(Rod):
         wp.launch(displace_u_new, dim = (self.n_nodes, ), inputs = [self.modal_w, self.Phi, q_k])
         uprime = self.modal_w.u.numpy()
         return uprime
+
+    def compute_displacement_mix(self, u):
+        disp = u.reshape((-1, 3))   
+        psi = self.compute_Psi_mix(u)
+        self.Phi.assign(disp)
+        self.modal_w.psi.assign(psi.reshape((-1, 3)))
+        wp.launch(displace_u, dim = (self.n_nodes, ), inputs = [self.modal_w, self.Phi])
+        uprime = self.modal_w.u.numpy()
+        return uprime
+
 
 class MWViewer:
     def __init__(self, rod: ModalWarpingRod):
@@ -350,7 +369,7 @@ class MWViewer:
         self.ui_deformed_mode = 9
 
         self.ui_magnitude = 0.0
-
+        self.qs = np.zeros((self.Q.shape[1], ))
         self.ui_use_modal_warping = True
 
         self.rod = rod
@@ -368,7 +387,8 @@ class MWViewer:
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
 
-        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = -800.0, v_max = 800.0)
+        changed, self.ui_magnitude = gui.SliderFloat("Magnitude", self.ui_magnitude, v_min = -8.0, v_max = 8.0)
+        self.qs[self.ui_deformed_mode] = self.ui_magnitude
         
         if gui.Button("save"): 
             mode = self.ui_deformed_mode
@@ -385,7 +405,9 @@ class MWViewer:
             igl.write_obj(f"mode{mode}_neg.obj", V_deform, self.F)
     def display(self):
         # disp = self.rod.compute_Psi(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
-        disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        # disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        blend = np.dot(self.Q, self.qs)
+        disp = self.rod.compute_displacement_mix(blend) 
 
         
         self.V_deform = self.V0 + disp 
