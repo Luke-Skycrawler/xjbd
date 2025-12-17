@@ -69,7 +69,8 @@ class VABDModalWarpingRod(ModalWarpingRod):
                     ph = Phi[:, i: i + 1]
                     arr.append(ps)
                     arr.append(ph)
-                data = np.hstack(arr)
+                # data = np.hstack(arr)
+                data = Q
                 np.save(f"data/lma_weight/all_weights_{model}.npy", data)
                 quit()
             # Q = self.PCA(np.hstack([Phi]))
@@ -99,6 +100,10 @@ class VABDModalWarpingRod(ModalWarpingRod):
         A = U.T @ U
         b = U.T @ disp.reshape(-1)
         self.z[:] = solve(A, b, assume_a="sym")
+        self.target = disp
+        v = (self.U @ self.z).reshape((-1, 3))
+        self.err_recons = np.linalg.norm(self.target - v) / np.linalg.norm(self.target)
+        print(f"reconstruction err = {self.err_recons}")
 
 class BestFitViewer(MWViewer):
     def __init__(self, rod: VABDModalWarpingRod):
@@ -126,11 +131,10 @@ class BestFitViewer(MWViewer):
         
     
     def display(self):
-        # self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+        self.disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
         
-        # self.disp = self.rod.compute_displacement_mix(self.ui_deformed_mode, self.ui_magnitude)
-        blend = np.dot(self.Q, self.qs)
-        self.disp = self.rod.compute_displacement_mix(blend)
+        # blend = np.dot(self.Q, self.qs)
+        # self.disp = self.rod.compute_displacement_mix(blend)
 
         if not self.show_best_fit:
             self.V_deform = self.V0 + self.disp 

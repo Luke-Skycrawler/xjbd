@@ -393,11 +393,12 @@ class MWViewer:
         if gui.Button("save"): 
             mode = self.ui_deformed_mode
 
-            disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
+            # disp = self.rod.compute_displacement(self.ui_deformed_mode, self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * self.ui_magnitude).reshape((-1, 3))
 
             
 
-            V_deform = self.V0 + disp 
+            # V_deform = self.V0 + disp 
+            V_deform = self.V_deform
             igl.write_obj(f"mode{mode}_pos.obj", V_deform, self.F)
 
             disp = self.rod.compute_displacement(self.ui_deformed_mode, -self.ui_magnitude) if self.ui_use_modal_warping else (self.Q[:, self.ui_deformed_mode] * -self.ui_magnitude).reshape((-1, 3))

@@ -19,7 +19,7 @@ import os
 # model = "windmill"
 # model = "boat"
 # model = "bug"
-model = "lpwheel"
+model = "squishy"
 from stretch import eps
 class PSViewer:
     def __init__(self, Q, V0, F):
