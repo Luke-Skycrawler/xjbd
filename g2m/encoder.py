@@ -149,7 +149,7 @@ class DQSEncoder(nn.Module):
         if mid is not None: 
             V -= mid
         VR = np.hstack([V, self.slabmesh.R.reshape(-1, 1)])
-        self.VR = torch.tensor(VR.reshape(-1), dtype=torch.float32).to(device)
+        self.VR = torch.tensor(VR, dtype=torch.float32).to(device)
         self.qm4 = torch.zeros((self.n_modes * 2, 4), dtype = torch.float32).to(device)
         self.qm4[:, -1] = 1.0
         self.y = torch.zeros((self.n_nodes, 4), dtype = torch.float32).to(device)
@@ -175,11 +175,50 @@ class DQSEncoder(nn.Module):
     def Rq(self, q):
         return self.Gq(q) @ self.Hq(q).T
 
+
+    def quat_to_rotmat(self, q):
+        """
+        q: (V, 4) tensor of unit quaternions (x, y, z, w)
+        returns: (V, 3, 3) rotation matrices
+        """
+        x, y, z, w = q.unbind(dim=-1)
+
+        xx = x * x
+        yy = y * y
+        zz = z * z
+        xy = x * y
+        xz = x * z
+        yz = y * z
+        wx = w * x
+        wy = w * y
+        wz = w * z
+
+        R = torch.stack([
+            1 - 2 * (yy + zz), 2 * (xy - wz),     2 * (xz + wy),
+            2 * (xy + wz),     1 - 2 * (xx + zz), 2 * (yz - wx),
+            2 * (xz - wy),     2 * (yz + wx),     1 - 2 * (xx + yy),
+        ], dim=-1)
+
+        return R.view(-1, 3, 3)
+
     def dqs(self, x): 
         qm4p1 = x.reshape((-1, 4))
         self.qm4[:self.n_modes] = qm4p1
         qs = self.weights @ self.qm4
         qs = qs / torch.linalg.vector_norm(qs, dim = 1, keepdim = True)
+
+        # gpt wrote this part to batch the dqs computation
+        R = self.quat_to_rotmat(qs)                 
+        # Extract vertex positions
+        v = self.VR[:, :3]                           
+        # Rotate all vertices at once
+        y = torch.bmm(R, v.unsqueeze(-1)).squeeze(-1) 
+        # Preserve homogeneous coord
+        w = self.VR[:, 3:4]
+        y = torch.cat([y, w], dim=1)            
+        return y.view(-1)
+
+        # old dqs implementation
         for i in range(self.VR.shape[0] // 4):
             q = qs[i]
             ri = self.Rq(q)

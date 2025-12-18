@@ -10,6 +10,7 @@ from g2m.utils import dqs_Q, euler_to_quat, euler_to_affine, npy_to_dataset
 import torch
 import os
 from fast_cd import RodLBSWeight
+import warp as wp
 model = "effel"
 dataset = ["10000_1e-3", "36d_2000_pi"]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -193,11 +194,11 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
         if self.ui_encoder: 
             with torch.no_grad():
                 # with wp.ScopedTimer("inference"):
-                p = self.encoder(torch.from_numpy(q_input.astype(np.float32)).to(device))
-                pnp = p.cpu().numpy().reshape(-1, 4)
+                    p = self.encoder(torch.from_numpy(q_input.astype(np.float32)).to(device))
+                    pnp = p.cpu().numpy().reshape(-1, 4)
 
-                self.V_medial[:] = pnp[:, :3]
-                self.R[:] = pnp[:, 3]
+                    self.V_medial[:] = pnp[:, :3]
+                    self.R[:] = pnp[:, 3]
         else: 
             # vr = self.p_samples[self.ui_sample_id]
             # self.V_medial[:] = vr[:, :3]
