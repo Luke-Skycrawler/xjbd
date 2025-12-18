@@ -19,7 +19,7 @@ def dqs_Q(sQ, comp = True):
     comp_Q = 1 - Q
     ret = np.hstack([Q, comp_Q])
     Q_range = lam / 3e7
-    return ret, Q_range.reshape((1, -1))
+    return ret, Q_range.reshape((1, -1)), Q_min.reshape((1, -1))
 
 def euler_to_quat(euler, Q_range = None):
     q = np.copy(euler.reshape((-1, 3)))
@@ -53,3 +53,11 @@ def euler_to_affine(euler, Q_range = None):
         affines[i] = rrt.reshape(-1)
     return affines.reshape(-1) / n_modes
     
+def npy_to_dataset(q, Q_range = None):
+    if q.shape[1] == 120: 
+        q_120d = q
+    elif q.shape[1] == 36:
+        q_120d = np.zeros((q.shape[0], 40), np.float32)
+        for i in range(q.shape[0]):
+            q_120d[i] = euler_to_quat(q[i], Q_range)[:10, :].reshape(-1)
+    return q_120d

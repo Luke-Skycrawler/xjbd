@@ -45,7 +45,7 @@ class PSViewer:
         self.q[:, 3] = 1.0
 
 
-        self.Q, self.Q_range = dqs_Q(self.Q)
+        self.Q, self.Q_range, _ = dqs_Q(self.Q)
 
         self.B = lbs_matrix(self.V0, self.Q)
         self.T = np.zeros((4 * self.n_modes, 3))

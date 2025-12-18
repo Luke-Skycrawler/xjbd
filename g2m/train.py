@@ -60,7 +60,7 @@ def train_with_pq(load_from = 0, epochs = 1000):
     if load_from > 0:
         model.load_state_dict(torch.load(f"data/{name}_{load_from}.pth"))
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4)
     
     for t in range(tot_epochs, tot_epochs + epochs):
         print(f"Epoch {t+1}\n-------------------------------")
@@ -78,4 +78,4 @@ def train_with_pq(load_from = 0, epochs = 1000):
     writer.flush()
 
 if __name__ == "__main__":
-    train_with_pq(load_from = 0, epochs = 1000)
+    train_with_pq(load_from = 2000 * 0, epochs = 2000)

@@ -51,7 +51,7 @@ class PSViewer:
         self.q = np.zeros((self.n_modes * 2, 4))
         self.q[:, 3] = 1.0
 
-        self.Q, self.Q_range = dqs_Q(self.Q)
+        self.Q, self.Q_range, _ = dqs_Q(self.Q)
 
         self.ps_mesh = ps.register_surface_mesh("rod", V0, F)
         self.ps_mesh.add_scalar_quantity("weight", Q[:, 0], enabled = True)

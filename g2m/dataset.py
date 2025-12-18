@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 from scipy.spatial.transform import Rotation as R
-from g2m.utils import euler_to_affine, dqs_Q
+from g2m.utils import euler_to_affine, dqs_Q, npy_to_dataset
 class RestShapeDataset(Dataset):
     def __init__(self, Q, V0):
         self.Q = Q
@@ -23,16 +23,9 @@ class PQDataset(Dataset):
         
         self.q = np.load(f"data/pqsample/{name}.npy")[start: end].astype(np.float32)
         Q = np.load(f"data/W_effel.npy")[:, 1:11]
-        self.Q, self.Q_range = dqs_Q(Q)
+        self.Q, self.Q_range, _ = dqs_Q(Q)
 
-        if self.q.shape[1] == 120: 
-            self.q_120d = self.q
-        elif self.q.shape[1] == 36:
-
-            q = self.q.reshape((self.q.shape[0], 12, 3))
-            self.q_120d = np.zeros((self.q.shape[0], 120), np.float32)
-            for id in range(self.q.shape[0]):
-                self.q_120d[id] = euler_to_affine(q[id], self.Q_range)
+        self.q_120d = npy_to_dataset(self.q, self.Q_range)
 
         self.p_prime = np.load(f"data/pqsample/p_{name}.npy")[start: end].astype(np.float32)
 
