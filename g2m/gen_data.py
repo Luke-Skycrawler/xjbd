@@ -59,7 +59,7 @@ class PSViewer:
         self.cnt_samples = 0
 
         self.qs = np.load(f"data/pqsample/{filename}.npy")
-        self.ps = np.zeros((self.qs.shape[0], self.fitter.nv_medial, 4))
+        self.ps = np.zeros((self.qs.shape[0], self.tbtt.slabmesh.nv, 4))
         self.filename = filename
         
     def current_magnitude(self):
@@ -83,12 +83,13 @@ class PSViewer:
             # return self.B @ self.T + self.V0
             return self.B @ self.T+ self.V0
         
-
-    def callback(self):
+    def display(self):
         q = self.qs[self.cnt_samples]
         self.V_deform = self.compute_V(q)
 
         self.ps_mesh.update_vertex_positions(self.V_deform)
+
+    def callback(self):
 
         changed, self.ui_deformed_mode = gui.InputInt("#mode", self.ui_deformed_mode, step = 1)
         if changed:
@@ -112,6 +113,33 @@ class PSViewer:
         
         self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode], enabled = True)
 
+        self.display()
+
+class PSDataExamine(MedialViewerInterface, PSViewer):
+    def __init__(self, model, Q, V0, F, filename):
+        self.tbtt = TetBaryCentricCompute(model)
+
+        self.V_rest = self.tbtt.slabmesh.V
+        self.R_rest = self.tbtt.slabmesh.R
+        self.E = self.tbtt.slabmesh.E
+        V, T = self.tbtt.V, self.tbtt.T
+
+        self.V_medial = np.copy(self.V_rest)
+        self.R = np.copy(self.R_rest)
+
+        self.fitted_vr = np.load(f"data/pqsample/p_{filename}.npy")
+        super().__init__(Q, V0, F, filename)
+
+
+    def callback(self):  
+        changed, self.cnt_samples = gui.InputInt("input #", self.cnt_samples, step = 1)
+        if changed:
+            self.display()
+            p = self.fitted_vr[self.cnt_samples]
+            self.V_medial = p[:, :3]
+            self.R = p[:, 3]
+            self.update_medial()
+    
 class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
     def __init__(self, model, Q, V0, F, filename):
         self.tbtt = TetBaryCentricCompute(model)
@@ -168,7 +196,7 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
             
         
         
-def vis_weights(): 
+def gen_data(): 
     ps.init()
     ps.set_ground_plane_mode("none")
     wp.init()
@@ -181,6 +209,19 @@ def vis_weights():
     # viewer.gen_samples(dataset[1])
     ps.show()
 
+def examine_data():
+    ps.init()
+    ps.set_ground_plane_mode("none")
+    wp.init()
+    rod = RodLBSWeight()    
+    Q = np.load(f"data/W_{model}.npy")
+    
+    viewer = PSDataExamine(model, Q, rod.V0, rod.F, dataset[1])
+    ps.set_user_callback(viewer.callback)
+    # viewer.gen_samples(dataset[1])
+    ps.show()
+
 if __name__ == "__main__":
-    vis_weights()
+    # gen_data()
+    examine_data()
     

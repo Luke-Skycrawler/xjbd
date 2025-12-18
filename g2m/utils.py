@@ -18,11 +18,13 @@ def dqs_Q(sQ, comp = True):
         return Q
     comp_Q = 1 - Q
     ret = np.hstack([Q, comp_Q])
-    Q_range = lam / 7e7
+    Q_range = lam / 3e7
     return ret, Q_range.reshape((1, -1))
 
 def euler_to_quat(euler, Q_range = None):
-    q = euler.reshape((-1, 3))
+    q = np.copy(euler.reshape((-1, 3)))
+    q[:, 0] /= 3.
+    q[:, 2] /= 3.    
     quats = np.zeros((n_modes * 2, 4))
     quats[:, 3] = 1.0
     for i in range(n_modes):
@@ -35,7 +37,9 @@ def euler_to_quat(euler, Q_range = None):
     return quats
 
 def euler_to_affine(euler, Q_range = None):
-    q = euler.reshape((-1, 3))
+    q = np.copy(euler.reshape((-1, 3)))
+    q[:, 0] /= 3.
+    q[:, 2] /= 3.    
     affines = np.zeros((n_modes * 2, 12))
     affines[:, : 9] = np.eye(3).reshape(-1)
     for i in range(n_modes):
