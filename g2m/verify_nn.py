@@ -14,7 +14,7 @@ import warp as wp
 model = "effel"
 dataset = ["10000_1e-3", "36d_2000_pi"]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-encoder_choice = "dqs"
+encoder_choice = "mlp"
 assert encoder_choice in ["dqs", "mlp"]
 class PSViewer:
     def __init__(self, Q, V0, F, mid = None):
@@ -58,13 +58,13 @@ class PSViewer:
         self.n_nodes = 150
         # name = "10000_1e-3"
         name = dataset[1]
-        checkpoint = 4000
+        checkpoint = 2000
         if encoder_choice == "dqs":
             self.encoder = DQSEncoder(10, self.n_nodes, mid).to(device)
             self.encoder.eval()
         else: 
-            self.encoder = Encoder(self.n_modes, self.n_nodes).to(device)
-            # self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))
+            self.encoder = Encoder(10, self.n_nodes, mid = mid).to(device)
+            self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))
             self.encoder.eval()
 
         # self.q_samples = np.load(f"data/pqsample/{name}.npy")

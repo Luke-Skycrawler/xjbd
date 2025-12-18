@@ -30,7 +30,8 @@ class PQDataset(Dataset):
         self.p_prime = np.load(f"data/pqsample/p_{name}.npy")[start: end].astype(np.float32)
 
         print(f"in dataset: q shape, p shape = {self.q.shape}, {self.p_prime.shape}")
-        self.n_modes = self.q_120d.shape[1]
+        # self.n_modes = self.q_120d.shape[1]
+        self.n_modes = 10
         self.n_nodes = self.p_prime.shape[1]
         print(f"in dataset: n_modes, n_nodes = {self.n_modes}, {self.n_nodes}")
 
