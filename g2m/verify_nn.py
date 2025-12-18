@@ -12,8 +12,7 @@ import os
 from fast_cd import RodLBSWeight
 model = "effel"
 dataset = ["10000_1e-3", "36d_2000_pi"]
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 encoder_choice = "dqs"
 assert encoder_choice in ["dqs", "mlp"]
 class PSViewer:

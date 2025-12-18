@@ -4,8 +4,8 @@ from torch import optim
 from g2m.medial import SlabMesh
 import numpy as np 
 from g2m.utils import dqs_Q
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = "cpu"
 class Encoder(nn.Module):
     def __init__(self, n_modes, n_nodes, n_latent = 128):
         super().__init__()
@@ -150,6 +150,11 @@ class DQSEncoder(nn.Module):
             V -= mid
         VR = np.hstack([V, self.slabmesh.R.reshape(-1, 1)])
         self.VR = torch.tensor(VR.reshape(-1), dtype=torch.float32).to(device)
+        self.qm4 = torch.zeros((self.n_modes * 2, 4), dtype = torch.float32).to(device)
+        self.qm4[:, -1] = 1.0
+        self.y = torch.zeros((self.n_nodes, 4), dtype = torch.float32).to(device)
+        
+
 
     def Gq(self, q):
         x, y, z, w = q
@@ -157,36 +162,32 @@ class DQSEncoder(nn.Module):
             [w, -z, y, -x],
             [z, w, -x, -y],
             [-y, x, w, -z],
-        ])
+        ], device=device)
     
     def Hq(self, q):
         x, y, z, w = q
         return torch.tensor([
             [w, z, -y, -x],
             [-z, w, x, -y],
-            [y, -x, w, -z],
-        ])
+            [y, -x, w, -z], 
+        ], device = device)
 
     def Rq(self, q):
         return self.Gq(q) @ self.Hq(q).T
 
     def dqs(self, x): 
         qm4p1 = x.reshape((-1, 4))
-        qm4p2 = torch.zeros_like(qm4p1)
-        qm4p2[:, 3] = 1.0
-        qm4 = torch.cat([qm4p1, qm4p2], dim = 0)
-        qs = self.weights @ qm4
-        # nomalize qs by rows
+        self.qm4[:self.n_modes] = qm4p1
+        qs = self.weights @ self.qm4
         qs = qs / torch.linalg.vector_norm(qs, dim = 1, keepdim = True)
-        y = torch.zeros((self.n_nodes, 4), dtype = torch.float32).to(device)
         for i in range(self.VR.shape[0] // 4):
             q = qs[i]
             ri = self.Rq(q)
             vi = self.VR[i * 4 : i * 4 + 3]
             yi = ri @ vi
-            y[i, :3] = yi
-            y[i, 3] = self.VR[i * 4 + 3]
-        return y.reshape(-1)
+            self.y[i, :3] = yi
+            self.y[i, 3] = self.VR[i * 4 + 3]
+        return self.y.reshape(-1)
         
     def forward(self, x):
         y_dqs = self.dqs(x)
