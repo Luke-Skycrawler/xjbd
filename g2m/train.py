@@ -78,4 +78,4 @@ def train_with_pq(load_from = 0, epochs = 1000):
     writer.flush()
 
 if __name__ == "__main__":
-    train_with_pq(load_from = 2000 * 0, epochs = 2000)
+    train_with_pq(load_from = 2000 * 2, epochs = 2000)

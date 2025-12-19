@@ -16,6 +16,7 @@ dataset = ["10000_1e-3", "36d_2000_pi"]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 encoder_choice = "mlp"
 assert encoder_choice in ["dqs", "mlp"]
+autoplay = True
 class PSViewer:
     def __init__(self, Q, V0, F, mid = None):
         self.Q = Q[:, 1:11]
@@ -58,7 +59,7 @@ class PSViewer:
         self.n_nodes = 150
         # name = "10000_1e-3"
         name = dataset[1]
-        checkpoint = 2000
+        checkpoint = 6000
         if encoder_choice == "dqs":
             self.encoder = DQSEncoder(10, self.n_nodes, mid).to(device)
             self.encoder.eval()
@@ -67,10 +68,17 @@ class PSViewer:
             self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))
             self.encoder.eval()
 
-        # self.q_samples = np.load(f"data/pqsample/{name}.npy")
-        self.p_samples = np.load(f"data/pqsample/p_{name}.npy")
+        q_samples_dataset = np.load(f"data/pqsample/{name}.npy")
+        q_samples_twist = self.gen_data()
 
-        self.q_samples = self.gen_data()
+        key_q = np.array([q_samples_twist[0], q_samples_twist[1], q_samples_twist[0]] + [q_samples_dataset[i] for i in np.arange(1501, 2000, 50)])
+        self.q_samples = np.array([q for q in self.traj_from_key_frames(key_q, n_intp=15)])
+
+        # self.q_samples = np.vstack([q_samples_twist, q_samples_dataset])
+
+        self.p_samples = np.load(f"data/pqsample/p_{name}.npy")
+        self.nn_outputs = np.zeros((self.q_samples.shape[0], self.n_nodes, 4))
+        self.v_outputs = np.zeros((self.q_samples.shape[0], self.V0.shape[0], 3))
 
         self.q_120d = npy_to_dataset(self.q_samples, self.Q_range)
         # self.q_120d = np.zeros((self.q_samples.shape[0], 120), np.float32)
@@ -81,13 +89,20 @@ class PSViewer:
         #         self.q_120d[id] = euler_to_affine(self.q_samples[id], self.Q_range)
 
     def gen_data(self):
-        n_samples = 10
+        n_samples = 3
         data = np.zeros((n_samples, 36))
-        angley = np.linspace(-np.pi, np.pi, n_samples)
+        angley = np.linspace(0, np.pi * 2, n_samples, endpoint=True)
         
         d = data.reshape((-1, 12, 3))
         d[:, 0, 1] = angley
         return d.reshape(data.shape)
+
+    def traj_from_key_frames(self, key_q, n_intp = 15): 
+        for i in range(key_q.shape[0] - 1): 
+            for j in range(n_intp): 
+                t = j / (n_intp)
+                yield (1 - t) * key_q[i] + t * key_q[i + 1]
+        yield key_q[-1]
 
     def current_magnitude(self):
         return self.T[self.idx_to_T(self.ui_deformed_mode)]
@@ -141,9 +156,10 @@ class PSViewer:
 
 
     def callback(self):
-        changed, self.ui_sample_id = gui.InputInt("sample id", self.ui_sample_id)
+        if not autoplay: 
+            changed, self.ui_sample_id = gui.InputInt("sample id", self.ui_sample_id)
 
-        if changed: 
+        if autoplay or changed: 
             q = self.q_samples[self.ui_sample_id]
             if self.q_samples.shape[1] == 36:
                 quats = euler_to_quat(q, self.Q_range)
@@ -167,6 +183,8 @@ class PSViewer:
         changed, self.ui_Rz = gui.SliderFloat("Rz", self.ui_Rz, v_min = -np.pi, v_max = np.pi)
         
         self.ps_mesh.add_scalar_quantity("weight", self.Q[:, self.ui_deformed_mode], enabled = True)
+        
+                
 
 class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
     def __init__(self, Q, V0, F, mid = None):
@@ -211,6 +229,17 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
 
         self.update_medial()
 
+        if autoplay: 
+            self.nn_outputs[self.ui_sample_id] = np.hstack([self.V_medial, self.R.reshape(-1, 1)])
+            self.v_outputs[self.ui_sample_id] = self.V_deform
+            self.ui_sample_id += 1
+            if self.ui_sample_id >= self.q_samples.shape[0]:
+                print("all samples completed, saving p, q traj")
+                np.save("q_traj.npy", self.q_samples)
+                np.save("p_traj.npy", self.nn_outputs)
+                np.save(f"v_traj.npy", self.v_outputs)                
+                quit()
+            
 
 
 if __name__ == "__main__":
