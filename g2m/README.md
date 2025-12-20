@@ -1,5 +1,5 @@
 #### 
-(Assume all commands are called in the root directory)
+(Assume all commands are called in the root directory, and tensorboard is enabled (conda oldwarp env))
 Process: 
 
 #### generate data 
@@ -19,3 +19,16 @@ python -m g2m.gen_data
 make sure to call examine_data()
 
 #### train
+
+```
+tensorboard --logdir runs
+python -m g2m.train
+```
+
+### verify training results
+
+```
+python -m g2m.verify_nn
+```
+
+if autoplay is enabled, it will interpolate through the validate dataset. When it finishes, it produces q trajectory and `c, r` output from nn, stored as `q_traj.npy` and `p_traj.npy`. The deformed tet mesh node positions is stored as `v_traj.npy`.  

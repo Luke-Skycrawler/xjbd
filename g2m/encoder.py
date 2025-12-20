@@ -7,7 +7,7 @@ from g2m.utils import dqs_Q
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 mid_effel = np.array([0.19910182, 0.35107037, 0.1984188])
 # device = "cpu"
-
+beta = 640
 class DQSEncoder(nn.Module): 
     def __init__(self, n_modes, n_nodes, mid = None):
         super().__init__()
@@ -148,6 +148,7 @@ class Encoder(DQSEncoder):
 
         layer_widths_encoder = [self.n_modes, 120, 60, 30]
         layer_widths_decoder = [self.n_nodes * 4 + 40, self.n_nodes * 4 + 60, self.n_nodes * 4 + 60, self.n_nodes * 4]
+        # layer_widths_decoder = [self.n_nodes * 4 + 40, beta, beta, self.n_nodes * 4]
 
         self.layers_encoder = []
         self.layers_decoder = []

@@ -4,7 +4,7 @@ import numpy as np
 from igl import lbs_matrix, dqs
 from scipy.spatial.transform import Rotation as R
 from g2m.viewer import MedialViewerInterface
-from g2m.encoder import Encoder, DQSEncoder
+from g2m.encoder import Encoder, DQSEncoder, beta
 from g2m.medial import SlabMesh
 from g2m.utils import dqs_Q, euler_to_quat, euler_to_affine, npy_to_dataset
 import torch
@@ -64,8 +64,9 @@ class PSViewer:
             self.encoder = DQSEncoder(10, self.n_nodes, mid).to(device)
             self.encoder.eval()
         else: 
+            folder = f"checkpoints/b{beta}"
             self.encoder = Encoder(10, self.n_nodes, mid = mid).to(device)
-            self.encoder.load_state_dict(torch.load(f"data/{name}_{checkpoint}.pth"))
+            self.encoder.load_state_dict(torch.load(f"data/{folder}/{name}_{checkpoint}.pth"))
             self.encoder.eval()
 
         q_samples_dataset = np.load(f"data/pqsample/{name}.npy")
@@ -79,6 +80,9 @@ class PSViewer:
         self.p_samples = np.load(f"data/pqsample/p_{name}.npy")
         self.nn_outputs = np.zeros((self.q_samples.shape[0], self.n_nodes, 4))
         self.v_outputs = np.zeros((self.q_samples.shape[0], self.V0.shape[0], 3))
+        self.timing_dict = {
+            "inference": [],
+        }
 
         self.q_120d = npy_to_dataset(self.q_samples, self.Q_range)
         # self.q_120d = np.zeros((self.q_samples.shape[0], 120), np.float32)
@@ -211,7 +215,7 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
         changed, self.ui_encoder =gui.Checkbox("use encoder", self.ui_encoder)
         if self.ui_encoder: 
             with torch.no_grad():
-                # with wp.ScopedTimer("inference"):
+                with wp.ScopedTimer("inference", dict = self.timing_dict):
                     p = self.encoder(torch.from_numpy(q_input.astype(np.float32)).to(device))
                     pnp = p.cpu().numpy().reshape(-1, 4)
 
@@ -237,7 +241,8 @@ class PSViewerMedialSocket(MedialViewerInterface, PSViewer):
                 print("all samples completed, saving p, q traj")
                 np.save("q_traj.npy", self.q_samples)
                 np.save("p_traj.npy", self.nn_outputs)
-                np.save(f"v_traj.npy", self.v_outputs)                
+                np.save(f"v_traj.npy", self.v_outputs) 
+                np.save(f"timing_dict.npy", np.array(self.timing_dict["inference"]))               
                 quit()
             
 
