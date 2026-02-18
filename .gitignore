@@ -9,3 +9,10 @@ data/eigs/
 assets/squishyball/
 *_v*.ma
 *.ply
+*.dll
+*.pyd
+*.zip 
+*.npz
+.vscode/
+plot/
+data/

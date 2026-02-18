@@ -217,6 +217,7 @@ class RodBCBase:
         wp.copy(self.states.x0, self.xcs)
 
         self.theta = 0.0
+        self.frame = 0
 
     def define_M(self):
         V = self.xcs.numpy()
@@ -257,6 +258,7 @@ class RodBCBase:
             n_iter += 1
         self.update_x0_xdot()
         self.theta += self.h * omega
+        self.frame += 1
 
     def update_x0_xdot(self):
         wp.launch(update_x0_xdot, dim = (self.n_nodes,), inputs = [self.states, self.h])
