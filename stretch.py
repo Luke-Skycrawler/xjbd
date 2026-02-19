@@ -34,12 +34,14 @@ def set_M_diag(d: wp.array(dtype = float), M: wp.array(dtype = wp.mat33)):
 
 @wp.func
 def x_minus_tilde(state: NewtonState, h: float, i: int) -> wp.vec3:
-    return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
+    # return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
+    return gravity
 
 @wp.kernel
 def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
     i = wp.tid()
-    b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
+    # b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
+    b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
 
 
 @wp.func
@@ -253,7 +255,7 @@ class RodBCBase:
 
             dxnp = self.states.dx.numpy()
             norm_dx = np.linalg.norm(dxnp)
-            newton_iter = norm_dx > 1e-3 and n_iter < max_iter
+            newton_iter = norm_dx > 1e-6 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
             n_iter += 1
         self.update_x0_xdot()
@@ -269,7 +271,7 @@ class RodBCBase:
 
         # A = h^2 * K + M
         h = self.h
-        bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+        # bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
         self.A = self.K_sparse
 
     def compute_K(self):
@@ -302,31 +304,31 @@ class RodBCBase:
             # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
             cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
     
-    # def line_search(self):
-    #     alpha = 1.0
-    #     wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-    #     return alpha
-        
     def line_search(self):
-        # FIXME: not converged
-        x_tmp = wp.clone(self.states.x)
-        E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
         alpha = 1.0
-        while True:
-            wp.copy(self.states.x, x_tmp)
-            wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
-            E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
-            
-            if E1 < E0:
-                break
-            if alpha < 1e-3:
-                wp.copy(self.states.x, x_tmp)
-                alpha = 0.0
-                break
-            alpha *= 0.5
-
-        # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+        wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
         return alpha
+        
+    # def line_search(self):
+    #     # FIXME: not converged
+    #     x_tmp = wp.clone(self.states.x)
+    #     E0 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+    #     alpha = 1.0
+    #     while True:
+    #         wp.copy(self.states.x, x_tmp)
+    #         wp.launch(add_dx, dim = (self.n_nodes, ), inputs = [self.states, alpha])
+    #         E1 = self.compute_psi() + self.compute_inertia() + self.compute_collision_energy()
+            
+    #         if E1 < E0:
+    #             break
+    #         if alpha < 1e-3:
+    #             wp.copy(self.states.x, x_tmp)
+    #             alpha = 0.0
+    #             break
+    #         alpha *= 0.5
+
+    #     # print(f"alpha = {alpha}, E0 = {E0}, E1 = {E1}")
+    #     return alpha
 
     def compute_collision_energy(self):
         return 0.0
