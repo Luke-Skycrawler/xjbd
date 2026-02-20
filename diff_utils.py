@@ -66,6 +66,7 @@ def dFdx0(i:int, Bm: wp.mat33, F: wp.mat33):
     '''
     z33 = wp.mat33(0.0)
     ret = wp.matrix(0.0, shape = (9, 3), dtype = float)
+    Bm_inv = wp.inverse(Bm)
     if i == 3: 
         o3 = wp.vec3(1.0)
         z3 = wp.vec3(0.0)
@@ -74,9 +75,9 @@ def dFdx0(i:int, Bm: wp.mat33, F: wp.mat33):
         f23 = -wp.matrix_from_rows(z3, z3, o3)
         
         ret = wp.matrix_from_cols(
-            vec33(-F @ f03 @ Bm), 
-            vec33(-F @ f13 @ Bm),
-            vec33(-F @ f23 @ Bm)
+            vec33(-F @ f03 @ Bm_inv), 
+            vec33(-F @ f13 @ Bm_inv),
+            vec33(-F @ f23 @ Bm_inv)
         )
     
     else: 
@@ -88,9 +89,9 @@ def dFdx0(i:int, Bm: wp.mat33, F: wp.mat33):
         f2i[2, i] = 1.0
 
         ret = wp.matrix_from_cols(
-            vec33(-F @ f0i @ Bm),
-            vec33(-F @ f1i @ Bm),
-            vec33(-F @ f2i @ Bm)
+            vec33(-F @ f0i @ Bm_inv),
+            vec33(-F @ f1i @ Bm_inv),
+            vec33(-F @ f2i @ Bm_inv)
         )
     return ret
 
@@ -132,6 +133,16 @@ def def_grad(x0: wp.vec3, x1: wp.vec3, x2: wp.vec3, x3: wp.vec3, Bm: wp.mat33):
     Ds = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
     return Ds @ Bm
 
+@wp.func 
+def def_grad_rest(Dm: wp.mat33, x0: wp.vec3, x1: wp.vec3, x2: wp.vec3, x3: wp.vec3): 
+    '''
+    Dm: deformed shape
+    x0, x1, x2, x3: rest shape
+    '''
+    Bm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
+    Bm_inv = wp.inverse(Bm)
+    return Dm @ Bm_inv
+    
 @wp.kernel
 def template_fd_F(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dF_ret: wp.array(dtype = wp.mat33), dF_fd_ret: wp.array(dtype = wp.mat33)): 
     Bm = wp.identity(3, dtype = float)
@@ -149,16 +160,19 @@ def template_fd_F(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), d
 
 @wp.kernel
 def template_fd_dFdx0(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dF_ret: wp.array(dtype = wp.mat33), dF_fd_ret: wp.array(dtype = wp.mat33)): 
-    Bm = wp.identity(3, dtype = float)
+    Dm = wp.identity(3, dtype = float)
     j = wp.tid()
-    dFdxii = dFdx(0, Bm) 
-    dF = dFdxii @ dx[j] * h * 2.0
     x0 = x[j * 4 + 0]
     x1 = x[j * 4 + 1]
     x2 = x[j * 4 + 2]
     x3 = x[j * 4 + 3]
+    F = def_grad_rest(Dm, x0, x1, x2, x3)
+    Bm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
+
+    dFdxii = dFdx0(0, Bm, F) 
+    dF = dFdxii @ dx[j] * h * 2.0
     
-    dF_fd = def_grad(x0 + dx[j] * h, x1, x2, x3, Bm) - def_grad(x0 - dx[j] * h, x1, x2, x3, Bm)
+    dF_fd = def_grad_rest(Dm, x0 + dx[j] * h, x1, x2, x3) - def_grad_rest(Dm, x0 - dx[j] * h, x1, x2, x3)
     dF_fd_ret[j] = wp.transpose(dF_fd)
     dF_ret[j] = inv_vec(dF)
 
@@ -186,7 +200,7 @@ def template_fd_P(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), d
 
 def test_against_fd(): 
     n_tests = 10
-    test = "dPdx"
+    test = "dFdx0"
     rng = np.random.default_rng(42)
 
     x34 = np.eye(4, 3, dtype = float)
