@@ -16,3 +16,8 @@ assets/squishyball/
 .vscode/
 plot/
 data/
+runs/
+seq*/
+test_scripts/
+fast cd comparison/
+timing/

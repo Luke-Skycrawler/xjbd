@@ -4,6 +4,8 @@
 /*.msh
 /*.off
 /*.mesh
+/*.tobj
+/*.stl
 boat/
 armadilo/
 bat/
@@ -23,5 +25,20 @@ watermill/
 bar2/
 bar3/
 boat*/
-
+CH47/
+dragon/
+effel/
+fonts/
+fork/
+hermit-crab/
+link/
+model*/
+tokyo-tower*/
+tokyo_tower/
+rowboat*/
+eiffel_tower/
+crane/
+wrecking_ball/
+crab/
+lpwheel/
 
