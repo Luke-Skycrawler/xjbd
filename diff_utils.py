@@ -3,8 +3,8 @@ from warp.types import vector
 from fem.params import * 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-
-h = 1e-3
+from fem.linear_elasticity import PK1 
+h = 1e-2
 @wp.func 
 def vec33(m: wp.mat33):
     return wp.vector(
@@ -99,7 +99,7 @@ def def_grad(x0: wp.vec3, x1: wp.vec3, x2: wp.vec3, x3: wp.vec3, Bm: wp.mat33):
     return Ds @ Bm
 
 @wp.kernel
-def template_fd(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dF_ret: wp.array(dtype = wp.mat33), dF_fd_ret: wp.array(dtype = wp.mat33)): 
+def template_fd_F(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dF_ret: wp.array(dtype = wp.mat33), dF_fd_ret: wp.array(dtype = wp.mat33)): 
     Bm = wp.identity(3, dtype = float)
     j = wp.tid()
     dFdxii = dFdx(0, Bm) 
@@ -113,11 +113,31 @@ def template_fd(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dF_
     dF_fd_ret[j] = wp.transpose(dF_fd)
     dF_ret[j] = inv_vec(dF)
 
+@wp.kernel
+def template_fd_P(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dP_ret: wp.array(dtype = wp.mat33), dP_fd_ret: wp.array(dtype = wp.mat33)): 
+    Bm = wp.identity(3, dtype = float)
+    j = wp.tid()
+    dFdxii = dFdx(0, Bm) 
+    
+    x0 = x[j * 4 + 0]
+    x1 = x[j * 4 + 1]
+    x2 = x[j * 4 + 2]
+    x3 = x[j * 4 + 3]
+    
+    F = def_grad(x0, x1, x2, x3, Bm)
+    dPdxii = dPdF(F) @ dFdxii 
+    dP = dPdxii @ dx[j] * h * 2.0
+
+    dP_fd = PK1(def_grad(x0 + dx[j] * h, x1, x2, x3, Bm)) - PK1(def_grad(x0 - dx[j] * h, x1, x2, x3, Bm))
+    dP_fd_ret[j] = wp.transpose(dP_fd)
+    dP_ret[j] = inv_vec(dP)
+
     
     
 
 def test_against_fd(): 
-    n_tests = 10
+    n_tests = 1
+    test = "dPdx"
     rng = np.random.default_rng(42)
 
     x34 = np.eye(4, 3, dtype = float)
@@ -129,7 +149,12 @@ def test_against_fd():
     dxwp = wp.array(dxnp, dtype = wp.vec3)
     dF_ret = wp.zeros((n_tests, ), dtype = wp.mat33)
     dF_fd_ret = wp.zeros((n_tests, ), dtype = wp.mat33)
-    wp.launch(template_fd, dim = (n_tests, ), inputs = [xwp, dxwp, dF_ret, dF_fd_ret])
+    if test == "dFdx": 
+        wp.launch(template_fd_F, dim = (n_tests, ), inputs = [xwp, dxwp, dF_ret, dF_fd_ret])
+    elif test == "dPdx": 
+        wp.launch(template_fd_P, dim = (n_tests, ), inputs = [xwp, dxwp, dF_ret, dF_fd_ret])
+
+
     dF_analytic = dF_ret.numpy()
     dF_fd = dF_fd_ret.numpy()
     print("dF: ", dF_analytic)
