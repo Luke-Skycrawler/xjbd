@@ -4,6 +4,7 @@ import polyscope as ps
 from fem.linear_elasticity import PK1
 from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
+from fem.fem import compute_Dm
 h = 1e-2
 h_fd = 1e-3
 
@@ -127,10 +128,16 @@ class DiffRodBC(RodBC):
     def set_bc_fixed_grad(self):
         pass
 
+    def compute_Dm_keep_W(self):
+        W = wp.zeros_like(self.W)
+        wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.geo, self.Bm, W])
+
     def _verify_pcpp(self):
         self.compute_pcpp()
         self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+
+        self.tet_kernel_sparse()
 
         # manipulate dx 
         dxnp = np.random.rand(self.n_nodes, 3) * h_fd
@@ -145,6 +152,7 @@ class DiffRodBC(RodBC):
         db_predict_wp = wp.zeros_like(self.b)
         bsr_mv(self.pcpp_sparse, dxwp, db_predict_wp)
         
+        # self.compute_Dm_keep_W()
         self.compute_Dm()
         self.compute_K()        
         db = self.b.numpy() - b_curr 
