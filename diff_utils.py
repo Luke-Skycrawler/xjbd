@@ -22,13 +22,12 @@ def inv_vec(v: vector(9, dtype = float)) -> wp.mat33:
     )
 
 @wp.func 
-def dHdx0(F: wp.mat33, Bm: wp.mat33, i: int): 
-    dFdx0i = dFdx0(i, Bm, F)
+def dHdx0(F: wp.mat33, Bm_inv: wp.mat33, i: int): 
+    dFdx0i = dFdx0(i, Bm_inv, F)
     dPdx0i = wp.transpose(dPdF(F) @ dFdx0i)
     m0 = inv_vec(dPdx0i[0])
     m1 = inv_vec(dPdx0i[1])
     m2 = inv_vec(dPdx0i[2])
-    Bm_inv = wp.inverse(Bm)
     Bmt_inv = wp.transpose(Bm_inv)
 
     H = compute_H(F, Bm_inv)
@@ -121,11 +120,10 @@ def dDsdx(i:int):
     return f0, f1, f2
 
 @wp.func 
-def dFdx0(i:int, Bm: wp.mat33, F: wp.mat33): 
+def dFdx0(i:int, Bm_inv: wp.mat33, F: wp.mat33): 
     '''
     vec(partial F / partial rest x), 9x3 matrix
     '''
-    Bm_inv = wp.inverse(Bm)
 
     f0, f1, f2 = dDsdx(i)
     ret = wp.matrix_from_cols(
@@ -188,8 +186,8 @@ def template_fd_dFdx0(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3
     x3 = x[j * 4 + 3]
     F = def_grad_rest(Dm, x0, x1, x2, x3)
     Bm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
-
-    dFdxii = dFdx0(0, Bm, F) 
+    Bm_inv = wp.inverse(Bm)
+    dFdxii = dFdx0(0, Bm_inv, F) 
     dF = dFdxii @ dx[j] * h * 2.0
     
     dF_fd = def_grad_rest(Dm, x0 + dx[j] * h, x1, x2, x3) - def_grad_rest(Dm, x0 - dx[j] * h, x1, x2, x3)
@@ -245,9 +243,10 @@ def template_fd_dHdx0(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3
     x3 = x[j * 4 + 3]
     F = def_grad_rest(Dm, x0, x1, x2, x3)
     Bm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
+    Bm_inv = wp.inverse(Bm)
     Bm_minus = wp.matrix_from_cols(x0 - x3 - dx[j] * h, x1 - x3, x2 - x3)
     Bm_plus = wp.matrix_from_cols(x0 - x3 + dx[j] * h, x1 - x3, x2 - x3)
-    dHdxii = dHdx0(F, Bm, 0) 
+    dHdxii = dHdx0(F, Bm_inv, 0) 
     dH = dHdxii @ dx[j] * h * 2.0
     
     dH_fd = compute_H(def_grad_rest(Dm, x0 + dx[j] * h, x1, x2, x3), wp.inverse(Bm_plus)) - compute_H(def_grad_rest(Dm, x0 - dx[j] * h, x1, x2, x3), wp.inverse(Bm_minus))

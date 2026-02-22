@@ -5,6 +5,7 @@ from fem.linear_elasticity import PK1
 from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
 h = 1e-2
+h_fd = 1e-3
 
 '''
 reference: 
@@ -53,48 +54,42 @@ def pcpx_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
 @wp.kernel
 def pcpp_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets):
     ej = wp.tid()
-    # e = ej // 4
-    # _i = ej % 4
+    e = ej // 4
+    _i = ej % 4
     
-    # t0 = x[geo.T[e, 0]]
-    # t1 = x[geo.T[e, 1]]
-    # t2 = x[geo.T[e, 2]]
-    # t3 = x[geo.T[e, 3]]
+    t0 = x[geo.T[e, 0]]
+    t1 = x[geo.T[e, 1]]
+    t2 = x[geo.T[e, 2]]
+    t3 = x[geo.T[e, 3]]
     
-    # Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
     
-    # F = Ds @ Bm[e]
-    # i = geo.T[e, _i]
+    F = Ds @ Bm[e]
+    i = geo.T[e, _i]
     
-    # dHdxi = dHdx(F, Bm[e], _i)
-    # # 9x3 matrix 
-    # cols = wp.transpose(dHdxi)
-    # # c0 = wp.transpose(inv_vec(cols[0]))
-    # # c1 = wp.transpose(inv_vec(cols[1]))
-    # # c2 = wp.transpose(inv_vec(cols[2]))
-    # c0 = inv_vec(cols[0])
-    # c1 = inv_vec(cols[1])
-    # c2 = inv_vec(cols[2])
+    dHdx0i = dHdx0(F, Bm[e], _i) * W[e]
+    # 9x3 matrix 
+    cols = wp.transpose(dHdx0i)
+    c0 = inv_vec(cols[0])
+    c1 = inv_vec(cols[1])
+    c2 = inv_vec(cols[2])
 
+    df0dxi = wp.matrix_from_rows(c0[0], c1[0], c2[0])
+    df1dxi = wp.matrix_from_rows(c0[1], c1[1], c2[1])
+    df2dxi = wp.matrix_from_rows(c0[2], c1[2], c2[2])
+    df3dxi = -df0dxi - df1dxi - df2dxi
 
-    # # df0dxi = wp.matrix_from_cols(c0[0], c1[0], c2[0])
-    # # df1dxi = wp.matrix_from_cols(c0[1], c1[1], c2[1])
-    # # df2dxi = wp.matrix_from_cols(c0[2], c1[2], c2[2])
-    # df0dxi = wp.matrix_from_rows(c0[0], c1[0], c2[0])
-    # df1dxi = wp.matrix_from_rows(c0[1], c1[1], c2[1])
-    # df2dxi = wp.matrix_from_rows(c0[2], c1[2], c2[2])
-    # df3dxi = -df0dxi - df1dxi - df2dxi
-
-    # cnt = ej * 4
-    # for jj in range(4): 
-    #     j = geo.T[e, jj]
-    #     triplets.rows[cnt + j] = i 
-    #     triplets.cols[cnt + j] = j 
+    cnt = ej * 4
+    for jj in range(4): 
+        j = geo.T[e, jj]
+        triplets.rows[cnt + jj] = i 
+        triplets.cols[cnt + jj] = j 
     
-    # triplets.vals[cnt] = df0dxi 
-    # triplets.vals[cnt + 1] = df1dxi
-    # triplets.vals[cnt + 2] = df2dxi
-    # triplets.vals[cnt + 3] = df3dxi
+    triplets.vals[cnt] = df0dxi 
+    triplets.vals[cnt + 1] = df1dxi
+    triplets.vals[cnt + 2] = df2dxi
+    triplets.vals[cnt + 3] = df3dxi
+
     
 
 class DiffRodBC(RodBC):
@@ -126,6 +121,40 @@ class DiffRodBC(RodBC):
         wp.launch(pcpp_sparse, (self.n_tets * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.pcpp_triplets])
 
 
+    def set_bc_fixed_hessian(self):
+        pass
+
+    def set_bc_fixed_grad(self):
+        pass
+
+    def _verify_pcpp(self):
+        self.compute_pcpp()
+        self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+
+        # manipulate dx 
+        dxnp = np.random.rand(self.n_nodes, 3) * h_fd
+        dxwp = wp.array(dxnp, dtype = wp.vec3)
+        # x_curr = self.states.x.numpy()
+        x_curr = self.xcs.numpy()
+        x_dx = x_curr + dxnp
+        self.xcs.assign(x_dx)
+
+        b_curr = self.b.numpy()
+
+        db_predict_wp = wp.zeros_like(self.b)
+        bsr_mv(self.pcpp_sparse, dxwp, db_predict_wp)
+        
+        self.compute_Dm()
+        self.compute_K()        
+        db = self.b.numpy() - b_curr 
+        db_predict = db_predict_wp.numpy()
+        err = db + db_predict
+        print("db: ", db)
+        print("db predict: ", db_predict)
+
+        print("db error: ", np.max(np.abs(err)))
+
     def _verify_pcpx(self):
         self.compute_pcpx()
         self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
@@ -142,6 +171,29 @@ class DiffRodBC(RodBC):
         test = self.pcpx_triplets.vals.numpy()
         err = np.linalg.norm(ref - test, axis = (1, 2))
         print("pcpx error: ", np.max(np.abs(err)))
+
+
+        # manipulate dx 
+        dxnp = np.random.rand(self.n_nodes, 3) * h_fd
+        dxwp = wp.array(dxnp, dtype = wp.vec3)
+        x_curr = self.states.x.numpy()
+        x_dx = x_curr + dxnp
+        self.states.x.assign(x_dx)
+
+        b_curr = self.b.numpy()
+
+        db_predict_wp = wp.zeros_like(self.b)
+        bsr_mv(self.pcpx_sparse, dxwp, db_predict_wp)
+        
+
+        self.compute_K()        
+        db = self.b.numpy() - b_curr 
+        db_predict = db_predict_wp.numpy()
+        err = db + db_predict
+        # print("db: ", db)
+        # print("db predict: ", db_predict)
+
+        print("db error: ", np.max(np.abs(err)))
         # for l, r in zip(ref[:3], test[:3]):
         #     print("ref: ", l)
         #     print("test: ", r)
@@ -158,7 +210,8 @@ def drape():
     # rod = RodBC(h, "assets/elephant.mesh")
     # rod = RodBC(h)
     rod = DiffRodBC(h)
-    rod._verify_pcpx()
+    # rod._verify_pcpx()
+    rod._verify_pcpp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
