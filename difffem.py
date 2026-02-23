@@ -1,12 +1,15 @@
 import warp as wp
-from stretch import RodBC, PSViewer, Triplets
+from stretch import RodBC, PSViewer, Triplets, should_fix, set_K_fixed, set_b_fixed
 import polyscope as ps
 from fem.linear_elasticity import PK1
 from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
 from fem.fem import compute_Dm
+from scipy.sparse.linalg import splu
+from warp.optim.linear import cg, bicgstab
+import igl 
 h = 1e-2
-h_fd = 1e-4
+h_fd = 1e-3
 
 '''
 reference: 
@@ -98,6 +101,8 @@ class DiffRodBC(RodBC):
         super().__init__(h) 
         self.pcpx_triplets = self.make_triplets()
         self.pcpp_triplets = self.make_triplets()
+        self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
 
     def make_triplets(self):
         
@@ -113,20 +118,87 @@ class DiffRodBC(RodBC):
         self.pcpx_triplets.cols.zero_()
         self.pcpx_triplets.vals.zero_()
         wp.launch(pcpx_sparse, (self.n_tets * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.pcpx_triplets])
-        
+        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpx_triplets])
 
     def compute_pcpp(self,):
         self.pcpp_triplets.rows.zero_()
         self.pcpp_triplets.cols.zero_()
         self.pcpp_triplets.vals.zero_()
         wp.launch(pcpp_sparse, (self.n_tets * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.pcpp_triplets])
+        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpp_triplets])
 
+    def set_fixed(self, wp_array): 
+        wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, wp_array])
 
-    def set_bc_fixed_hessian(self):
-        pass
+    def _debug_cg(self, dxwp, pcpp_dp):
+        pcpx_dx = wp.zeros_like(dxwp)
+        bsr_mv(self.pcpx_sparse, dxwp, pcpx_dx)
+        err_cg = pcpx_dx.numpy() - pcpp_dp.numpy()
+        print("cg solver error: ", np.max(np.abs(err_cg)))
+        print("pcpp dp: ", pcpp_dp.numpy(), "pcpx dp: ", pcpx_dx.numpy())
+        
+    def _verify_dxdp(self):
+        '''
+        Eq. (3) in [1]
+        sensitivity matrix S = dx / dp = -(partial c / partial x)^{-1} @ (partial c / partial p)
+        '''
+        self.step()
+        # static equilibrium state that satisfies c(x, p) = 0
+        x_xcs0 = self.states.x.numpy()
+        igl.write_obj("x_xcs0.obj", x_xcs0, self.F)
 
-    def set_bc_fixed_grad(self):
-        pass
+        self.compute_pcpx()
+        bsr_set_from_triplets(self.pcpx_sparse, self.pcpx_triplets.rows, self.pcpx_triplets.cols, self.pcpx_triplets.vals)
+
+        self.compute_pcpp()
+        bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+
+        np.random.seed(43)
+        dpnp = np.random.rand(self.n_nodes, 3) * h_fd
+        dpwp = wp.array(dpnp, dtype = wp.vec3)
+        self.set_fixed(dpwp)
+        dpnp = dpwp.numpy()
+        
+        pcpp_dp = wp.zeros_like(self.b)
+        dxwp = wp.zeros_like(pcpp_dp)
+
+        bsr_mv(self.pcpp_sparse, dpwp, pcpp_dp)
+        self.set_fixed(pcpp_dp)
+
+        cg(self.pcpx_sparse, pcpp_dp, dxwp, tol = 1e-10)
+        # bicgstab(self.pcpx_sparse, pcpp_dp, dxwp, tol = 1e-10)
+
+        self.set_fixed(dxwp)
+        
+        
+        # self._debug_cg(dxwp, pcpp_dp)
+
+        dx_predict = -dxwp.numpy()   
+        
+        # set xcs to x + dp
+        x_curr = self.xcs.numpy()
+        xpdx = x_curr + dpnp
+        self.xcs.assign(xpdx)
+
+        self.compute_Dm_keep_W()
+        # self.compute_Dm()
+        self.reset()
+        self.step()
+        # new equilibrium after perturbation
+        x_xcs1 = self.states.x.numpy()
+        igl.write_obj("x_xcs1.obj", x_xcs1, self.F) 
+
+        dx = x_xcs1 - x_xcs0
+        err = dx - dx_predict
+        print("dx: ", dx)
+        print("dx predict: ", dx_predict)
+        print("dx error: ", np.max(np.abs(err)))
+        
+    # def set_bc_fixed_hessian(self):
+    #     pass
+
+    # def set_bc_fixed_grad(self):
+    #     pass
 
     def compute_Dm_keep_W(self):
         W = wp.zeros_like(self.W)
@@ -136,15 +208,18 @@ class DiffRodBC(RodBC):
         xpdx = x_curr + dxnp
         self.xcs.assign(xpdx)
         
-        # self.compute_Dm_keep_W()
-        self.compute_Dm()
+        self.compute_Dm_keep_W()
+        # self.compute_Dm()
         self.compute_K()        
         bp = self.b.numpy()
         return bp
 
     def _verify_pcpp(self):
+        '''
+        fixme: not considering fixed dofs
+        '''
         self.compute_pcpp()
-        self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        # self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
 
         self.tet_kernel_sparse()
@@ -170,8 +245,11 @@ class DiffRodBC(RodBC):
         print("db error: ", np.max(np.abs(err)))
 
     def _verify_pcpx(self):
+        '''
+        fixme: not considering fixed dofs
+        '''
         self.compute_pcpx()
-        self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        # self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         bsr_set_from_triplets(self.pcpx_sparse, self.pcpx_triplets.rows, self.pcpx_triplets.cols, self.pcpx_triplets.vals)
 
         diff_r = self.pcpx_triplets.rows.numpy() - self.triplets.rows.numpy()
@@ -225,18 +303,12 @@ def drape():
     # rod = RodBC(h)
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
-    rod._verify_pcpp()
+    # rod._verify_pcpp()
+    rod._verify_dxdp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
     # ps.show()
     
-
-
-    
-    
-
 if __name__ == "__main__":
     drape() 
-
-
