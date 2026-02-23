@@ -125,7 +125,7 @@ class DiffRodBC(RodBC):
         self.pcpp_triplets.cols.zero_()
         self.pcpp_triplets.vals.zero_()
         wp.launch(pcpp_sparse, (self.n_tets * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.pcpp_triplets])
-        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpp_triplets])
+        # wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpp_triplets])
 
     def set_fixed(self, wp_array): 
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, wp_array])
@@ -208,8 +208,8 @@ class DiffRodBC(RodBC):
         xpdx = x_curr + dxnp
         self.xcs.assign(xpdx)
         
-        self.compute_Dm_keep_W()
-        # self.compute_Dm()
+        # self.compute_Dm_keep_W()
+        self.compute_Dm()
         self.compute_K()        
         bp = self.b.numpy()
         return bp
@@ -245,9 +245,9 @@ class DiffRodBC(RodBC):
         print("db error: ", np.max(np.abs(err)))
 
     def _verify_pcpx(self):
-        '''
-        fixme: not considering fixed dofs
-        '''
+        self.step()
+        # start from drapped position; optionally can also start from rest position
+
         self.compute_pcpx()
         # self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         bsr_set_from_triplets(self.pcpx_sparse, self.pcpx_triplets.rows, self.pcpx_triplets.cols, self.pcpx_triplets.vals)
@@ -258,7 +258,7 @@ class DiffRodBC(RodBC):
         print("col diff: ", np.max(np.abs(diff_c)))
 
         # should be same as stiffness matrix 
-        self.tet_kernel_sparse()
+        self.compute_K()
         ref = self.triplets.vals.numpy()
         test = self.pcpx_triplets.vals.numpy()
         err = np.linalg.norm(ref - test, axis = (1, 2))
@@ -268,10 +268,14 @@ class DiffRodBC(RodBC):
         # manipulate dx 
         dxnp = np.random.rand(self.n_nodes, 3) * h_fd
         dxwp = wp.array(dxnp, dtype = wp.vec3)
+        self.set_fixed(dxwp)
+        dxnp = dxwp.numpy()
+
         x_curr = self.states.x.numpy()
         x_dx = x_curr + dxnp
         self.states.x.assign(x_dx)
 
+        self.set_bc_fixed_grad()
         b_curr = self.b.numpy()
 
         db_predict_wp = wp.zeros_like(self.b)
@@ -279,6 +283,7 @@ class DiffRodBC(RodBC):
         
 
         self.compute_K()        
+        self.set_bc_fixed_grad()
         db = self.b.numpy() - b_curr 
         db_predict = db_predict_wp.numpy()
         err = db + db_predict
@@ -303,8 +308,7 @@ def drape():
     # rod = RodBC(h)
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
-    # rod._verify_pcpp()
-    rod._verify_dxdp()
+    rod._verify_pcpp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
