@@ -6,7 +6,7 @@ from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
 from fem.fem import compute_Dm
 h = 1e-2
-h_fd = 1e-3
+h_fd = 1e-4
 
 '''
 reference: 
@@ -132,6 +132,16 @@ class DiffRodBC(RodBC):
         W = wp.zeros_like(self.W)
         wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.geo, self.Bm, W])
 
+    def _b_from_xc(self, x_curr, dxnp):
+        xpdx = x_curr + dxnp
+        self.xcs.assign(xpdx)
+        
+        # self.compute_Dm_keep_W()
+        self.compute_Dm()
+        self.compute_K()        
+        bp = self.b.numpy()
+        return bp
+
     def _verify_pcpp(self):
         self.compute_pcpp()
         self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
@@ -144,18 +154,14 @@ class DiffRodBC(RodBC):
         dxwp = wp.array(dxnp, dtype = wp.vec3)
         # x_curr = self.states.x.numpy()
         x_curr = self.xcs.numpy()
-        x_dx = x_curr + dxnp
-        self.xcs.assign(x_dx)
-
         b_curr = self.b.numpy()
 
+        bpdp = self._b_from_xc(x_curr, dxnp * 0.5)
+        bmdp = self._b_from_xc(x_curr, dxnp * -0.5)
         db_predict_wp = wp.zeros_like(self.b)
         bsr_mv(self.pcpp_sparse, dxwp, db_predict_wp)
         
-        # self.compute_Dm_keep_W()
-        self.compute_Dm()
-        self.compute_K()        
-        db = self.b.numpy() - b_curr 
+        db = bpdp - bmdp 
         db_predict = db_predict_wp.numpy()
         err = db + db_predict
         print("db: ", db)

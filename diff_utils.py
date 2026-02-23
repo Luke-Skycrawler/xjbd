@@ -236,6 +236,8 @@ def template_fd_H(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), d
 @wp.kernel
 def template_fd_dHdx0(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3), dH_ret: wp.array(dtype = wp.mat33), dH_fd_ret: wp.array(dtype = wp.mat33)): 
     Dm = wp.identity(3, dtype = float)
+    # xii to differentiate with respect to
+    ii = 3
     j = wp.tid()
     x0 = x[j * 4 + 0]
     x1 = x[j * 4 + 1]
@@ -244,12 +246,34 @@ def template_fd_dHdx0(x: wp.array(dtype = wp.vec3), dx: wp.array(dtype = wp.vec3
     F = def_grad_rest(Dm, x0, x1, x2, x3)
     Bm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
     Bm_inv = wp.inverse(Bm)
-    Bm_minus = wp.matrix_from_cols(x0 - x3 - dx[j] * h, x1 - x3, x2 - x3)
-    Bm_plus = wp.matrix_from_cols(x0 - x3 + dx[j] * h, x1 - x3, x2 - x3)
-    dHdxii = dHdx0(F, Bm_inv, 0) 
+
+    x0p = x0
+    x0m = x0 
+    x1p = x1
+    x1m = x1
+    x2p = x2
+    x2m = x2
+    x3p = x3
+    x3m = x3
+    if ii == 0: 
+        x0p += dx[j] * h
+        x0m -= dx[j] * h
+    elif ii == 1:
+        x1p += dx[j] * h
+        x1m -= dx[j] * h
+    elif ii == 2:
+        x2p += dx[j] * h
+        x2m -= dx[j] * h
+    elif ii == 3:
+        x3p += dx[j] * h
+        x3m -= dx[j] * h
+    
+    Bm_minus = wp.matrix_from_cols(x0m - x3m, x1m - x3m, x2m - x3m)
+    Bm_plus = wp.matrix_from_cols(x0p - x3p, x1p - x3p, x2p - x3p)
+    dHdxii = dHdx0(F, Bm_inv, ii) 
     dH = dHdxii @ dx[j] * h * 2.0
     
-    dH_fd = compute_H(def_grad_rest(Dm, x0 + dx[j] * h, x1, x2, x3), wp.inverse(Bm_plus)) - compute_H(def_grad_rest(Dm, x0 - dx[j] * h, x1, x2, x3), wp.inverse(Bm_minus))
+    dH_fd = compute_H(def_grad_rest(Dm, x0p, x1p, x2p, x3p), wp.inverse(Bm_plus)) - compute_H(def_grad_rest(Dm, x0m, x1m, x2m, x3m), wp.inverse(Bm_minus))
     dH_fd_ret[j] = wp.transpose(dH_fd)
     dH_ret[j] = inv_vec(dH)
 
@@ -291,7 +315,8 @@ def test_against_fd(test, n_tests = 10):
 if __name__ == "__main__":
     wp.config.max_unroll = 1
     wp.init()
-    tests = ["dFdx", "dPdx", "dFdx0", "dHdx", "dHdx0"]
+    # tests = ["dFdx", "dPdx", "dFdx0", "dHdx", "dHdx0"]
+    tests = ["dHdx0"]
     for test in tests:
         diff, tot = test_against_fd(test)
         print(f"\n{test} relative error: {np.mean(diff / tot):.2e}\n")
