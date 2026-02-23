@@ -162,7 +162,7 @@ class DiffRodBC(RodBC):
         pcpp_dp = wp.zeros_like(self.b)
         dxwp = wp.zeros_like(pcpp_dp)
 
-        bsr_mv(self.pcpp_sparse, dpwp, pcpp_dp)
+        bsr_mv(self.pcpp_sparse, dpwp, pcpp_dp, transpose = True)
         self.set_fixed(pcpp_dp)
 
         cg(self.pcpx_sparse, pcpp_dp, dxwp, tol = 1e-10)
@@ -208,8 +208,8 @@ class DiffRodBC(RodBC):
         xpdx = x_curr + dxnp
         self.xcs.assign(xpdx)
         
-        # self.compute_Dm_keep_W()
-        self.compute_Dm()
+        self.compute_Dm_keep_W()
+        # self.compute_Dm()
         self.compute_K()        
         bp = self.b.numpy()
         return bp
@@ -218,11 +218,12 @@ class DiffRodBC(RodBC):
         '''
         fixme: not considering fixed dofs
         '''
+        self.step()
         self.compute_pcpp()
         # self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
 
-        self.tet_kernel_sparse()
+        self.compute_K()
 
         # manipulate dx 
         dxnp = np.random.rand(self.n_nodes, 3) * h_fd
@@ -234,7 +235,7 @@ class DiffRodBC(RodBC):
         bpdp = self._b_from_xc(x_curr, dxnp * 0.5)
         bmdp = self._b_from_xc(x_curr, dxnp * -0.5)
         db_predict_wp = wp.zeros_like(self.b)
-        bsr_mv(self.pcpp_sparse, dxwp, db_predict_wp)
+        bsr_mv(self.pcpp_sparse, dxwp, db_predict_wp, transpose = True)
         
         db = bpdp - bmdp 
         db_predict = db_predict_wp.numpy()
@@ -308,7 +309,8 @@ def drape():
     # rod = RodBC(h)
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
-    rod._verify_pcpp()
+    # rod._verify_pcpp()
+    rod._verify_dxdp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
