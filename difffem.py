@@ -9,7 +9,7 @@ from scipy.sparse.linalg import splu
 from warp.optim.linear import cg, bicgstab
 import igl 
 h = 1e-2
-h_fd = 1e-3
+h_fd = 1e-4
 
 '''
 reference: 
@@ -94,7 +94,26 @@ def pcpp_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     triplets.vals[cnt + 2] = df2dxi
     triplets.vals[cnt + 3] = df3dxi
 
-    
+@wp.kernel
+def f_kernel(x: wp.array(dtype = wp.vec3), x_target: wp.array(dtype = wp.vec3), f: wp.array(dtype = float)):
+    '''
+    loss function of differentiable simulation
+    f = \sum wi / 2 * ||x - x_target||^2
+    '''
+    i = wp.tid()
+    fi = wp.dot(x[i] - x_target[i], x[i] - x_target[i]) / 2.0
+
+    wp.atomic_add(f, 0, fi)
+
+@wp.kernel
+def pfpx_kernel(x: wp.array(dtype = wp.vec3), x_target: wp.array(dtype = wp.vec3), pfpx: wp.array(dtype = wp.vec3)):
+    '''
+    partial f / partial x = wi * (x - x_target)
+    treating wi = 1 for all nodes for now
+    '''
+    i = wp.tid()
+    pfpx[i] = x[i] - x_target[i]
+
 
 class DiffRodBC(RodBC):
     def __init__(self, h): 
@@ -301,7 +320,80 @@ class DiffRodBC(RodBC):
         # dcwp = wp.zeros_like(dxwp)
         # bsr_mv(self.pcpx_sparse, dxwp, dcwp)
         
+    def compute_dfdp(self): 
+        '''
+        Eq. (4) in [1]
+        df/dp = (partial f/partial p) + partial f/partial x * S
+        '''
+        x_target = wp.zeros_like(self.states.x)
+        pfpx = wp.zeros_like(self.states.x)
+        wp.copy(x_target, self.xcs)
+        wp.launch(pfpx_kernel, (self.n_nodes, ), inputs = [self.states.x, x_target, pfpx])
         
+        tmp = wp.zeros_like(pfpx)
+        cg(self.pcpx_sparse, pfpx, tmp, tol = 1e-10)
+
+        dfdp = wp.zeros_like(pfpx)
+        bsr_mv(self.pcpp_sparse, tmp, dfdp, alpha = -1.0)
+        return dfdp
+    
+    def _verify_dfdp(self):
+        self.step()
+
+        # static equilibrium state that satisfies c(x, p) = 0
+        f_curr = wp.zeros((1,), dtype = float)
+        xcs0 = wp.zeros_like(self.xcs)
+        wp.copy(xcs0, self.xcs)
+        wp.launch(f_kernel, (self.n_nodes,), inputs = [self.states.x, xcs0, f_curr])
+
+        x_xcs0 = self.states.x.numpy()
+        igl.write_obj("x_xcs0.obj", x_xcs0, self.F)
+
+        self.compute_pcpx()
+        bsr_set_from_triplets(self.pcpx_sparse, self.pcpx_triplets.rows, self.pcpx_triplets.cols, self.pcpx_triplets.vals)
+
+        self.compute_pcpp()
+        bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+
+        dfdp = self.compute_dfdp()
+
+
+        np.random.seed(43)
+        dpnp = np.random.rand(self.n_nodes, 3) * h_fd
+        dpwp = wp.array(dpnp, dtype = wp.vec3)
+        self.set_fixed(dpwp)
+        dpnp = dpwp.numpy()
+
+
+        df_predict = np.dot(dfdp.numpy().reshape(-1), dpnp.reshape(-1))
+        
+        # set xcs to x + dp
+        x_curr = self.xcs.numpy()
+        xpdx = x_curr + dpnp
+        self.xcs.assign(xpdx)
+
+        self.compute_Dm_keep_W()
+        # self.compute_Dm()
+        self.reset()
+        self.step()
+        # new equilibrium after perturbation
+        x_xcs1 = self.states.x.numpy()
+        igl.write_obj("x_xcs1.obj", x_xcs1, self.F) 
+
+
+        f_new = wp.zeros((1,), dtype = float)
+        wp.launch(f_kernel, (self.n_nodes,), inputs = [self.states.x, xcs0, f_new])
+
+        df = f_new.numpy()[0] - f_curr.numpy()[0]
+        err = df - df_predict
+
+        print("df: ", df)
+        print("df predict: ", df_predict)
+        print("df error: ", np.max(np.abs(err)))
+
+    def compute_ABC(self):
+        pass
+
 def drape():
     ps.init()
     wp.init()
@@ -310,7 +402,8 @@ def drape():
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
     # rod._verify_pcpp()
-    rod._verify_dxdp()
+    # rod._verify_dxdp()
+    rod._verify_dfdp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
