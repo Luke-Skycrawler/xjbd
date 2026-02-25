@@ -5,10 +5,12 @@ from fem.linear_elasticity import PK1
 from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
 from fem.fem import compute_Dm
-from scipy.sparse import diags, identity, bsr_matrix, csr_matrix, vstack, hstack
+from scipy.sparse import diags, identity, bsr_matrix, csr_matrix, csc_matrix, vstack, hstack
 from scipy.sparse.linalg import splu
 from warp.optim.linear import cg, bicgstab
 import igl 
+from geometry.static_scene import StaticScene
+import polyscope.imgui as gui
 h = 1e-2
 h_fd = 1e-4
 
@@ -123,6 +125,9 @@ class DiffRodBC(RodBC):
         self.pcpp_triplets = self.make_triplets()
         self.pcpx_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         self.pcpp_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        target = wp.zeros_like(self.states.x)
+        wp.copy(target, self.xcs)
+        self.x_target = target 
 
     def make_triplets(self):
         
@@ -145,7 +150,7 @@ class DiffRodBC(RodBC):
         self.pcpp_triplets.cols.zero_()
         self.pcpp_triplets.vals.zero_()
         wp.launch(pcpp_sparse, (self.n_tets * 4,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.pcpp_triplets])
-        # wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpp_triplets])
+        wp.launch(set_K_fixed, (self.n_tets * 4 * 4,), inputs = [self.geo, self.pcpp_triplets])
 
     def set_fixed(self, wp_array): 
         wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, wp_array])
@@ -339,11 +344,15 @@ class DiffRodBC(RodBC):
         return x_xcs0
 
 
-    def _perturb_rest(self): 
+    def _perturb_rest(self, dp = None): 
         # helper function to verify the correctness of pcpp and pxpp with refernce finite difference jacobian
 
-        np.random.seed(41)
-        dpnp = np.random.rand(self.n_nodes, 3) * h_fd
+        if dp is None:
+            np.random.seed(41)
+            dpnp = np.random.rand(self.n_nodes, 3) * h_fd
+        else: 
+            dpnp = dp 
+
         dpwp = wp.array(dpnp, dtype = wp.vec3)
         self.set_fixed(dpwp)
         dpnp = dpwp.numpy()
@@ -359,9 +368,8 @@ class DiffRodBC(RodBC):
         return dpnp, dpwp
         
     def _verify_dfdp(self):
-        target = wp.zeros_like(self.states.x)
-        wp.copy(target, self.xcs)
 
+        target = self.x_target
         self.equilibrium()
         f_curr = self.compute_f(target)
         dfdp = self.compute_dfdp(target)
@@ -392,9 +400,9 @@ class DiffRodBC(RodBC):
         '''
         # A = sum wi (partial c/partial x) ^T (partial c/partial x)
         # 3n * 3n identity 
-        A = identity(self.n_nodes * 3, dtype = float, format = "csr")
-        B = csr_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
-        C = csr_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
+        A = identity(self.n_nodes * 3, dtype = float, format = "csc")
+        B = csc_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
+        C = csc_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
 
         pcpx = self.to_scipy_bsr(self.pcpx_sparse)
         pcpp = self.to_scipy_bsr(self.pcpp_sparse)
@@ -402,27 +410,52 @@ class DiffRodBC(RodBC):
         sgn = vstack([
             hstack([A, B.T, pcpx]),
             hstack([B, C, pcpp]),
-            hstack([pcpx.T, pcpp.T, B])], format = "csr")
+            hstack([pcpx.T, pcpp.T, B])], format = "csc")
         
         return sgn
         
     def assemble_sgn_rhs(self): 
-        dfdp = self.compute_dfdp().numpy().reshape(-1)
+        dfdp = self.compute_dfdp(self.x_target).numpy().reshape(-1)
         z3n = np.zeros_like(dfdp)
         rhs = np.concatenate([z3n, -dfdp, z3n])
         return rhs
 
     def optimize_rest_shape(self): 
+        self.equilibrium()
+        
         sgn = self.assemble_sgn_hessian()
         rhs = self.assemble_sgn_rhs()
         lu = splu(sgn)
         sol = lu.solve(rhs)
         dx = sol[:self.n_nodes * 3].reshape((-1, 3))
         dp = sol[self.n_nodes * 3: self.n_nodes * 6].reshape((-1, 3))
+
+        self.states.x.assign(self.states.x.numpy() + dx)
+        self.xcs.assign(self.xcs.numpy() + dp)
+        
+        self.compute_Dm_keep_W()
         
         return dp, dx
 
+class RestShapeViewer(PSViewer): 
+    def __init__(self, rod, static_mesh: StaticScene = None): 
+        super().__init__(rod, static_mesh)
         
+        self.ps_restshape = ps.register_surface_mesh("rest shape", self.V, self.F)
+
+    def callback(self):
+        super().callback()
+        if gui.Button("optimize rest shape"):
+            dp, dx = self.rod.optimize_rest_shape()
+            print("dp: ", np.linalg.norm(dp))
+            print("dx: ", np.linalg.norm(dx))
+
+            V_rest = self.rod.xcs.numpy()
+            self.ps_restshape.update_vertex_positions(V_rest)
+        
+
+        
+
 def drape():
     ps.init()
     wp.init()
@@ -431,12 +464,13 @@ def drape():
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
     # rod._verify_pcpp()
-    rod._verify_dxdp()
+    # rod._verify_dxdp()
     # rod._verify_dfdp()
 
-    # viewer = PSViewer(rod)
-    # ps.set_user_callback(viewer.callback)
-    # ps.show()
+    viewer = RestShapeViewer(rod)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
     
 if __name__ == "__main__":
     drape() 
