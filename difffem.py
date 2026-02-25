@@ -5,6 +5,7 @@ from fem.linear_elasticity import PK1
 from diff_utils import *
 from warp.sparse import bsr_zeros, BsrMatrix, bsr_set_from_triplets, bsr_mv
 from fem.fem import compute_Dm
+from scipy.sparse import diags, identity, bsr_matrix, csr_matrix, vstack, hstack
 from scipy.sparse.linalg import splu
 from warp.optim.linear import cg, bicgstab
 import igl 
@@ -161,25 +162,14 @@ class DiffRodBC(RodBC):
         Eq. (3) in [1]
         sensitivity matrix S = dx / dp = -(partial c / partial x)^{-1} @ (partial c / partial p)
         '''
-        self.step()
-        # static equilibrium state that satisfies c(x, p) = 0
-        x_xcs0 = self.states.x.numpy()
-        igl.write_obj("x_xcs0.obj", x_xcs0, self.F)
-
-        self.compute_pcpx()
-        bsr_set_from_triplets(self.pcpx_sparse, self.pcpx_triplets.rows, self.pcpx_triplets.cols, self.pcpx_triplets.vals)
-
-        self.compute_pcpp()
-        bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+        x_xcs0 = self.equilibrium()
 
         np.random.seed(43)
-        dpnp = np.random.rand(self.n_nodes, 3) * h_fd
-        dpwp = wp.array(dpnp, dtype = wp.vec3)
-        self.set_fixed(dpwp)
-        dpnp = dpwp.numpy()
+        dpnp, dpwp = self._perturb_rest()
         
         pcpp_dp = wp.zeros_like(self.b)
         dxwp = wp.zeros_like(pcpp_dp)
+
 
         bsr_mv(self.pcpp_sparse, dpwp, pcpp_dp, transpose = True)
         self.set_fixed(pcpp_dp)
@@ -194,14 +184,6 @@ class DiffRodBC(RodBC):
 
         dx_predict = -dxwp.numpy()   
         
-        # set xcs to x + dp
-        x_curr = self.xcs.numpy()
-        xpdx = x_curr + dpnp
-        self.xcs.assign(xpdx)
-
-        self.compute_Dm_keep_W()
-        # self.compute_Dm()
-        self.reset()
         self.step()
         # new equilibrium after perturbation
         x_xcs1 = self.states.x.numpy()
@@ -320,14 +302,12 @@ class DiffRodBC(RodBC):
         # dcwp = wp.zeros_like(dxwp)
         # bsr_mv(self.pcpx_sparse, dxwp, dcwp)
         
-    def compute_dfdp(self): 
+    def compute_dfdp(self, x_target): 
         '''
         Eq. (4) in [1]
         df/dp = (partial f/partial p) + partial f/partial x * S
         '''
-        x_target = wp.zeros_like(self.states.x)
         pfpx = wp.zeros_like(self.states.x)
-        wp.copy(x_target, self.xcs)
         wp.launch(pfpx_kernel, (self.n_nodes, ), inputs = [self.states.x, x_target, pfpx])
         
         tmp = wp.zeros_like(pfpx)
@@ -337,15 +317,17 @@ class DiffRodBC(RodBC):
         bsr_mv(self.pcpp_sparse, tmp, dfdp, alpha = -1.0)
         return dfdp
     
-    def _verify_dfdp(self):
-        self.step()
-
-        # static equilibrium state that satisfies c(x, p) = 0
+    def compute_f(self, target): 
         f_curr = wp.zeros((1,), dtype = float)
-        xcs0 = wp.zeros_like(self.xcs)
-        wp.copy(xcs0, self.xcs)
-        wp.launch(f_kernel, (self.n_nodes,), inputs = [self.states.x, xcs0, f_curr])
+        wp.launch(f_kernel, (self.n_nodes,), inputs = [self.states.x, target, f_curr])
+        return f_curr.numpy()[0]
 
+    def equilibrium(self):
+        '''
+        computes p c/ px and p c/ pp at equilibrium state
+        '''
+        self.step()
+        # static equilibrium state that satisfies c(x, p) = 0
         x_xcs0 = self.states.x.numpy()
         igl.write_obj("x_xcs0.obj", x_xcs0, self.F)
 
@@ -354,19 +336,18 @@ class DiffRodBC(RodBC):
 
         self.compute_pcpp()
         bsr_set_from_triplets(self.pcpp_sparse, self.pcpp_triplets.rows, self.pcpp_triplets.cols, self.pcpp_triplets.vals)
+        return x_xcs0
 
-        dfdp = self.compute_dfdp()
 
+    def _perturb_rest(self): 
+        # helper function to verify the correctness of pcpp and pxpp with refernce finite difference jacobian
 
-        np.random.seed(43)
+        np.random.seed(41)
         dpnp = np.random.rand(self.n_nodes, 3) * h_fd
         dpwp = wp.array(dpnp, dtype = wp.vec3)
         self.set_fixed(dpwp)
         dpnp = dpwp.numpy()
 
-
-        df_predict = np.dot(dfdp.numpy().reshape(-1), dpnp.reshape(-1))
-        
         # set xcs to x + dp
         x_curr = self.xcs.numpy()
         xpdx = x_curr + dpnp
@@ -375,25 +356,73 @@ class DiffRodBC(RodBC):
         self.compute_Dm_keep_W()
         # self.compute_Dm()
         self.reset()
+        return dpnp, dpwp
+        
+    def _verify_dfdp(self):
+        target = wp.zeros_like(self.states.x)
+        wp.copy(target, self.xcs)
+
+        self.equilibrium()
+        f_curr = self.compute_f(target)
+        dfdp = self.compute_dfdp(target)
+
+        dpnp, dpwp = self._perturb_rest()
+
+        df_predict = np.dot(dfdp.numpy().reshape(-1), dpnp.reshape(-1))
+
         self.step()
         # new equilibrium after perturbation
         x_xcs1 = self.states.x.numpy()
         igl.write_obj("x_xcs1.obj", x_xcs1, self.F) 
 
+        f_new = self.compute_f(target)
 
-        f_new = wp.zeros((1,), dtype = float)
-        wp.launch(f_kernel, (self.n_nodes,), inputs = [self.states.x, xcs0, f_new])
-
-        df = f_new.numpy()[0] - f_curr.numpy()[0]
+        df = f_new - f_curr
         err = df - df_predict
 
         print("df: ", df)
         print("df predict: ", df_predict)
         print("df error: ", np.max(np.abs(err)))
 
-    def compute_ABC(self):
-        pass
+    def assemble_sgn_hessian(self): 
+        '''
+        |   A           B^T         (p c / p x)^T   | |dx       | = |0              |
+        |   B           C           (p c / p p)^T   | |dp       |   |-df / dp^T     |
+        | p c / p x     p c / p p   0               | |d lambda |   |-p f / p x^T   |
+        '''
+        # A = sum wi (partial c/partial x) ^T (partial c/partial x)
+        # 3n * 3n identity 
+        A = identity(self.n_nodes * 3, dtype = float, format = "csr")
+        B = csr_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
+        C = csr_matrix((self.n_nodes * 3, self.n_nodes * 3), dtype = float)
 
+        pcpx = self.to_scipy_bsr(self.pcpx_sparse)
+        pcpp = self.to_scipy_bsr(self.pcpp_sparse)
+
+        sgn = vstack([
+            hstack([A, B.T, pcpx]),
+            hstack([B, C, pcpp]),
+            hstack([pcpx.T, pcpp.T, B])], format = "csr")
+        
+        return sgn
+        
+    def assemble_sgn_rhs(self): 
+        dfdp = self.compute_dfdp().numpy().reshape(-1)
+        z3n = np.zeros_like(dfdp)
+        rhs = np.concatenate([z3n, -dfdp, z3n])
+        return rhs
+
+    def optimize_rest_shape(self): 
+        sgn = self.assemble_sgn_hessian()
+        rhs = self.assemble_sgn_rhs()
+        lu = splu(sgn)
+        sol = lu.solve(rhs)
+        dx = sol[:self.n_nodes * 3].reshape((-1, 3))
+        dp = sol[self.n_nodes * 3: self.n_nodes * 6].reshape((-1, 3))
+        
+        return dp, dx
+
+        
 def drape():
     ps.init()
     wp.init()
@@ -402,8 +431,8 @@ def drape():
     rod = DiffRodBC(h)
     # rod._verify_pcpx()
     # rod._verify_pcpp()
-    # rod._verify_dxdp()
-    rod._verify_dfdp()
+    rod._verify_dxdp()
+    # rod._verify_dfdp()
 
     # viewer = PSViewer(rod)
     # ps.set_user_callback(viewer.callback)
