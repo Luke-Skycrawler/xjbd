@@ -51,3 +51,11 @@ Implements basic PD simulator described in Quasi-Newton Methods for Real-time Si
 ```
 python admm-pd.py
 ```
+
+#### Differentiable FEM 
+
+Implement the rest shape optimization problem in Fig. 2 of SGN: Sparse Gauss-Newton for Accelerated Sensitivity Analysis. Command: 
+
+```
+python difffem.py
+```
