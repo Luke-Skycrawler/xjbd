@@ -99,6 +99,11 @@ def init_nodes(xcs: wp.array(dtype = wp.vec3)):
     tetrahedron geometry interface: 
         int: n_tets, n_nodes 
         wp.arrays: T, xcs, indices
+
+    if the geometry is obj:
+        int: n_faces, n_nodes
+        wp.array: indices, xcs, 
+        optional wp.array: u, v 
 '''
 class RodGeometryGenerator:
     def __init__(self):
@@ -190,6 +195,9 @@ class TOBJComplex:
         T = np.zeros((0, 4), dtype = int)
         F_from_file = np.zeros((0, 3), dtype = int)
         F = np.zeros((0, 3), dtype = int)
+        uv = np.zeros((0, 3), dtype = float)
+        # only used as rest shape in cloth simulation
+
         while len(transforms) < len(meshes_filename):
             transforms.append(np.identity(4, dtype = float))
         
@@ -202,8 +210,10 @@ class TOBJComplex:
                 v, t, _ = igl.read_mesh(f)
                 ff = np.zeros((0, 3), int)
             elif f.endswith(".obj"):
-                v, _, _, ff, _, _ = igl.read_obj(f)
+                v, tc, _, ff, _, _ = igl.read_obj(f)
                 t = np.zeros((0, 4), int)
+                if tc is not None and tc.shape[0]:
+                    uv = np.vstack((uv, tc))
             
             v4 = np.ones((v.shape[0], 4), dtype = float)
             v4[:, :3] = v
@@ -223,6 +233,15 @@ class TOBJComplex:
         self.xcs = wp.zeros((self.n_nodes), dtype = wp.vec3) 
         self.T = wp.zeros((self.n_tets, 4), dtype = int)
 
+        if uv.shape[0]:
+            # u, v only defined for cloth  
+            assert uv.shape[0] == self.n_nodes
+            self.u = wp.zeros((self.n_nodes, ), dtype = float)
+            self.v = wp.zeros((self.n_nodes, ), dtype = float)
+            
+            self.u.assign(uv[:, 0])
+            self.v.assign(uv[:, 1])
+            
         self.xcs.assign(V)
         self.T.assign(T)
 
@@ -236,7 +255,7 @@ class TOBJComplex:
 
         F = np.vstack([F, F_from_file])
         self.indices = wp.array(F.reshape(-1), dtype = int)
-        
+        self.n_faces = F.shape[0] 
         n0 = np.ones(3, dtype = float)
         self.N = N = igl.per_face_normals(V, F, n0)
         normals = wp.array(N, dtype = wp.vec3)
@@ -244,4 +263,4 @@ class TOBJComplex:
         # wp.launch(flip_face, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
         # wp.launch(verify_normals, (self.indices.shape[0] // 3,), inputs = [self.xcs, normals, self.indices])
         # print(f"after flipping: normals = {normals.numpy()}")
-        print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets")
+        print(f"{meshes_filename} loaded, {self.n_nodes} nodes, {self.n_tets} tets, {self.n_faces} triangles")

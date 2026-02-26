@@ -1,9 +1,16 @@
 import numpy as np 
 import warp as wp 
 from .fem import Triplets
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, BsrMatrix, bsr_set_diag
+from .geometry import TOBJComplex
+from stretch import set_M_diag, NewtonState, PSViewer
+import igl
+from .params import *
+import polyscope as ps
 
 ksu = 1e6
 ksv = 1e6
+default_shell = "assets/shell/shell.obj"
 
 '''
 implements [1]
@@ -130,20 +137,111 @@ def stretch_shear_kernel(x: wp.array(dtype = wp.vec3), geo: ThinShell, dudv: wp.
     
     
 
-class BW98ThinShell: 
+class BW98ThinShellBase: 
     def __init__(self):
+        '''
+        The base class should have n_nodes, n_face, indices: wp.array, xcs: wp.array, and uv coordinates defined
+        '''
         super().__init__()
         
         self.b = wp.zeros((self.n_nodes, ), dtype = wp.vec3)
-        self.dudv = wp.zeros((self.n_nodes, ), dtype = wp.mat22)
+        self.dudv = wp.zeros((self.n_faces, ), dtype = wp.mat22)
         self.geo = ThinShell()
         self.geo.xcs = self.xcs 
         self.geo.indices = self.indices
-
+        self.geo.u = wp.zeros((self.n_nodes, ), dtype = float)
+        self.geo.v = wp.zeros((self.n_nodes, ), dtype = float)
+        
+        self.auv = wp.zeros((self.n_faces))
         self.define_K_sparse()
 
     def define_K_sparse(self): 
-        pass 
+        self.compute_dudv()
+        
+        self.triplets = Triplets()
+        self.triplets.rows = wp.zeros((self.n_faces * 3 * 3), dtype = int)
+        self.triplets.cols = wp.zeros_like(self.triplets.rows)
+        self.triplets.vals = wp.zeros((self.n_faces * 3 * 3), dtype = wp.mat33)
 
+        self.face_kernel_sparse()
+        self.K_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)
 
+    def compute_dudv(self):
+        wp.launch(compute_dudv, dim = (self.n_nodes, ), inputs = [self.geo, self.dudv, self.auv])
+    
 
+    def face_kernel_sparse(self, x: wp.array = None): 
+        if x is None:
+            x = self.geo.xcs
+        wp.launch(stretch_shear_kernel, dim = (self.n_faces,), inputs = [x, self.geo, self.dudv, self.auv, self.triplets, self.b])
+
+    def drape_quasi_static(self):
+        pass
+
+class BW98ThinShellDynamic(BW98ThinShellBase):
+    def __init__(self, h):
+        super().__init__()
+        self.h = h
+        self.states = NewtonState()
+        self.states.x = wp.zeros_like(self.geo.xcs)
+        self.states.x0 = wp.zeros_like(self.geo.xcs)
+        self.states.dx = wp.zeros_like(self.geo.xcs)
+        self.states.xdot = wp.zeros_like(self.geo.xcs)
+        self.states.Psi = wp.zeros((self.n_faces, ), dtype = float)
+
+        self.reset()
+        self.h = h
+        self.define_M()
+
+    def define_M(self):
+        V = self.xcs.numpy()
+        T = self.T.numpy()
+        # self.M is a vector composed of diagonal elements 
+        self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
+        self.M = wp.zeros((self.n_nodes,), dtype = float)
+        self.M.assign(self.Mnp * rho)
+
+        self.M_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        M_diag = wp.zeros((self.n_nodes,), dtype = wp.mat33)
+        wp.launch(set_M_diag, (self.n_nodes,), inputs = [self.M, M_diag])
+        bsr_set_diag(self.M_sparse, M_diag)
+
+    def reset(self):
+        wp.copy(self.states.x, self.xcs)
+        wp.copy(self.states.x0, self.xcs)
+
+        self.frame = 0
+    
+class Shell(BW98ThinShellBase, TOBJComplex):
+    def __init__(self, meshes_filename = [default_shell], transforms = [np.identity(4, dtype = float)]): 
+        self.meshes_filename = meshes_filename
+        self.transforms = transforms
+
+        super().__init__() 
+
+def test_quasi_static_drape(): 
+    ps.init()
+    shell = Shell()
+    viewer = PSViewer() 
+    shell.drape_quasi_static()
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+def test_shell_mesh(): 
+    shell = Shell()
+    xcs = shell.xcs.numpy()
+    uu = shell.u.numpy()
+    uv = shell.v.numpy()
+
+    erru = xcs[:, 0] - (uu - 0.5) 
+    errv = xcs[:, 2] - (uv - 0.5)
+    
+    print("erru", np.linalg.norm(erru))
+    print("errv", np.linalg.norm(errv))
+    
+if __name__ == "__main__": 
+    wp.config.max_unroll = 1
+    wp.init()
+    test_shell_mesh()
+    # test_quasi_static_drape()
