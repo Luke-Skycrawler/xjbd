@@ -15,6 +15,8 @@ eps = 3e-4
 h = 1e-2
 rho = 1e3
 omega = 3.0
+
+quasi_static = True
 @wp.struct 
 class NewtonState: 
     x: wp.array(dtype = wp.vec3)
@@ -34,14 +36,24 @@ def set_M_diag(d: wp.array(dtype = float), M: wp.array(dtype = wp.mat33)):
 
 @wp.func
 def x_minus_tilde(state: NewtonState, h: float, i: int) -> wp.vec3:
-    # return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
-    return gravity
+    ret = wp.vec3(0.0)
+    if quasi_static:
+        ret = gravity
+    else: 
+        return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
+    return ret
 
 @wp.kernel
 def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
+    '''
+    before execution, b[i] stores the elastic forces 
+    turns rhs into df/dx, where f is the argmin function Vh^2 + 0.5 M(x - x+tilde) ^ 2 
+    '''
     i = wp.tid()
-    # b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
-    b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
+    if quasi_static: 
+        b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
+    else: 
+        b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
 
 
 @wp.func
@@ -269,9 +281,11 @@ class RodBCBase:
 
         self.compute_K()
 
-        # A = h^2 * K + M
         h = self.h
-        # bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+        if not quasi_static:
+            # A = h^2 * K + M
+            bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+
         self.A = self.K_sparse
 
     def compute_K(self):
@@ -365,7 +379,7 @@ def twist():
 if __name__ == "__main__":
     ps.init()
     wp.init()
-    # drape()
-    twist()
+    drape()
+    # twist()
     # multiple_drape()
     
