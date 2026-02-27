@@ -1,7 +1,7 @@
 import warp as wp 
 from .fem import SifakisFEM, Triplets, FEMMesh
 from .geometry import TOBJComplex
-from warp.sparse import bsr_zeros, bsr_set_from_triplets
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_set_zero
 import numpy as np 
 from stretch import PSViewer, RodBCBase
 from .params import *
@@ -9,20 +9,19 @@ import polyscope as ps
 
 h = 1e-2
 default_shell = "assets/shell/shell.obj"
-ksu = 1e3
-ksv = 1e3
+ksu = 1e5
+ksv = 1e5
 
 @wp.kernel
 def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
     '''
     fn = -auv [ksu p Cu/p pn Cu + ksv p Cv /p pn Cv]
     '''
-
     e = wp.tid()
     
-    ii = geo.indices[e * 3 + 0]
-    ij = geo.indices[e * 3 + 1]
-    ik = geo.indices[e * 3 + 2]
+    ii = geo.T[e, 0]
+    ij = geo.T[e, 1]
+    ik = geo.T[e, 2]
     
 
     dp1 = x[ij] - x[ii]
@@ -44,8 +43,8 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     wu_unit = wp.normalize(wu)
     wv_unit = wp.normalize(wv)
 
-    # ae = auv[e]
-    ae = 1.0
+    ae = W[e]
+    # ae = 1.0
 
     dwudpi = (geo.xcs[ij].z - geo.xcs[ik].z) / ae
     dwvdpi = (geo.xcs[ik].x - geo.xcs[ij].x) / ae
@@ -55,9 +54,9 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     dwvdpk = (geo.xcs[ij].x - geo.xcs[ii].x) / ae
     
 
-    fi = -ae * (ksu * dwudpi * wu_unit * Cu  + ksv * dwvdpi * wv_unit * Cv)
+    fi = -wp.abs(ae) * (ksu * dwudpi * wu_unit * Cu  + ksv * dwvdpi * wv_unit * Cv)
 
-    fj = -ae * (ksu * dwudpj * wu_unit * Cu  + ksv * dwvdpj * wv_unit * Cv)
+    fj = -wp.abs(ae) * (ksu * dwudpj * wu_unit * Cu  + ksv * dwvdpj * wv_unit * Cv)
 
     fk = -(fi + fj)
 
@@ -65,6 +64,67 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     wp.atomic_add(b, ii, fi)
     wp.atomic_add(b, ij, fj)
     wp.atomic_add(b, ik, fk)
+
+
+    aii = wp.abs(ae) * (ksu * wp.outer(dwudpi * wu_unit, dwudpi * wu_unit) + ksv * wp.outer(dwvdpi * wv_unit, dwvdpi * wv_unit))
+    aij = wp.abs(ae) * (ksu * wp.outer(dwudpi * wu_unit, dwudpj * wu_unit) + ksv * wp.outer(dwvdpi * wv_unit, dwvdpj * wv_unit))
+    ajj = wp.abs(ae) * (ksu * wp.outer(dwudpj * wu_unit, dwudpj * wu_unit) + ksv * wp.outer(dwvdpj * wv_unit, dwvdpj * wv_unit))
+
+    if Cu >= 0.0: 
+    # if True:
+        commonu = Cu / (Cu + 1.0) * (wp.identity(3, float) - wp.outer(wu_unit, wu_unit)) * ksu * wp.abs(ae)
+
+        aii += commonu * dwudpi * dwudpi
+        aij += commonu * dwudpi * dwudpj
+        ajj += commonu * dwudpj * dwudpj
+
+    if Cv >= 0.0:
+    # if True:
+        commonv = Cv / (Cv + 1.0) * (wp.identity(3, float) - wp.outer(wv_unit, wv_unit)) * ksv * wp.abs(ae)
+
+        aii += commonv * dwvdpi * dwvdpi
+        aij += commonv * dwvdpi * dwvdpj
+        ajj += commonv * dwvdpj * dwvdpj
+
+
+    aik = -aii - aij
+    aji = wp.transpose(aij)
+    ajk = -aji - ajj
+    aki = wp.transpose(aik)
+    akj = wp.transpose(ajk)
+    akk = -aki - akj
+
+    cnt = e * 9
+    for _i in range(3):
+        for _j in range(3):
+            triplets.cols[cnt + _i * 3 + _j] = geo.T[e, _i]
+            triplets.rows[cnt + _i * 3 + _j] = geo.T[e, _j]
+
+
+    # aii = wp.identity(3, dtype = float)
+    # ajj = wp.identity(3, dtype = float)
+    # akk = wp.identity(3, dtype = float)
+
+    triplets.vals[cnt + 0] = aii 
+    triplets.vals[cnt + 1] = aij
+    triplets.vals[cnt + 2] = aik
+    triplets.vals[cnt + 3] = aji
+    triplets.vals[cnt + 4] = ajj
+    triplets.vals[cnt + 5] = ajk
+    triplets.vals[cnt + 6] = aki
+    triplets.vals[cnt + 7] = akj
+    triplets.vals[cnt + 8] = akk
+
+    # triplets.vals[cnt + 0] = aii 
+    # triplets.vals[cnt + 1] = aji
+    # triplets.vals[cnt + 2] = aki
+    # triplets.vals[cnt + 3] = aij
+    # triplets.vals[cnt + 4] = ajj
+    # triplets.vals[cnt + 5] = akj
+    # triplets.vals[cnt + 6] = aik
+    # triplets.vals[cnt + 7] = ajk
+    # triplets.vals[cnt + 8] = akk
+
 
 @wp.kernel
 def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float)): 
@@ -92,7 +152,7 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
         wp.vec3(inv_Dm[1, 0], inv_Dm[1, 1], 0.0),
         wp.vec3(0.0, 0.0, 1.)
     )
-    W[e] = wp.abs(wp.determinant(Dm)) / 2.0
+    W[e] = (wp.determinant(Dm))
 
 
 class BW98ThinShell(SifakisFEM): 
@@ -105,7 +165,10 @@ class BW98ThinShell(SifakisFEM):
         compute the area
         '''
         wp.launch(compute_Dm, (self.n_tets, ), inputs = [self.geo, self.Bm, self.W])
-        print(f"areas = {self.W.numpy()}")
+        # self.W.fill_(1.0)        
+        areas = self.W.numpy()
+
+        print(f"areas: min = {areas.min()}, max = {areas.max()}")
 
     def tet_kernel_sparse(self):
         self.triplets = Triplets()
@@ -113,7 +176,8 @@ class BW98ThinShell(SifakisFEM):
         self.triplets.cols = wp.zeros_like(self.triplets.rows)
         self.triplets.vals = wp.zeros((self.n_tets * 3 * 3), dtype = wp.mat33)
 
-        wp.launch(shell_kernel_sparse, (self.n_tets * 3 * 3,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+        wp.launch(shell_kernel_sparse, (self.n_tets,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+    
 
 
 class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
@@ -126,7 +190,16 @@ class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
         self.V = self.xcs.numpy()
         self.F = self.indices.numpy().reshape(-1, 3)
 
+    def compute_K(self):
+        self.triplets.vals.zero_()
+        self.b.zero_()
+        wp.launch(shell_kernel_sparse, (self.n_tets,), inputs = [self.states.x, self.geo, self.Bm, self.W, self.triplets, self.b]) 
+        # now self.b has the elastic forces
 
+        self.set_bc_fixed_hessian()
+        bsr_set_zero(self.K_sparse)
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
+    
 def test_shell_mesh(): 
     shell = Shell(h)
     xcs = shell.xcs.numpy()
@@ -141,6 +214,7 @@ def test_shell_mesh():
 
     viewer = PSViewer(shell) 
     ps.set_user_callback(viewer.callback)
+    ps.set_ground_plane_mode("none")
     ps.show()
 
 

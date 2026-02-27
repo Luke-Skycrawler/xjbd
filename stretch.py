@@ -229,6 +229,8 @@ class RodBCBase:
     def reset(self):
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
+        self.states.xdot.zero_()
+        
 
         self.theta = 0.0
         self.frame = 0

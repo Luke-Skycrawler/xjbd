@@ -213,6 +213,8 @@ class TOBJComplex:
                 v, tc, _, ff, _, _ = igl.read_obj(f)
                 t = np.zeros((0, 4), int)
                 if tc is not None and tc.shape[0]:
+                    if tc.shape[1] == 2:
+                        tc = np.hstack((tc, np.zeros((tc.shape[0], 1), dtype = float)))
                     uv = np.vstack((uv, tc))
             
             v4 = np.ones((v.shape[0], 4), dtype = float)
