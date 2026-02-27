@@ -289,8 +289,8 @@ class RodBCBase:
             # A = h^2 * K + M
             bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
 
-        # self.A = self.K_sparse
-        self.A = self.M_sparse 
+        self.A = self.K_sparse
+        # self.A = self.M_sparse 
 
     def compute_K(self):
         self.triplets.vals.zero_()
@@ -320,7 +320,7 @@ class RodBCBase:
         with wp.ScopedTimer("solve"):
             self.states.dx.zero_()
             # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
-            cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
+            cg(self.A, self.b, self.states.dx, 1e-6, use_cuda_graph = True)
     
     def line_search(self):
         alpha = 1.0
