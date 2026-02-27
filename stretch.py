@@ -12,11 +12,11 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 1e-2
+h = 1e-3
 rho = 1e3
 omega = 3.0
 
-quasi_static = True
+quasi_static = False
 @wp.struct 
 class NewtonState: 
     x: wp.array(dtype = wp.vec3)
@@ -240,6 +240,7 @@ class RodBCBase:
         self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
         self.M = wp.zeros((self.n_nodes,), dtype = float)
         self.M.assign(self.Mnp * rho)
+        self.M.fill_(1.0)
 
         self.M_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         M_diag = wp.zeros((self.n_nodes,), dtype = wp.mat33)
@@ -286,7 +287,8 @@ class RodBCBase:
             # A = h^2 * K + M
             bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
 
-        self.A = self.K_sparse
+        # self.A = self.K_sparse
+        self.A = self.M_sparse 
 
     def compute_K(self):
         self.triplets.vals.zero_()

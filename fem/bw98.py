@@ -1,18 +1,18 @@
 import numpy as np 
 import warp as wp 
 from .fem import Triplets
-from warp.sparse import bsr_zeros, bsr_set_from_triplets, BsrMatrix, bsr_set_diag
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, BsrMatrix, bsr_set_diag, bsr_axpy
 from warp.optim.linear import cg
 from .geometry import TOBJComplex
-from stretch import set_M_diag, NewtonState, PSViewer, compute_rhs, add_dx, update_x0_xdot
+from stretch import set_M_diag, NewtonState, PSViewer, add_dx, update_x0_xdot
 import igl
 from .params import *
 import polyscope as ps
 
 h = 1e-2
 eps = 1e-4
-ksu = 1e6
-ksv = 1e6
+ksu = 1e3
+ksv = 1e3
 default_shell = "assets/shell/shell.obj"
 
 '''
@@ -92,9 +92,9 @@ def stretch_shear_kernel(x: wp.array(dtype = wp.vec3), geo: ThinShell, dudv: wp.
     fk = -(fi + fj)
 
 
-    wp.atomic_add(b, ii, fi)
-    wp.atomic_add(b, ij, fj)
-    wp.atomic_add(b, ik, fk)
+    # wp.atomic_add(b, ii, fi)
+    # wp.atomic_add(b, ij, fj)
+    # wp.atomic_add(b, ik, fk)
 
     aii = ae * (ksu * wp.outer(dwudpi * wu_unit, dwudpi * wu_unit) + ksv * wp.outer(dwvdpi * wv_unit, dwvdpi * wv_unit))
     aij = ae * (ksu * wp.outer(dwudpi * wu_unit, dwudpj * wu_unit) + ksv * wp.outer(dwvdpi * wv_unit, dwvdpj * wv_unit))
@@ -128,14 +128,19 @@ def stretch_shear_kernel(x: wp.array(dtype = wp.vec3), geo: ThinShell, dudv: wp.
             triplets.rows[cnt + _i * 3 + _j] = geo.indices[e * 3 + _i]
             triplets.cols[cnt + _i * 3 + _j] = geo.indices[e * 3 + _j]
 
+
+    aii = wp.identity(3, dtype = float)
+    ajj = wp.identity(3, dtype = float)
+    akk = wp.identity(3, dtype = float)
+
     triplets.vals[cnt + 0] = aii 
-    triplets.vals[cnt + 1] = aij
-    triplets.vals[cnt + 2] = aik
-    triplets.vals[cnt + 3] = aji
+    # triplets.vals[cnt + 1] = aij
+    # triplets.vals[cnt + 2] = aik
+    # triplets.vals[cnt + 3] = aji
     triplets.vals[cnt + 4] = ajj
-    triplets.vals[cnt + 5] = ajk
-    triplets.vals[cnt + 6] = aki
-    triplets.vals[cnt + 7] = akj
+    # triplets.vals[cnt + 5] = ajk
+    # triplets.vals[cnt + 6] = aki
+    # triplets.vals[cnt + 7] = akj
     triplets.vals[cnt + 8] = akk
 
     
@@ -214,9 +219,26 @@ class BW98ThinShellBase:
     
 
     def face_kernel_sparse(self, x: wp.array = None): 
+        self.b.zero_()
+        self.triplets.vals.zero_()
         if x is None:
             x = self.geo.xcs
         wp.launch(stretch_shear_kernel, dim = (self.n_faces,), inputs = [x, self.geo, self.dudv, self.auv, self.triplets, self.b])
+
+@wp.func
+def x_minus_tilde(state: NewtonState, h: float, i: int) -> wp.vec3:
+    return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
+    # return gravity
+
+@wp.kernel
+def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
+    '''
+    before execution, b[i] stores the elastic forces 
+    turns rhs into df/dx, where f is the argmin function Vh^2 + 0.5 M(x - x+tilde) ^ 2 
+    '''
+    i = wp.tid()
+    b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
+    # b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
 
 class BW98ThinShellDynamic(BW98ThinShellBase):
     def __init__(self, h):
@@ -239,7 +261,8 @@ class BW98ThinShellDynamic(BW98ThinShellBase):
         # self.M is a vector composed of diagonal elements 
         self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
         self.M = wp.zeros((self.n_nodes,), dtype = float)
-        self.M.assign(self.Mnp * rho)
+        # self.M.assign(self.Mnp * rho)
+        self.M.fill_(1.0)
 
         self.M_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         M_diag = wp.zeros((self.n_nodes,), dtype = wp.mat33)
@@ -258,7 +281,8 @@ class BW98ThinShellDynamic(BW98ThinShellBase):
 
     def solve(self):
         self.states.dx.zero_()
-        cg(self.K_sparse, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
+        # cg(self.K_sparse, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
+        cg(self.M_sparse, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
 
 
 
@@ -266,6 +290,7 @@ class BW98ThinShellDynamic(BW98ThinShellBase):
         self.face_kernel_sparse(self.states.x)
         self.set_bc_fixed_hessian()
         bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals) 
+        bsr_axpy(self.M_sparse, self.K_sparse, 1.0, self.h * self.h)
 
     def set_bc_fixed_hessian(self):
         wp.launch(_set_K_fixed, dim = (self.n_faces * 9,), inputs = [self.geo, self.triplets])
@@ -281,7 +306,7 @@ class BW98ThinShellDynamic(BW98ThinShellBase):
     def step(self):
         newton_iter = True
         n_iter = 0
-        max_iter = 8
+        max_iter = 5
         # while n_iter < max_iter:
         while newton_iter:
             self.compute_A()

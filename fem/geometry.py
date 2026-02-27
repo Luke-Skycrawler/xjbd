@@ -231,7 +231,7 @@ class TOBJComplex:
 
         self.tet_start.append(self.n_tets)
         self.xcs = wp.zeros((self.n_nodes), dtype = wp.vec3) 
-        self.T = wp.zeros((self.n_tets, 4), dtype = int)
+        self.xcs.assign(V)
 
         if uv.shape[0]:
             # u, v only defined for cloth  
@@ -242,16 +242,23 @@ class TOBJComplex:
             self.u.assign(uv[:, 0])
             self.v.assign(uv[:, 1])
             
-        self.xcs.assign(V)
-        self.T.assign(T)
 
         if T.shape[0]:
+            self.T = wp.zeros((self.n_tets, 4), dtype = int)
+            self.T.assign(T)
             FF = igl.boundary_facets(T)  
             FF, _ = igl.bfs_orient(FF)
             c, _ = igl.orientable_patches(FF)
             F, _ = igl.orient_outward(V, FF, c)
             
             assert(FF.shape[0] == F.shape[0])
+        else: 
+            # thin shell model 
+            self.n_tets = F_from_file.shape[0]
+            self.T = wp.zeros((self.n_tets, 3), dtype = int)
+            print(f"F from file shape {F_from_file.shape}")
+            self.T.assign(F_from_file)
+            
 
         F = np.vstack([F, F_from_file])
         self.indices = wp.array(F.reshape(-1), dtype = int)
