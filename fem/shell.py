@@ -13,10 +13,21 @@ ksu = 1e5
 ksv = 1e5
 h_fd = 1e-4
 
+
+'''
+implements [1] with adaptations from [2] 
+reference:
+[1]: Large Steps in Cloth Simulation
+[2]: Dynamic Deformables: Implementation and Production Practicalities, SIGGRAPH course 2022
+[3]: A Quadratic Bending Model for Inextensible Surfaces
+'''
+
 @wp.kernel
 def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
     '''
-    fn = -auv [ksu p Cu/p pn Cu + ksv p Cv /p pn Cv]
+    E_stretch = 1/2 (ksu Cu^2 + ksv Cv^2) * area
+    Cu, Cv = |wu| - 1, |wv| - 1
+    fn = -auv [ksu (partial Cu/p pn) Cu + ksv (partial Cv /p pn) Cv]
     '''
     e = wp.tid()
     
@@ -46,6 +57,7 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     
     wu_unit = wp.normalize(wu)
     wv_unit = wp.normalize(wv)
+    C_shear = wp.dot(wu_unit, wv_unit)
 
     dwudpi = (geo.xcs[ij].z - geo.xcs[ik].z) / J
     dwvdpi = (geo.xcs[ik].x - geo.xcs[ij].x) / J
@@ -54,10 +66,14 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     dwudpk = (geo.xcs[ii].z - geo.xcs[ij].z) / J
     dwvdpk = (geo.xcs[ij].x - geo.xcs[ii].x) / J
     
+    uuT = wp.outer(wu_unit, wu_unit)
+    vvT = wp.outer(wv_unit, wv_unit)
+    shear_common_u = (wp.identity(3, float) - uuT) @ wv_unit / (Cu + 1.0)
+    shear_common_v = (wp.identity(3, float) - vvT) @ wu_unit / (Cv + 1.0)
 
-    fi = -ae * (ksu * dwudpi * wu_unit * Cu  + ksv * dwvdpi * wv_unit * Cv)
+    fi = -ae * (ksu * dwudpi * wu_unit * Cu  + ksv * dwvdpi * wv_unit * Cv + C_shear * shear_common_u * dwudpi + C_shear * shear_common_v * dwvdpi)
 
-    fj = -ae * (ksu * dwudpj * wu_unit * Cu  + ksv * dwvdpj * wv_unit * Cv)
+    fj = -ae * (ksu * dwudpj * wu_unit * Cu  + ksv * dwvdpj * wv_unit * Cv + C_shear * shear_common_u * dwudpj + C_shear * shear_common_v * dwvdpj)
 
     fk = -(fi + fj)
 
@@ -67,8 +83,6 @@ def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array
     wp.atomic_add(b, ik, fk)
 
 
-    uuT = wp.outer(wu_unit, wu_unit)
-    vvT = wp.outer(wv_unit, wv_unit)
     aii = ae * (ksu * dwudpi * dwudpi * uuT + ksv * dwvdpi * dwvdpi * vvT)
     aij = ae * (ksu * dwudpi * dwudpj * uuT + ksv * dwvdpi * dwvdpj * vvT)
     ajj = ae * (ksu * dwudpj * dwudpj * uuT + ksv * dwvdpj * dwvdpj * vvT)
