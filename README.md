@@ -59,3 +59,9 @@ Implement the rest shape optimization problem in Fig. 2 of SGN: Sparse Gauss-New
 ```
 python difffem.py
 ```
+#### Cloth
+
+Implements [BW98] Large Steps in Cloth Simulation.
+```
+python -m fem.shell
+```

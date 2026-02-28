@@ -12,9 +12,11 @@ from warp.optim.linear import bicgstab, cg
 from geometry.static_scene import StaticScene
 
 eps = 3e-4
-h = 1e-2
+h = 1e-3
 rho = 1e3
 omega = 3.0
+
+quasi_static = False
 @wp.struct 
 class NewtonState: 
     x: wp.array(dtype = wp.vec3)
@@ -34,14 +36,24 @@ def set_M_diag(d: wp.array(dtype = float), M: wp.array(dtype = wp.mat33)):
 
 @wp.func
 def x_minus_tilde(state: NewtonState, h: float, i: int) -> wp.vec3:
-    # return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
-    return gravity
+    ret = wp.vec3(0.0)
+    if quasi_static:
+        ret = gravity
+    else: 
+        return state.x[i] - (state.x0[i] + h * state.xdot[i] + h * h * gravity)
+    return ret
 
 @wp.kernel
 def compute_rhs(state: NewtonState, h: float, M: wp.array(dtype = float), b: wp.array(dtype = wp.vec3)):
+    '''
+    before execution, b[i] stores the elastic forces 
+    turns rhs into df/dx, where f is the argmin function Vh^2 + 0.5 M(x - x+tilde) ^ 2 
+    '''
     i = wp.tid()
-    # b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
-    b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
+    if quasi_static: 
+        b[i] = -b[i] - M[i] * x_minus_tilde(state, h, i)
+    else: 
+        b[i] = -b[i] * h * h + M[i] * x_minus_tilde(state, h, i)
 
 
 @wp.func
@@ -217,6 +229,8 @@ class RodBCBase:
     def reset(self):
         wp.copy(self.states.x, self.xcs)
         wp.copy(self.states.x0, self.xcs)
+        self.states.xdot.zero_()
+        
 
         self.theta = 0.0
         self.frame = 0
@@ -228,6 +242,7 @@ class RodBCBase:
         self.Mnp = igl.massmatrix(V, T, igl.MASSMATRIX_TYPE_BARYCENTRIC).diagonal()
         self.M = wp.zeros((self.n_nodes,), dtype = float)
         self.M.assign(self.Mnp * rho)
+        self.M.fill_(1.0)
 
         self.M_sparse = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
         M_diag = wp.zeros((self.n_nodes,), dtype = wp.mat33)
@@ -269,10 +284,13 @@ class RodBCBase:
 
         self.compute_K()
 
-        # A = h^2 * K + M
         h = self.h
-        # bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+        if not quasi_static:
+            # A = h^2 * K + M
+            bsr_axpy(self.M_sparse, self.K_sparse, 1.0, h * h)
+
         self.A = self.K_sparse
+        # self.A = self.M_sparse 
 
     def compute_K(self):
         self.triplets.vals.zero_()
@@ -302,7 +320,7 @@ class RodBCBase:
         with wp.ScopedTimer("solve"):
             self.states.dx.zero_()
             # bicgstab(self.A, self.b, self.states.dx, 1e-6, maxiter = 100)
-            cg(self.A, self.b, self.states.dx, 1e-4, use_cuda_graph = True)
+            cg(self.A, self.b, self.states.dx, 1e-6, use_cuda_graph = True)
     
     def line_search(self):
         alpha = 1.0
@@ -365,7 +383,7 @@ def twist():
 if __name__ == "__main__":
     ps.init()
     wp.init()
-    # drape()
-    twist()
+    drape()
+    # twist()
     # multiple_drape()
     
