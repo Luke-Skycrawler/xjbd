@@ -1,9 +1,9 @@
 import warp as wp 
 from .fem import SifakisFEM, Triplets, FEMMesh
 from .geometry import TOBJComplex
-from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_set_zero
+from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_set_zero, bsr_axpy, bsr_mv
 import numpy as np 
-from stretch import PSViewer, RodBCBase, should_fix
+from stretch import PSViewer, RodBCBase
 from .params import *
 import polyscope as ps 
 import igl 
@@ -11,9 +11,9 @@ h = 1e-2
 default_shell = "assets/shell/shell.obj"
 ksu = 1e5
 ksv = 1e5
-kb = 1e4
+kb = 1e2
 h_fd = 1e-4
-
+eps = 1e-4
 
 '''
 implements [1] with adaptations from [2] 
@@ -49,7 +49,7 @@ def cij(ei: wp.vec3, ej: wp.vec3):
     return cot(c) 
     
 @wp.kernel
-def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets):
+def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets, W: wp.array(dtype = float)):
     '''
     bending energy for edge eij = (vi, vj) shared by two triangles (vi, vj, vk) and (vj, vi, vl)
     E_bend = 1/2 x^T Q x
@@ -84,14 +84,22 @@ def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets):
         c01 = cij(x1 - x0, x2 - x0)
         c02 = cij(x1 - x0, x3 - x0)
         
-        K0 = wp.vec4(c03 + c04, c01 + c02, c01 + c03, c02 + c04)
+        K0 = wp.vec4(c03 + c04, c01 + c02, -c01 - c03, -c02 - c04)
         i33 = wp.identity(3, dtype = float)
         idx = wp.vec4i(ii, jj, kk, ll)
+        a0 = wp.abs(W[t0])
+        a1 = wp.abs(W[t1])
+        
+        term = 1.5 / (a0 + a1)
         for _i in range(4):
             for _j in range(4):
                 triplets.rows[ei * 16 + _i * 4 + _j] = idx[_i]
                 triplets.cols[ei * 16 + _i * 4 + _j] = idx[_j]
-                triplets.vals[ei * 16 + _i * 4 + _j] = K0[_i] * K0[_j] * i33
+
+                a = K0[_i] * K0[_j] * term * i33
+                if should_fix(geo.xcs[idx[_i]]) or should_fix(geo.xcs[idx[_j]]):
+                    a = wp.mat33(0.0)
+                triplets.vals[ei * 16 + _i * 4 + _j] = a
     
 
 @wp.kernel
@@ -249,22 +257,39 @@ class BW98ThinShell(SifakisFEM):
 
         wp.launch(shell_kernel_sparse, (self.n_tets,), inputs = [self.xcs, self.geo, self.Bm, self.W, self.triplets, self.b]) 
     
+@wp.func 
+def should_fix(x: wp.vec3): 
+    p1 = wp.abs(x[0] + 0.5) < eps and wp.abs(x[2] + 0.5) < eps
+    p2 = wp.abs(x[0] - 0.5) < eps and wp.abs(x[2] + 0.5) < eps
+    return p1 or p2 
+
+@wp.kernel
+def set_b_fixed(geo: FEMMesh,b: wp.array(dtype = wp.vec3)):
+    i = wp.tid()
+    # set fixed points rhs to 0
+    if should_fix(geo.xcs[i]): 
+        b[i] = wp.vec3(0.0, 0.0, 0.0)
 
 @wp.kernel
 def set_K_fixed(geo: FEMMesh, triplets: Triplets):
     eij = wp.tid()
-    e = eij // 9
-    ii = (eij // 3) % 3
-    jj = eij % 3
-
-    i = geo.T[e, ii]
-    j = geo.T[e, jj]
+    i = triplets.rows[eij]
+    j = triplets.cols[eij]
     
     if should_fix(geo.xcs[i]) or should_fix(geo.xcs[j]):        
-        if ii == jj:
+        if i == j:
             triplets.vals[eij] = wp.identity(3, dtype = float)
         else:
             triplets.vals[eij] = wp.mat33(0.0)
+
+# @wp.kernel
+# def set_Q_fixed(geo: FEMMesh, triplets: Triplets):
+#     eij = wp.tid()
+#     i = triplets.rows[eij]
+#     j = triplets.cols[eij]
+    
+#     if should_fix(geo.xcs[i]) or should_fix(geo.xcs[j]):        
+#         triplets.vals[eij] = wp.mat33(0.0)
 
 class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
     def __init__(self, h, meshes_filename = [default_shell], transforms = [np.identity(4, dtype = float)]): 
@@ -275,6 +300,7 @@ class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
         
         self.V = self.xcs.numpy()
         self.F = self.indices.numpy().reshape(-1, 3)
+        self.define_bending_stiffness()
 
     def compute_K(self):
         self.triplets.vals.zero_()
@@ -284,7 +310,8 @@ class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
 
         self.set_bc_fixed_hessian()
         bsr_set_zero(self.K_sparse)
-        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals)        
+        bsr_set_from_triplets(self.K_sparse, self.triplets.rows, self.triplets.cols, self.triplets.vals) 
+        bsr_axpy(self.Q, self.K_sparse, kb, beta = 1.0)       
     
     def set_bc_fixed_hessian(self):
         wp.launch(set_K_fixed, (self.n_tets * 3 * 3,), inputs = [self.geo, self.triplets])
@@ -308,9 +335,37 @@ class Shell(RodBCBase, BW98ThinShell, TOBJComplex):
             Ki = bip - bim
             K_fd[:, i + 3] = Ki.reshape(-1)
         return -K_fd / (h_fd * 2.)
+    
+    def set_bc_fixed_grad(self): 
+        wp.launch(set_b_fixed, (self.n_nodes,), inputs = [self.geo, self.b])
+
+    def define_bending_stiffness(self):
+        F = self.T.numpy()
+        ev, fe, ef = igl.edge_topology(self.V, F)
+        print(f"ev shape = {ev.shape}, fe shape = {fe.shape}, ef shape = {ef.shape}")
+        topo = EdgeTopoloby() 
+        topo.ev = wp.from_numpy(ev, dtype = int)
+        topo.ef = wp.from_numpy(ef, dtype = int)
+        
+        n_edges = ef.shape[0]
+        triplets = Triplets()
+        triplets.rows = wp.zeros((n_edges * 4 * 4), dtype = int)
+        triplets.cols = wp.zeros_like(triplets.rows)
+        triplets.vals = wp.zeros((n_edges * 4 * 4), dtype = wp.mat33)
+        
+        wp.launch(quadratic_bending, (n_edges,), inputs = [self.geo, topo, triplets, self.W])
+        self.Q = bsr_zeros(self.n_nodes, self.n_nodes, wp.mat33)
+        # wp.launch(set_Q_fixed, (n_edges * 4 * 4,), inputs = [self.geo, triplets])
+        bsr_set_from_triplets(self.Q, triplets.rows, triplets.cols, triplets.vals)
+
+        bb = wp.zeros_like(self.b)
+        bsr_mv(self.Q, self.xcs, bb)
+        print(f"bending force norm from rest shape = {np.linalg.norm(bb.numpy())}")
             
-            
-            
+    def compute_rhs(self):
+        bsr_mv(self.Q, self.states.x, self.b, alpha = -kb, beta = 1.0)
+        super().compute_rhs()
+
 def test_shell_mesh(): 
     shell = Shell(h)
     xcs = shell.xcs.numpy()
@@ -337,27 +392,10 @@ def test_shell_mesh():
     # print(f"K_fd = {K_fd[3:, 3:]}")
     # print(f"K = {K[3:, 3:]}")
 
-    F = shell.T.numpy()
-    ev, fe, ef = igl.edge_topology(shell.V, F)
-    print(f"ev shape = {ev.shape}, fe shape = {fe.shape}, ef shape = {ef.shape}")
-    topo = EdgeTopoloby() 
-    topo.ev = wp.from_numpy(ev, dtype = int)
-    topo.ef = wp.from_numpy(ef, dtype = int)
     
-    triplets = Triplets()
-    triplets.rows = wp.zeros((ef.shape[0] * 4), dtype = int)
-    triplets.cols = wp.zeros_like(triplets.rows)
-    triplets.vals = wp.zeros((ef.shape[0] * 4), dtype = wp.mat33)
-    
-    n_edges = ef.shape[0]
-    wp.launch(quadratic_bending, (n_edges,), inputs = [shell.geo, topo, triplets])
-    Q = bsr_zeros(shell.n_nodes, shell.n_nodes, wp.mat33)
-    bsr_set_from_triplets(Q, triplets.rows, triplets.cols, triplets.vals)
-    
-    
-    # ps.set_user_callback(viewer.callback)
-    # ps.set_ground_plane_mode("none")
-    # ps.show()
+    ps.set_user_callback(viewer.callback)
+    ps.set_ground_plane_mode("none")
+    ps.show()
 
 
 if __name__ == "__main__": 
