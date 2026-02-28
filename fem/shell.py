@@ -6,11 +6,12 @@ import numpy as np
 from stretch import PSViewer, RodBCBase, should_fix
 from .params import *
 import polyscope as ps 
-
+import igl 
 h = 1e-2
 default_shell = "assets/shell/shell.obj"
 ksu = 1e5
 ksv = 1e5
+kb = 1e4
 h_fd = 1e-4
 
 
@@ -21,6 +22,77 @@ reference:
 [2]: Dynamic Deformables: Implementation and Production Practicalities, SIGGRAPH course 2022
 [3]: A Quadratic Bending Model for Inextensible Surfaces
 '''
+
+@wp.struct 
+class EdgeTopoloby: 
+    ev: wp.array2d(dtype = int)
+    ef: wp.array2d(dtype = int)
+
+
+@wp.func 
+def cot(c: float): 
+    '''
+    c: cosine of angle 
+    '''
+    s = wp.sqrt(1.0 - c * c)
+    return c / s
+
+@wp.func 
+def cij(ei: wp.vec3, ej: wp.vec3): 
+    '''
+    cotangent of ei, ej sharing an vertex
+    ei, ej points out from the shared vertex 
+    '''
+    ein = wp.normalize(ei)
+    ejn = wp.normalize(ej)
+    c = wp.dot(ein, ejn)
+    return cot(c) 
+    
+@wp.kernel
+def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets):
+    '''
+    bending energy for edge eij = (vi, vj) shared by two triangles (vi, vj, vk) and (vj, vi, vl)
+    E_bend = 1/2 x^T Q x
+
+    refer to the picture in [3] for notation 
+    '''
+    ei = wp.tid()
+    
+
+    # find the two triangles sharing this edge 
+    t0 = topo.ef[ei, 0]
+    t1 = topo.ef[ei, 1]
+
+    ii = topo.ev[ei, 0]
+    jj = topo.ev[ei, 1]
+
+    
+
+    if t0 != -1 and t1 != -1:
+        # find the opposite vertices 
+        se = ii + jj 
+        kk = geo.T[t0, 0] + geo.T[t0, 1] + geo.T[t0, 2] - se
+        ll = geo.T[t1, 0] + geo.T[t1, 1] + geo.T[t1, 2] - se
+
+        x0 = geo.xcs[ii]
+        x1 = geo.xcs[jj]
+        x2 = geo.xcs[kk]
+        x3 = geo.xcs[ll]
+
+        c03 = cij(x0 - x1, x2 - x1)
+        c04 = cij(x0 - x1, x3 - x1)
+        c01 = cij(x1 - x0, x2 - x0)
+        c02 = cij(x1 - x0, x3 - x0)
+        
+        K0 = wp.vec4(c03 + c04, c01 + c02, c01 + c03, c02 + c04)
+        i33 = wp.identity(3, dtype = float)
+        idx = wp.vec4i(ii, jj, kk, ll)
+        for _i in range(4):
+            for _j in range(4):
+                triplets.rows[ei * 16 + _i * 4 + _j] = idx[_i]
+                triplets.cols[ei * 16 + _i * 4 + _j] = idx[_j]
+                triplets.vals[ei * 16 + _i * 4 + _j] = K0[_i] * K0[_j] * i33
+    
 
 @wp.kernel
 def shell_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype = float), triplets: Triplets, b: wp.array(dtype = wp.vec3)):
@@ -265,10 +337,27 @@ def test_shell_mesh():
     # print(f"K_fd = {K_fd[3:, 3:]}")
     # print(f"K = {K[3:, 3:]}")
 
-
-    ps.set_user_callback(viewer.callback)
-    ps.set_ground_plane_mode("none")
-    ps.show()
+    F = shell.T.numpy()
+    ev, fe, ef = igl.edge_topology(shell.V, F)
+    print(f"ev shape = {ev.shape}, fe shape = {fe.shape}, ef shape = {ef.shape}")
+    topo = EdgeTopoloby() 
+    topo.ev = wp.from_numpy(ev, dtype = int)
+    topo.ef = wp.from_numpy(ef, dtype = int)
+    
+    triplets = Triplets()
+    triplets.rows = wp.zeros((ef.shape[0] * 4), dtype = int)
+    triplets.cols = wp.zeros_like(triplets.rows)
+    triplets.vals = wp.zeros((ef.shape[0] * 4), dtype = wp.mat33)
+    
+    n_edges = ef.shape[0]
+    wp.launch(quadratic_bending, (n_edges,), inputs = [shell.geo, topo, triplets])
+    Q = bsr_zeros(shell.n_nodes, shell.n_nodes, wp.mat33)
+    bsr_set_from_triplets(Q, triplets.rows, triplets.cols, triplets.vals)
+    
+    
+    # ps.set_user_callback(viewer.callback)
+    # ps.set_ground_plane_mode("none")
+    # ps.show()
 
 
 if __name__ == "__main__": 
