@@ -11,7 +11,7 @@ h = 1e-2
 default_shell = "assets/shell/shell.obj"
 ksu = 1e5
 ksv = 1e5
-kb = 1e2
+kb = 1e1
 h_fd = 1e-4
 eps = 1e-4
 
@@ -66,13 +66,15 @@ def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets, W: w
     ii = topo.ev[ei, 0]
     jj = topo.ev[ei, 1]
 
-    
-
+    kk = 0
+    ll = 0
+    se = ii + jj 
     if t0 != -1 and t1 != -1:
-        # find the opposite vertices 
-        se = ii + jj 
         kk = geo.T[t0, 0] + geo.T[t0, 1] + geo.T[t0, 2] - se
         ll = geo.T[t1, 0] + geo.T[t1, 1] + geo.T[t1, 2] - se
+
+    if t0 != -1 and t1 != -1 and not should_fix(geo.xcs[ii]) and not should_fix(geo.xcs[jj]) and not should_fix(geo.xcs[kk]) and not should_fix(geo.xcs[ll]):
+        # find the opposite vertices 
 
         x0 = geo.xcs[ii]
         x1 = geo.xcs[jj]
@@ -97,8 +99,6 @@ def quadratic_bending(geo: FEMMesh, topo: EdgeTopoloby, triplets: Triplets, W: w
                 triplets.cols[ei * 16 + _i * 4 + _j] = idx[_j]
 
                 a = K0[_i] * K0[_j] * term * i33
-                if should_fix(geo.xcs[idx[_i]]) or should_fix(geo.xcs[idx[_j]]):
-                    a = wp.mat33(0.0)
                 triplets.vals[ei * 16 + _i * 4 + _j] = a
     
 
