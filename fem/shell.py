@@ -9,8 +9,8 @@ import polyscope as ps
 import igl 
 h = 1e-2
 default_shell = "assets/shell/shell.obj"
-ksu = 1e5
-ksv = 1e5
+ksu = 1e7
+ksv = 1e7
 kb = 1e1
 h_fd = 1e-4
 eps = 1e-4

@@ -109,7 +109,7 @@ def compute_Psi(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     psie = psi(F)
@@ -270,7 +270,7 @@ class RodBCBase:
 
             dxnp = self.states.dx.numpy()
             norm_dx = np.linalg.norm(dxnp)
-            newton_iter = norm_dx > 1e-6 and n_iter < max_iter
+            newton_iter = norm_dx > 1e-4 and n_iter < max_iter
             print(f"norm = {np.linalg.norm(dxnp)}, {n_iter}")
             n_iter += 1
         self.update_x0_xdot()
