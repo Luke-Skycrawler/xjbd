@@ -96,7 +96,8 @@ def compute_pi(geo: FEMMesh, states: ADMMState, Bm: wp.array(dtype = wp.mat33), 
     t2 = states.x[geo.T[e, 2]]
     t3 = states.x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    # Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     U = wp.mat33(0.0)

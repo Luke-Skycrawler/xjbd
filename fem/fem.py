@@ -27,7 +27,8 @@ def compute_Dm(geo: FEMMesh, Bm: wp.array(dtype = wp.mat33), W: wp.array(dtype =
     x2 = geo.xcs[geo.T[e, 2]]
     x3 = geo.xcs[geo.T[e, 3]]
 
-    Dm = wp.mat33(x0 - x3, x1 - x3, x2 - x3)    
+    # Dm = wp.mat33(x0 - x3, x1 - x3, x2 - x3)    
+    Dm = wp.matrix_from_cols(x0 - x3, x1 - x3, x2 - x3)
     inv_Dm = wp.inverse(Dm)
     Bm[e] = inv_Dm
     W[e] = wp.abs(wp.determinant(Dm)) / 6.0
@@ -87,7 +88,7 @@ def tet_kernel(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype = 
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
         
@@ -145,7 +146,7 @@ def tet_kernel_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(d
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     
