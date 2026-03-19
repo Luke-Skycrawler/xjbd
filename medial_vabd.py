@@ -19,7 +19,7 @@ from geometry.static_scene import StaticScene
 from mtk_solver import DirectSolver
 from record_conv import ConvergenceRecord
 
-test_time = True
+test_time = False
 split_lbfgs = True
 eps = 3e-3
 ad_hoc = True
@@ -34,7 +34,7 @@ solver_choice = "direct"  # default for medial proxy
 if collision_handler == "triangle":
     solver_choice = "direct"
 assert solver_choice in ["woodbury", "direct", "compare"]
-use_nullspace = True
+use_nullspace = False
 n_windmills = 1
 def asym(a):
     return 0.5 * (a - a.T)
@@ -710,7 +710,15 @@ class MedialVABD(MedialRodComplex):
             for i in range(0, self.n_meshes):
                 ti = self.transforms[i][:3, 3]
                 # self.z_dot[i * 12 + 9: i * 12 + 12] = -ti * 0.25
-                self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
+                # self.z_dot[i * 12 + 9: i * 12 + 12] = np.array([0.0, -2.0, 0.0])
+
+                # z axis 
+                # self.z_dot[i * 12 + 1] = 2.0
+                # self.z_dot[i * 12 + 3] = -2.0
+                
+                # y axis 
+                self.z_dot[i * 12 + 2] = 10.0
+                self.z_dot[i * 12 + 6] = -10.0
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -913,7 +921,7 @@ def windmill(from_frame = 0):
     rng = np.random.default_rng(seed)
     
     bunnies_per_row = 3
-    n_heights = 20
+    n_heights = 1
     n_meshes = bunnies_per_row * n_heights + n_windmills
     rotations = Rotation.random(n_meshes - n_windmills, random_state = rng).as_matrix()
     
@@ -963,6 +971,28 @@ def windmill(from_frame = 0):
         print(f"saving convergence info")
         rods.save_meta()
 
+    if from_frame > 0:
+        rods.reset_z(from_frame)
+    viewer = MedialViewer(rods, static_bars)
+    ps.set_user_callback(viewer.callback)
+    ps.show()
+
+def fling(from_frame = 0):
+    model = "ushape"
+    seed = 114514
+    
+    rng = np.random.default_rng(seed)
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"]
+    transforms = np.array([np.identity(4, dtype = float) for _ in range(n_meshes)])
+
+
+    pos = [] 
+    t = np.array([3.- 1, 15. - 9, .75])
+    scale = 1.5
+
+    static_bars = None
+    rods = MedialVABD(h, meshes, transforms, static_bars)
     if from_frame > 0:
         rods.reset_z(from_frame)
     viewer = MedialViewer(rods, static_bars)
@@ -1050,6 +1080,7 @@ if __name__ == "__main__":
     wp.config.max_unroll = 0
     wp.init()
     ps.look_at((0, 6, 15), (0, 6, 0))
-    windmill()
+    # windmill()
+    fling()
     # staggered_bug()
     # C2()

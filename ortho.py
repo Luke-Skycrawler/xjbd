@@ -38,7 +38,7 @@ def gradient(F: wp.mat33):
         for j in range(3):
             qi = FT[i]
             qj = FT[j]
-            g += (wp.dot(qi, qj) - wp.select(i == j, 0.0, 1.0)) * qj
+            g += (wp.dot(qi, qj) - wp.where(i == j, 1.0, 0.0)) * qj
         g *= 4.0 * kappa
         for ii in range(3):
             ret[i * 3 + ii] = g[ii]
