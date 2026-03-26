@@ -19,3 +19,6 @@ runs/
 data/*.pth
 *.pth
 data/*.txt
+seq*/
+images.txt
+info.txt

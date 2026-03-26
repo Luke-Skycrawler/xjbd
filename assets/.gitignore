@@ -27,3 +27,8 @@ effel.stl
 *.glb
 tokyo_tower/
 tokyo-tower-1500-scale-model_files/
+fonts/
+dragon/
+model_*/
+gear/
+wheel/

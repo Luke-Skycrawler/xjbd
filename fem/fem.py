@@ -10,12 +10,13 @@ from warp.sparse import bsr_axpy, bsr_set_from_triplets, bsr_zeros, BsrMatrix
 from scipy.sparse import bsr_matrix
 
 from .neo_hookean import PK1, tangent_stiffness, psi
-from .linear_elasticity import PK1, tangent_stiffness, psi
+# from .linear_elasticity import PK1, tangent_stiffness, psi
 # from .stvk import PK1, tangent_stiffness, psi
 
 from .params import lam, mu
 lam0, mu0 = lam, mu
-lam1, mu1 = lam * 100.0, mu * 10.0
+# lam1, mu1 = lam * 100.0, mu * 10.0
+lam1, mu1 = lam, mu
 
 @wp.struct 
 class Triplets:

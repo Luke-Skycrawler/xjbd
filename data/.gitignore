@@ -4,3 +4,4 @@ md/
 *.txt
 *.mat
 *.pth
+nn_runs/

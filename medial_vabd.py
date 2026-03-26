@@ -416,7 +416,8 @@ class MedialVABD(MedialRodComplex):
 
             dzti = dz_tilde[start: end].reshape((-1, 3)).T
             dz0i = dz0[i * 12: (i + 1) * 12]
-            dR = asym(dz0i.reshape((-1, 3)).T[:, :3])
+            # dR = asym(dz0i.reshape((-1, 3)).T[:, :3])
+            dR = dz0i.reshape((-1, 3)).T[:, :3]
 
 
             zti = self.z_tilde[start: end].reshape((-1, 3)).T

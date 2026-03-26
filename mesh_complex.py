@@ -14,10 +14,12 @@ omega = 3.0
 @wp.kernel
 def init_velocities(states: NewtonState, positions: wp.array(dtype = wp.vec3), n_verts: int):
     i = wp.tid()
-    j = i // n_verts
-    pi = positions[j]
-    v = wp.vec3(-pi[0], 0.0, -pi[2])
-    states.xdot[i] = v * 0.5
+    # j = i // n_verts
+    # pi = positions[j]
+    # v = wp.vec3(-pi[0], 0.0, -pi[2])
+    # states.xdot[i] = v * 0.5
+    omega = wp.vec3(0.0, 1.0, 0.0) * 10.0
+    states.xdot[i] = wp.cross(omega, states.x0[i])
 
 @wp.func
 def should_fix(x: wp.vec3): 

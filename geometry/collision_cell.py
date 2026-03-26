@@ -83,7 +83,7 @@ def compute_inverted_vertex_single_mesh(x: wp.array(dtype = wp.vec3), geo: FEMMe
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     mesh_offset = 0
@@ -100,7 +100,7 @@ def compute_inverted_vertex(x: wp.array(dtype = wp.vec3), tet_complex: wp.array2
     t2 = x[tet_complex[e, 2]]
     t3 = x[tet_complex[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     if wp.determinant(F) < 0.0: 

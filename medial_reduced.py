@@ -217,6 +217,9 @@ class MedialRodComplex(RodComplexBC):
         for i in range(self.n_meshes):
             self.z[self.n_modes * i: self.n_modes * i + 9] = vec(np.identity(3))
 
+            # self.z_dot[i * 12 + 2] = 10.0
+            # self.z_dot[i * 12 + 6] = -10.0
+
     def compute_Um(self):
 
         # jac = self.encoder.jacobian(x)
@@ -329,49 +332,6 @@ class MedialRodComplex(RodComplexBC):
             with wp.ScopedTimer("build_from_triplets"):
                 self.add_collision_to_sys_matrix(triplets)
 
-class PinnedWindMill(MedialRodComplex):
-    def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
-        super().__init__(h, meshes, transforms, static_meshes)
-        v_rst = self.xcs.numpy()
-        x_rst = v_rst[:, 0]
-        y_rst = v_rst[:, 1]
-        pinned = (np.abs(x_rst) < eps) & (np.abs(y_rst) < eps)
-
-        self.pinned = np.arange(self.n_nodes)[pinned]
-        assert len(self.pinned) == 2
-
-        y = v_rst[self.pinned]
-        # pinned positions
-
-        lhs = np.ones((2, 4), float)
-        lhs[0, : 3] = y[0]
-        lhs[1, : 3] = y[1]
-        C = np.kron(lhs, np.identity(3))
-        ns= null_space(C)
-        self.ns = ns
-        assert ns.shape == (12, 6)
-        self.U_prime = np.zeros((self.n_reduced, self.n_reduced - 6))
-        self.U_prime[:12, :6]= self.ns
-        self.U_prime[12:, 6:] = np.identity(self.n_reduced - 12)
-        self.UU_prime = self.U @ self.U_prime
-
-
-    def solve(self):
-        self.A_reduced = self.UU_prime.T @ self.to_scipy_bsr() @ self.UU_prime 
-        self.b_reduced = self.UU_prime.T @ self.b.numpy().reshape(-1)
-
-        dzprime = solve(self.A_reduced, self.b_reduced, assume_a="sym")
-        self.dz[:] = self.U_prime @ dzprime
-        self.states.dx.assign((self.U @ self.dz).reshape(-1, 3))
-    
-    def define_collider(self):
-        self.collider = MeshCollisionDetector(self.states.x, self.T, self.indices, self.Bm, ground = None, static_objects = self.static_meshes)
-        self.define_medials()
-    # def process_collision(self):    
-    #     pass
-
-    # def compute_collision_energy(self):
-    #     return 0.0
 def bug_drop():
     n_meshes = 2
     meshes = ["assets/bug.tobj", "assets/tet.tobj"]
@@ -434,54 +394,24 @@ def staggered_bug():
     ps.set_user_callback(viewer.callback)
     ps.show()
 
-
-def windmill():
-    # model = "bunny"
-    model = "windmill"
-    drop = "bunny"
-    # model = "bug"
-    n_meshes = 8
-    # meshes = [f"assets/{model}/{model}.tobj"] * n_meshes
-    meshes = [f"assets/{model}/{model}.tobj"] + [f"assets/{drop}/{drop}.tobj"] * (n_meshes - 1)
-    transforms = [np.identity(4, dtype = float) for _ in range(n_meshes)]
-
-    transforms[0][:3, :3] = np.zeros((3, 3))
-    transforms[0][0, 0] = 0.5
-    transforms[0][2, 1] = 0.5
-    transforms[0][1, 2] = 0.5
-    # transforms[-1][0, 1] = 1.5
-    # transforms[-1][1, 0] = 1.5
-    # transforms[-1][2, 2] = 1.5
-
-    for i in range(1, n_meshes):
-        transforms[i][0, 3] = 0.5 + i * 0.05
-        transforms[i][1, 3] = i * 1.2
-        transforms[i][2, 3] = i * 0.0
+def fling(from_frame = 0):
+    model = "ushape"
+    seed = 114514
     
-    # rods = MedialRodComplex(h, meshes, transforms)
+    rng = np.random.default_rng(seed)
+    n_meshes = 1
+    meshes = [f"assets/{model}/{model}.tobj"]
+    transforms = np.array([np.identity(4, dtype = float) for _ in range(n_meshes)])
 
-    # scale params for teapot
-    static_meshes_file = ["assets/teapotContainer.obj"]
-    scale = np.identity(4) * 3
-    scale[3, 3] = 1.0
 
-    # bouncy box
-    # static_meshes_file = ["assets/bouncybox.obj"]
-    # box_size = 4
-    # scale = np.identity(4) * box_size
-    # scale[3, 3] = 1.0
-    # scale[:3, 3] = np.array([0, box_size, box_size / 2], float)
-    # for i in range(n_meshes):
-    #     transforms[i][1, 3] += box_size * 1.5
-        
-    
+    pos = [] 
+    t = np.array([3.- 1, 15. - 9, .75])
+    scale = 1.5
 
-    # static_bars = StaticScene(static_meshes_file, np.array([scale]))
     static_bars = None
-    # rods = MedialRodComplex(h, meshes, transforms, static_bars)
-    rods = PinnedWindMill(h, meshes, transforms, static_bars)
-    
-    
+    rods = MedialRodComplex(h, meshes, transforms, static_bars)
+    if from_frame > 0:
+        rods.reset_z(from_frame)
     viewer = MedialViewer(rods, static_bars)
     ps.set_user_callback(viewer.callback)
     ps.show()
@@ -495,4 +425,4 @@ if __name__ == "__main__":
     wp.init()
     # bug_drop()
     # staggered_bug()
-    windmill()
+    fling()
