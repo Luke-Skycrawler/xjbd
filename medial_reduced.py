@@ -9,7 +9,7 @@ from geometry.collision_cell import MeshCollisionDetector, collision_eps, stiffn
 from geometry.static_scene import StaticScene
 
 import os
-from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv
+from warp.sparse import bsr_set_from_triplets, bsr_zeros, bsr_mm, bsr_transposed, bsr_mv, bsr_diag
 from warp.optim.linear import cg
 from scipy.linalg import solve, null_space
 from scipy.sparse import block_diag
@@ -49,6 +49,21 @@ def fill_U_triplets(mesh_id: int, offset: int, xcs: wp.array(dtype = wp.vec3), W
         c = xcs[xid][k]
     triplets.vals[idx] = wp.diag(wp.vec3(W[i, j] * c))
 
+@wp.kernel 
+def fill_diags(diag0: wp.array(dtype = wp.mat33), diag1: wp.array(dtype = wp.mat33), r: int):
+    '''
+    r: # skinning modes per body
+    '''
+    i = wp.tid() 
+    ii = (i // 4) % r
+    
+    is_qa = ii == 0
+    # is_qa = True
+    if is_qa: 
+        diag0[i] = wp.identity(3, dtype = float)
+    else:
+        diag1[i] = wp.identity(3, dtype = float)
+    
 
 class MedialRodComplex(RodComplexBC):
     def __init__(self, h, meshes=[], transforms=[], static_meshes = None):
@@ -70,6 +85,14 @@ class MedialRodComplex(RodComplexBC):
         self.b_reduced = np.zeros(n_reduced)
         self.define_U()
         self.compute_Um()
+
+        # r = self.n_modes // 3 * self.n_meshes
+        # self.diag0 = wp.zeros((r, ), dtype = wp.mat33)
+        # self.diag1 = wp.zeros_like(self.diag0)
+        # wp.launch(fill_diags, (r,), inputs = [self.diag0, self.diag1, self.n_modes // 12])
+        # print(f"defining mask: n_modes = {self.n_modes} r = {r}")
+        # self.mask_e00 = bsr_diag(self.diag0, r, r, wp.mat33)
+        # self.mask_e11 = bsr_diag(self.diag1, r, r, wp.mat33)
 
     def lbs_matrix(self, V, W):
         nvm = V.shape[0]
@@ -98,7 +121,7 @@ class MedialRodComplex(RodComplexBC):
     def wp_define_U(self):
         self.Uwp = bsr_zeros(self.n_nodes, self.n_modes // 3 * self.n_meshes, wp.mat33)
         triplets = Triplets()
-        nnz = self.n_nodes * 4 * self.n_modes
+        nnz = self.n_nodes * 4 * (self.n_modes // 12)
         triplets.cols = wp.zeros((nnz, ), int)
         triplets.rows = wp.zeros((nnz, ), int)
         triplets.vals = wp.zeros((nnz,), wp.mat33)
@@ -121,6 +144,9 @@ class MedialRodComplex(RodComplexBC):
     def define_z(self, transforms):
         Q = self.Q[self.models[0]]
         self.n_modes = Q.shape[1] * 12 
+        '''
+        # DOFs in q_A and q_V per body
+        '''
         self.n_meshes = len(transforms)
 
         self.n_reduced = self.n_modes * self.n_meshes
@@ -255,9 +281,25 @@ class MedialRodComplex(RodComplexBC):
         with wp.ScopedTimer("bsr mms"):
             tmp = bsr_mm(self.K_sparse, self.Uwp)
             self.A_reduced = bsr_mm(self.UwpT, tmp)
+            # A_reduced = bsr_mm(self.UwpT, tmp)            
+            # self.A_reduced = bsr_mm(bsr_mm(self.mask_e00, A_reduced), self.mask_e00)
+
+            # self.A_reduced += bsr_mm(bsr_mm(self.mask_e11, A_reduced), self.mask_e11)
+            # A = self.to_scipy_bsr(A_reduced).toarray()
+            
+            # Haa = A[:12, :12]
+            # Hvv = A[12:, 12:]
+            # Hav = A[:12, 12:]
+            
+            # print(f"Haa norm = {np.linalg.norm(Haa)}")
+            # print(f"Hvv norm = {np.linalg.norm(Hvv)}")
+            # print(f"Hav norm = {np.linalg.norm(Hav)}")
+
+            # self.A_reduced = A_reduced
 
         with wp.ScopedTimer("bsr mv"):
             self.b_reduced = bsr_mv(self.UwpT, self.b)
+            # self.b_reduced = bsr_mv(self.mask_e00, self.b_reduced)
         z_dim = self.dz.shape[0] // 3
         dz = wp.zeros((z_dim, ), dtype = wp.vec3)
         with wp.ScopedTimer("solve"):
@@ -323,6 +365,7 @@ class MedialRodComplex(RodComplexBC):
     #     # self.add_collision_to_sys_matrix()
 
     def process_collision(self):
+        return
         with wp.ScopedTimer("collision"):
             with wp.ScopedTimer("detection"):
                 self.n_pt, self.n_ee, self.n_ground = self.collider.collision_set("all") 
@@ -402,7 +445,7 @@ def fling(from_frame = 0):
     n_meshes = 1
     meshes = [f"assets/{model}/{model}.tobj"]
     transforms = np.array([np.identity(4, dtype = float) for _ in range(n_meshes)])
-
+    transforms[0][1, 3] = 1.5
 
     pos = [] 
     t = np.array([3.- 1, 15. - 9, .75])

@@ -140,7 +140,7 @@ class PSViewer:
         self.ps_mesh = ps.register_surface_mesh("rod", self.V, self.F)
         self.frame = 0
         self.rod = rod
-        self.ui_pause = False
+        self.ui_pause = True
         self.animate = False
         
         self.end_frame = 2000

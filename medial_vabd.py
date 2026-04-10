@@ -27,7 +27,7 @@ medial_collision_stiffness = 1e7
 # collision_handler = "triangle"
 collision_handler = "medial"
 assert collision_handler in ["triangle", "medial"]
-cpp_only = True
+cpp_only = False
 
 solver_choice = "direct"  # default for medial proxy
 # solver_choice = "direct"  # default for medial proxy
@@ -166,6 +166,25 @@ class MedialVABD(MedialRodComplex):
         # self.collider_medial.get_rest_collision_set()
         if use_nullspace:
             self.compute_nullspace()
+
+        print("sum W = ", self.sum_W)
+        # Fs = [self.get_F(i) for i in range(self.n_meshes)]
+        # gg, HH = self.ortho.analyze(np.array(Fs))
+
+        # h2 = self.h * self.h
+        # HH = HH[0] * self.sum_W[0]
+
+        # hh = (self.U0.T @ self.to_scipy_bsr() @ self.U0).toarray()
+        # norm_HH = np.linalg.norm(HH)
+        # norm_hh = np.linalg.norm(hh)
+        # norm_diff = np.linalg.norm(HH - hh)
+
+        # print(f"HH = {HH}")
+        # print(f"hh = {hh}")
+        # print(f"diff = {HH - hh}")
+        # print(f"norm orthogonal Hessian = {norm_HH}, norm hh = {norm_hh}, diff norm = {norm_diff}, relative error = {norm_diff / norm_hh}")
+
+        # quit()
 
     def define_collider(self):
         if collision_handler == "triangle":
@@ -310,10 +329,18 @@ class MedialVABD(MedialRodComplex):
             return
         h = self.h
         self.compute_K()
+        Kbar = self.to_scipy_bsr()
+        # Hbar = self.to_scipy_bsr(self.M_sparse) + (h * h) * Kbar
+        Hbar = self.to_scipy_bsr(self.M_sparse)
         self.K0 = self.U_tilde.T @ self.to_scipy_bsr() @ self.U_tilde * (h * h)
         self.M_tilde = self.U_tilde.T @ self.to_scipy_bsr(self.M_sparse) @ self.U_tilde
 
         self.A_tilde = self.K0 + self.M_tilde
+        self.Hvv = (self.U_tilde.T @ Hbar @ self.U_tilde).toarray()
+        self.Hav = (self.U0.T @ Hbar @ self.U_tilde).toarray()
+        Haa = (self.U0.T @ Hbar @ self.U0).toarray()
+        print(np.max(np.abs(self.Hav)))
+        print(f"prefactoring, norm Hvv = {np.max(np.abs(self.A_tilde.toarray()))}, norm Haa = {np.max(np.abs(Haa))}")
 
         # cholesky factorization tend to have non-positive definite matrix, use lu instead
         # self.c, self.low = lu_factor(self.A_tilde)
@@ -432,6 +459,13 @@ class MedialVABD(MedialRodComplex):
     #     self.dz[:] = dz
     #     self.states.dx.assign((self.U @ dz).reshape(-1, 3))
 
+    def diag4A(self, Hav, A):
+        ret = np.zeros_like(Hav)
+        for ii in range(Hav.shape[0] // 3): 
+            for jj in range(Hav.shape[1] // 3):
+                ret[ii * 3: ii * 3 + 3, jj * 3: jj * 3 + 3] = A @ Hav[ii * 3: ii * 3 + 3, jj * 3: jj * 3 + 3]
+        return ret
+
     def solve(self):
         self.A0[:] = 0.
         self.b0[:] = 0.
@@ -486,6 +520,13 @@ class MedialVABD(MedialRodComplex):
             # np.save("A_tilde_K0.npy", self.A_tilde)
             if not self.abd_only:
                 A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.A_tilde.toarray()# + self.A_col_tilde
+                # A_sys[self.n_meshes * 12:, self.n_meshes * 12:] = self.Hvv
+                A = self.get_F(0)
+                Hav = self.diag4A(self.Hav, A)
+                # Hav = self.Hav
+                # A_sys[:self.n_meshes * 12, self.n_meshes * 12:] = Hav 
+                # A_sys[self.n_meshes * 12:, :self.n_meshes * 12] = Hav.T 
+                
             
         b_sys = np.zeros(self.n_reduced)
         b_sys[:self.n_meshes * 12] = self.b0# + self.b0_col
@@ -591,7 +632,7 @@ class MedialVABD(MedialRodComplex):
             e1c = self.compute_collision_energy()
             E1 = e10 + e1c
             # print(f"e10 = {e10}, e1c = {e1c}, e00 = {e00}, e0c = {e0c}, E1 = {E1}, E0 = {E0}")
-            if E1 < E0:
+            if E1 < E0 or True:
                 break
             if alpha < 5e-3:
                 self.z_tilde[:] = z_tilde_tmp
@@ -677,6 +718,20 @@ class MedialVABD(MedialRodComplex):
         return U_prime
 
     def compute_excitement(self):
+        A = self.get_F(0)
+        Hav = self.diag4A(self.Hav, A.T)
+        # Hav = self.Hav
+        Adot = self.z_dot[:9].reshape((-1, 3)).T
+        A = self.z0[:9].reshape((-1, 3)).T
+        omega = Adot @ A.T
+        omega = 0.5 * (omega - omega.T)
+
+        # Hav = self.z_dot @ self.Hav * self.h
+        temp = self.z_dot @ self.Hav * self.h * self.h
+        for i in range(temp.shape[0] // 3):
+            temp[i * 3: i * 3 + 3] = omega @ temp[i * 3: i * 3 + 3]
+        return temp
+        # return self.z_dot @ Hav * self.h * self.sum_W[0] * self.sum_W[0]
         return np.zeros_like(self.z_tilde)
         f = self.per_node_forces() * 2.0
         U_prime = self.compute_U_prime()        
@@ -718,8 +773,8 @@ class MedialVABD(MedialRodComplex):
                 # self.z_dot[i * 12 + 3] = -2.0
                 
                 # y axis 
-                self.z_dot[i * 12 + 2] = 10.0
-                self.z_dot[i * 12 + 6] = -10.0
+                self.z_dot[i * 12 + 2] = 5.0
+                self.z_dot[i * 12 + 6] = -5.0
 
         self.z_tilde[:] = 0.0
         self.z_tilde0[:] = 0.0
@@ -787,7 +842,9 @@ class MedialVABD(MedialRodComplex):
                 Um_tildeT = self.compute_Um_tildeT()
 
 
-            Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")[:, idx]
+            # Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")[:, idx]
+            Um_sys = vstack([self.Um0.T, Um_tildeT], "csc")
+
             # Um_sys = np.vstack([self.Um0.T, Um_tildeT])[:, idx]
             step1 = Um_sys @ (H * term)
             # self.A_sys_col = Um_sys @ (H * term) @ Um_sys.T 
