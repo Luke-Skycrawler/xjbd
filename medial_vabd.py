@@ -492,7 +492,14 @@ class MedialVABD(MedialRodComplex):
 
         self.direct_solver.update_A0(aa)
         # set b_tilde
-        self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
+        # self.b_tilde = self.K0 @ self.z_tilde + self.M_tilde @ (self.z_tilde - self.z_tilde_hat()) + self.compute_excitement() if not self.abd_only else 0.
+
+        zti = self.z_tilde.reshape((-1, 3)).T
+        A0 = self.get_F(0)
+        zti = vec(A0 @ zti)
+        dzti = (self.z_tilde - self.z_tilde_hat()).reshape((-1, 3)).T
+        dzti = vec(A0 @ dzti)
+        self.b_tilde = self.K0 @ zti + self.M_tilde @ dzti + self.compute_excitement() if not self.abd_only else 0.
 
         # dz0 = solve(self.A0, self.b0, assume_a="sym")
         # dz0 = solve(self.A0 + self.A0_col, self.b0 + self.b0_col, assume_a="sym")
@@ -535,7 +542,38 @@ class MedialVABD(MedialRodComplex):
         if solver_choice in ["direct", "compare"]:
             if not cpp_only:
                 with wp.ScopedTimer("linalg system"): 
-                    dz_sys = solve(A_sys + self.A_sys_col, b_sys + self.b_sys_col, assume_a="sym")
+                    AA = A_sys + self.A_sys_col
+                    bb = b_sys + self.b_sys_col
+
+                    A0 = self.get_F(0)
+
+                    dq_tilde_dq = np.zeros_like(AA)
+                    dq_tilde_dq[:self.n_meshes * 12, :self.n_meshes * 12] = np.identity(self.n_meshes * 12)
+                    for i in range(self.n_meshes):
+                        for j in range(self.n_modes // 12 - 1):
+
+                            start = self.n_meshes * 12 + i * (self.n_modes - 12) + j * 12
+                            end = start + 12
+                            dq_tilde_dq[start: end, start: end] = np.kron(np.identity(4), A0)
+
+                            # off-diagonal
+                            z_start = start - self.n_meshes * 12                        
+                            z_end = z_start + 12
+                            zti = self.z_tilde[z_start: z_end].reshape((-1, 3)).T
+                        
+                            for ii in range(3):
+                                for jj in range(4):
+                                    eij = np.zeros((3, 3))
+                                    if jj < 3:
+                                        eij[ii, jj] = 1.0
+                                    column = ii + jj * 3 + start
+                                    vij = vec(eij @ zti)
+
+                                    dq_tilde_dq[i * 12:(i + 1) * 12, column] = vij.reshape((-1, 1))
+
+                    bb = (dq_tilde_dq.T @ bb).reshape((-1, 1))
+                    AA = dq_tilde_dq.T @ AA @ dq_tilde_dq
+                    dz_sys = solve(AA, bb, assume_a="sym").reshape(-1)
             
             with wp.ScopedTimer("cpp direct solver"):
                 self.direct_solver.compute_A_sys_plus_A_col()
@@ -719,18 +757,20 @@ class MedialVABD(MedialRodComplex):
 
     def compute_excitement(self):
         A = self.get_F(0)
-        Hav = self.diag4A(self.Hav, A.T)
-        # Hav = self.Hav
+        # Hav = self.diag4A(self.Hav, A.T)
+        Hav = self.Hav
         Adot = self.z_dot[:9].reshape((-1, 3)).T
         A = self.z0[:9].reshape((-1, 3)).T
         omega = Adot @ A.T
         omega = 0.5 * (omega - omega.T)
 
         # Hav = self.z_dot @ self.Hav * self.h
-        temp = self.z_dot @ self.Hav * self.h * self.h
+        # temp = self.z_dot @ self.Hav * self.h * self.h
+        temp = self.z_dot @ Hav * self.h * self.h
         for i in range(temp.shape[0] // 3):
             temp[i * 3: i * 3 + 3] = omega @ temp[i * 3: i * 3 + 3]
         return temp
+
         # return self.z_dot @ Hav * self.h * self.sum_W[0] * self.sum_W[0]
         return np.zeros_like(self.z_tilde)
         f = self.per_node_forces() * 2.0
