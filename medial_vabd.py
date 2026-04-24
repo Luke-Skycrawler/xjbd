@@ -566,11 +566,33 @@ class MedialVABD(MedialRodComplex):
                                     eij = np.zeros((3, 3))
                                     if jj < 3:
                                         eij[ii, jj] = 1.0
-                                    column = ii + jj * 3 + start
+                                    # column = ii + jj * 3 + start
+                                    row = ii + jj * 3
                                     vij = vec(eij @ zti)
 
-                                    dq_tilde_dq[i * 12:(i + 1) * 12, column] = vij.reshape((-1, 1))
+                                    dq_tilde_dq[row, start: end] = vij.reshape((1, -1))
 
+                    verify_dq = True
+                    if verify_dq:
+                        dq = np.random.rand(self.n_reduced)
+                        h = 1e-2
+                        qq = np.zeros_like(self.z)
+                        qq[12 * self.n_meshes:] = self.z_tilde[:]
+                        for i in range(self.n_meshes):
+                            qq[i * 12: (i + 1) * 12] = self.z[i * self.n_modes: i * self.n_modes + 12]
+                        q_world0 = self.to_world(qq - h * dq)
+                        
+                        q_disturb = qq + h * dq 
+                        q_world1 = self.to_world(q_disturb)
+                        dq_world = (q_world1 - q_world0) / 2
+                        dq_pred = dq_tilde_dq.T @ dq * h
+                        print(f"dq_pred shape = {dq_pred.shape}, dq_world shape = {dq_world.shape}")
+                        error = np.linalg.norm((dq_world - dq_pred)[:, self.n_meshes * 12:])
+                        print(f"verify dq_tilde_dq, error = {error:.2e}, norm dq_world = {np.linalg.norm(dq_world[self.n_meshes * 12:]):.2e}, norm dq_pred = {np.linalg.norm(dq_pred[:, self.n_meshes * 12:]):.2e}")
+
+                        # print(f"norm dq_pred = {np.linalg.norm(dq_pred)}, norm dq_world = {np.linalg.norm(dq_world)}")
+                        print(f"dq_pred = {dq_pred}")
+                        
                     bb = (dq_tilde_dq.T @ bb).reshape((-1, 1))
                     AA = dq_tilde_dq.T @ AA @ dq_tilde_dq
                     dz_sys = solve(AA, bb, assume_a="sym").reshape(-1)
@@ -778,6 +800,24 @@ class MedialVABD(MedialRodComplex):
         Q_tilde = U_prime @ self.U_tilde.T @ f
         return Q_tilde
     
+    def to_world(self, q): 
+        q_world = np.zeros_like(q)
+        # qA 
+        q_world[:self.n_meshes * 12] = q[:self.n_meshes * 12]
+
+        # q_V
+        for i in range(self.n_meshes):
+            z = q[i * 12: i * 12 + 9]
+            Ai = z.reshape((-1, 3)).T
+            
+            for j in range(self.n_modes // 12 - 1):
+                start = self.n_meshes * 12 + i * (self.n_modes - 12) + j * 12
+                end = start + 12
+                qij = q[start: end]
+                qij_world = vec(Ai @ qij.reshape((-1, 3)).T)
+                q_world[start: end] = qij_world
+        return q_world
+
     def per_node_forces(self):
         b = wp.zeros_like(self.b)
         wp.launch(per_node_forces, (self.n_nodes, ), inputs = [self.geo, b, self.h])
