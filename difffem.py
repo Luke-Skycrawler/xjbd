@@ -30,7 +30,7 @@ def pcpx_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     i = geo.T[e, _i]
@@ -69,7 +69,7 @@ def pcpp_sparse(x: wp.array(dtype = wp.vec3), geo: FEMMesh, Bm: wp.array(dtype =
     t2 = x[geo.T[e, 2]]
     t3 = x[geo.T[e, 3]]
     
-    Ds = wp.mat33(t0 - t3, t1 - t3, t2 - t3)
+    Ds = wp.matrix_from_cols(t0 - t3, t1 - t3, t2 - t3)
     
     F = Ds @ Bm[e]
     i = geo.T[e, _i]

@@ -16,7 +16,7 @@ h = 1e-3
 rho = 1e3
 omega = 3.0
 
-quasi_static = False
+quasi_static = True
 @wp.struct 
 class NewtonState: 
     x: wp.array(dtype = wp.vec3)
